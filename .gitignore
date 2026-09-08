@@ -11,6 +11,12 @@ env/
 ENV/
 .python-version
 
+# === Node.js ===
+node_modules/
+dist/
+dist-ssr/
+*.local
+
 # === Environment-Files ===
 .env
 
