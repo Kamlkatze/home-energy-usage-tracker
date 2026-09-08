@@ -1,0 +1,22 @@
+# === Python ===
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# === Virtual Environments ===
+.venv/
+venv/
+env/
+ENV/
+.python-version
+
+# === Environment-Files ===
+.env
+
+# === IDE / Editors ===
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
