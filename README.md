@@ -238,8 +238,10 @@ For production use with multiple users or internet exposure, additional security
 ### Docker Container Hangs on Stop
 
 If containers hang during shutdown with `SIGTERM failed to stop container ... resorting to SIGKILL`:
-- Fixed: Backend now uses `exec` to make uvicorn PID 1 for clean SIGTERM handling
+- Fixed: Backend uses `exec` to make uvicorn PID 1 for clean SIGTERM handling
+- Fixed: Frontend uses `exec` for nginx (production) and npm (development)  
 - Check: Both `docker-compose.yml` and `docker-compose.dev.yml` use `exec` in backend command
+- Check: Dockerfiles use `exec` in CMD for frontend services
 - Works with: Production (nginx proxy) and Development (hot-reload) setups
 - Containers now stop within Docker/Podman timeout (usually 10s)
 

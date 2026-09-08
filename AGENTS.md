@@ -39,3 +39,5 @@
 6. Fixed Docker SIGTERM handling: replaced `&&` with `exec` to ensure uvicorn receives SIGTERM directly (PID 1)
 7. Added healthcheck to development database container
 8. Fixed API URLs: production uses `/api` (nginx proxy), development uses `http://backend:8000`
+9. Fixed frontend SIGTERM handling: Added `exec` to nginx and npm commands in Dockerfiles for clean shutdown
+10. Standardized Dockerfile naming: frontend/Dockerfile (production), frontend/Dockerfile.dev (development), backend/Dockerfile

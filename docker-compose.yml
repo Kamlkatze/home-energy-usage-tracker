@@ -20,7 +20,7 @@ services:
   backend:
     build:
       context: ./backend
-      dockerfile: backend.Dockerfile
+      dockerfile: Dockerfile
     depends_on:
       db:
         condition: service_healthy
@@ -33,18 +33,18 @@ services:
       - ./backend/app:/app/app
     command: >
       sh -c "
-        /opt/venv/bin/python -m alembic upgrade head &&
-        /opt/venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+        /opt/venv/bin/python -m alembic upgrade head
+        exec /opt/venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
       "
 
   frontend:
     build:
       context: ./frontend
-      dockerfile: frontend.Dockerfile
+      dockerfile: Dockerfile
     depends_on:
       - backend
     environment:
-      VITE_API_URL: http://localhost:8000
+      VITE_API_URL: /api
     ports:
       - "3000:80"
 
