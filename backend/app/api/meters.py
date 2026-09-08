@@ -1,6 +1,6 @@
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from typing import List
 
 from .. import models, schemas
 from .deps import get_database_session
@@ -8,7 +8,7 @@ from .deps import get_database_session
 router = APIRouter()
 
 
-@router.get("/", response_model=List[schemas.Meter])
+@router.get("/", response_model=list[schemas.Meter])
 def read_meters(
     skip: int = 0,
     limit: int = 100,
@@ -74,7 +74,7 @@ def delete_meter(
     return {"message": "Meter deleted successfully"}
 
 
-@router.get("/{meter_id}/readings", response_model=List[schemas.Reading])
+@router.get("/{meter_id}/readings", response_model=list[schemas.Reading])
 def read_meter_readings(
     meter_id: int,
     db: Session = Depends(get_database_session),

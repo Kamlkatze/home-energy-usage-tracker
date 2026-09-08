@@ -1,6 +1,7 @@
-from pydantic import BaseModel, ConfigDict
 from datetime import datetime
-from typing import Optional
+
+from pydantic import BaseModel, ConfigDict
+
 from ..models.meter import MeterType
 
 
@@ -15,9 +16,9 @@ class MeterCreate(MeterBase):
 
 
 class MeterUpdate(BaseModel):
-    meter_type: Optional[MeterType] = None
-    label: Optional[str] = None
-    unit: Optional[str] = None
+    meter_type: MeterType | None = None
+    label: str | None = None
+    unit: str | None = None
 
 
 class Meter(MeterBase):

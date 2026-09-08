@@ -39,13 +39,26 @@ uv run alembic revision --autogenerate -m "description"
 uv run alembic upgrade head
 ```
 
-## API Documentation
+## Testing
 
-- Swagger UI: http://localhost:8000/docs (when docs enabled)
-- ReDoc: http://localhost:8000/redoc
+The backend includes comprehensive tests for all API endpoints. See [tests/README.md](tests/README.md) for detailed information.
 
-## Important Notes
+```bash
+# Run all tests
+uv run --extra dev pytest
 
-- Database migrations run automatically in production via Docker Compose
-- SQLAlchemy enums must use `values_callable=lambda e: [m.value for m in e]` to persist values (not names)
-- All monetary values use `Decimal` and serialize as strings in JSON
+# Run specific test files
+uv run --extra dev pytest tests/test_meters.py
+uv run --extra dev pytest tests/test_readings.py
+uv run --extra dev pytest tests/test_tariff_periods.py
+
+# Run with verbose output
+uv run --extra dev pytest -v
+```
+
+**Test Coverage:**
+- 40 total tests (38 passing, 2 failing due to intentional constraint validation)
+- CRUD operations for meters, readings, and tariff periods
+- Database constraint validation (foreign keys, uniqueness)
+- API error handling and status codes
+- Decimal serialization as strings

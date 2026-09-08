@@ -1,14 +1,14 @@
-from pydantic import BaseModel, ConfigDict
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Optional
+
+from pydantic import BaseModel, ConfigDict
 
 
 class ReadingBase(BaseModel):
     meter_id: int
     value: Decimal
     reading_date: date
-    note: Optional[str] = None
+    note: str | None = None
 
 
 class ReadingCreate(ReadingBase):
@@ -16,9 +16,9 @@ class ReadingCreate(ReadingBase):
 
 
 class ReadingUpdate(BaseModel):
-    value: Optional[Decimal] = None
-    reading_date: Optional[date] = None
-    note: Optional[str] = None
+    value: Decimal | None = None
+    reading_date: date | None = None
+    note: str | None = None
 
 
 class Reading(ReadingBase):

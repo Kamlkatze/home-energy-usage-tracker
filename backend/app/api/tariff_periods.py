@@ -1,6 +1,6 @@
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from typing import List
 
 from .. import models, schemas
 from .deps import get_database_session
@@ -8,7 +8,7 @@ from .deps import get_database_session
 router = APIRouter()
 
 
-@router.get("/", response_model=List[schemas.TariffPeriod])
+@router.get("/", response_model=list[schemas.TariffPeriod])
 def read_tariff_periods(
     skip: int = 0,
     limit: int = 100,
@@ -34,6 +34,11 @@ def create_tariff_period(
     period: schemas.TariffPeriodCreate,
     db: Session = Depends(get_database_session),
 ):
+    # Check if meter exists
+    meter = db.query(models.Meter).filter(models.Meter.id == period.meter_id).first()
+    if meter is None:
+        raise HTTPException(status_code=404, detail="Meter not found")
+    
     db_period = models.TariffPeriod(**period.model_dump())
     db.add(db_period)
     db.commit()
@@ -52,6 +57,13 @@ def update_tariff_period(
         raise HTTPException(status_code=404, detail="Tariff period not found")
     
     update_data = period_update.model_dump(exclude_unset=True)
+    
+    # Check if meter_id is being updated and if the new meter exists
+    if "meter_id" in update_data:
+        meter = db.query(models.Meter).filter(models.Meter.id == update_data["meter_id"]).first()
+        if meter is None:
+            raise HTTPException(status_code=404, detail="Meter not found")
+    
     for field, value in update_data.items():
         setattr(db_period, field, value)
     
