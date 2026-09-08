@@ -77,8 +77,14 @@ def test_create_reading_duplicate_date(client, sample_meter_data):
     
     # Second reading with same date
     response2 = client.post("/api/readings/", json=reading_data)
-    # Should fail with integrity error (500 internal server error)
-    assert response2.status_code == 500
+    # Should fail with 409 Conflict
+    assert response2.status_code == 409
+    assert "detail" in response2.json()
+    # Accept both specific and generic messages for compatibility
+    assert response2.json()["detail"] in [
+        "Für diesen Zähler existiert bereits ein Zählerstand an diesem Datum.",
+        "Der Vorgang verletzt eine Datenbank-Beschränkung."
+    ]
 
 
 def test_read_readings_empty(client):

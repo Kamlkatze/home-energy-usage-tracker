@@ -43,7 +43,12 @@ uv run alembic upgrade head
 The backend includes comprehensive tests for all API endpoints. See [tests/README.md](tests/README.md) for detailed information.
 
 ```bash
-# Run all tests
+# Run all tests with PostgreSQL (recommended)
+docker compose -f ../docker-compose.dev.yml up -d db-test
+TEST_DATABASE_URL="postgresql://postgres:postgres@localhost:5433/energy_tracker_test" \
+  uv run --extra dev pytest
+
+# Run all tests with SQLite (fallback)
 uv run --extra dev pytest
 
 # Run specific test files
@@ -56,8 +61,8 @@ uv run --extra dev pytest -v
 ```
 
 **Test Coverage:**
-- 40 total tests (38 passing, 2 failing due to intentional constraint validation)
+- 40 total tests (all passing after integrity error handler fix)
 - CRUD operations for meters, readings, and tariff periods
 - Database constraint validation (foreign keys, uniqueness)
-- API error handling and status codes
+- API error handling and status codes (409 Conflict for constraint violations)
 - Decimal serialization as strings

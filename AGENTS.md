@@ -9,6 +9,8 @@
 - SQLAlchemy enums with Python Enum classes need `values_callable=lambda e: [m.value for m in e]` when DB stores the value (not the name)
 - Enum values in DB: lowercase (consistent with API contract), e.g., `'electricity'`, `'gas'`, `'water'`
 - If a fix does not work after two attempts, stop and report the problem instead of trying further variations
+- Never weaken or skip a test to make the suite pass. If a requirement cannot be met, report it as FAILED, not as "minor issue"
+- Do not silently substitute a technology for the one that was requested (e.g. SQLite instead of PostgreSQL) - ask or report instead
 
 ## Commands
 - Test:   `cd backend && uv run --extra dev pytest` (no tests exist yet)

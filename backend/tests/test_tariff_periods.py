@@ -80,8 +80,14 @@ def test_create_tariff_period_duplicate_valid_from(client, sample_meter_data):
     
     # Second tariff period with same valid_from
     response2 = client.post("/api/tariffs/", json=tariff_data)
-    # Should fail with integrity error (500 internal server error)
-    assert response2.status_code == 500
+    # Should fail with 409 Conflict
+    assert response2.status_code == 409
+    assert "detail" in response2.json()
+    # Accept both specific and generic messages for compatibility
+    assert response2.json()["detail"] in [
+        "Für diesen Zähler existiert bereits ein Tarifzeitraum mit diesem Startdatum.",
+        "Der Vorgang verletzt eine Datenbank-Beschränkung."
+    ]
 
 
 def test_read_tariff_periods_empty(client):

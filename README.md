@@ -83,6 +83,64 @@ For full Docker development (hot-reload for both frontend and backend):
 - Volumes: Code is mounted for live editing
 
 #### Backend Setup
+
+### Stopping the Stacks
+
+#### Dev Stack (docker-compose.dev.yml)
+
+The Dev Stack includes these containers:
+- `home-energy-usage-tracker_frontend_1` - Frontend development server (Vite)
+- `home-energy-usage-tracker_backend_1` - Backend FastAPI server with hot-reload
+- `home-energy-usage-tracker_db_1` - PostgreSQL main database
+- `home-energy-usage-tracker_db-test_1` - PostgreSQL test database
+
+**Stop the Dev Stack:**
+
+```bash
+# Stop and remove all Dev Stack containers
+docker compose -f docker-compose.dev.yml down
+
+# Stop containers without removing (for faster restart)
+docker compose -f docker-compose.dev.yml stop
+```
+
+#### Prod Stack (docker-compose.yml)
+
+The Prod Stack includes these containers:
+- `home-energy-usage-tracker_frontend_1` - Frontend production build (nginx)
+- `home-energy-usage-tracker_backend_1` - Backend production (uvicorn)
+- `home-energy-usage-tracker_db_1` - PostgreSQL main database
+
+**Stop the Prod Stack:**
+
+```bash
+# Stop and remove all Prod Stack containers
+docker compose down
+
+# Stop containers without removing
+docker compose stop
+```
+
+**⚠️ Data Loss Warning:** `docker compose down` **removes containers but keeps volumes**. `docker compose down -v` removes volumes and all data!
+
+#### General Commands
+
+```bash
+# Show container status
+docker compose -f docker-compose.dev.yml ps
+docker compose ps
+
+# View logs of all containers
+docker compose -f docker-compose.dev.yml logs
+
+# Follow logs (Ctrl+C to stop)
+docker compose -f docker-compose.dev.yml logs -f
+
+# Show all containers for this app
+docker ps -a --filter name=home-energy-usage-tracker
+```
+
+For troubleshooting and advanced shutdown options, see the complete documentation in [DOCKER_SHUTDOWN.md](DOCKER_SHUTDOWN.md).
 ```bash
 cd backend
 uv venv
@@ -272,6 +330,34 @@ If POST requests fail with `invalid input value for enum metertype: "ELECTRICITY
 If TypeScript errors appear during frontend build:
 - Ensure `frontend/src/vite-env.d.ts` exists with `/// <reference types="vite/client" />`
 - Check for missing dependencies: `cd frontend && npm install`
+
+## Backup & Restore
+
+### Data Backup
+To export your energy tracking data (schema is created via Alembic on the target system):
+
+```bash
+# Find your database container name
+podman ps | grep postgres
+
+# Export data only (schema comes from Alembic on the target system)
+podman exec <db-container> pg_dump -U postgres -d energy_tracker \
+  --data-only --column-inserts > energy_data_backup.sql
+```
+
+### Data Restore
+To import data on the target system (after `alembic upgrade head` has run there):
+
+```bash
+# Find your database container name on the target system
+podman ps | grep postgres
+
+# Import the backup
+cat energy_data_backup.sql | podman exec -i <db-container> \
+  psql -U postgres -d energy_tracker
+```
+
+**Note**: This exports only data, not schema. The schema must be created separately via Alembic migrations (`alembic upgrade head`).
 
 ## License
 

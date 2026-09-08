@@ -1,3 +1,4 @@
+import os
 from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config, pool
@@ -14,7 +15,8 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 def get_url():
-    return settings.DATABASE_URL
+    # Allow tests to override the database URL without reloading pydantic settings
+    return os.environ.get("DATABASE_URL", settings.DATABASE_URL)
 
 def run_migrations_offline() -> None:
     url = get_url()
