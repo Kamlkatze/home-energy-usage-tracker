@@ -154,16 +154,16 @@ npm install
 ### Backend
 ```bash
 # Run tests
-cd backend && uv run pytest
+ cd backend && uv run --extra dev pytest
 
-# Run linting
-cd backend && uv run ruff check --fix && uv run mypy app
+ # Run linting
+ cd backend && uv run --extra dev ruff check --fix && uv run --extra dev mypy app/models
 
-# Create migration
-cd backend && uv run alembic revision --autogenerate -m "description"
+ # Create migration
+ cd backend && uv run alembic revision --autogenerate -m "description"
 
-# Apply migrations
-cd backend && uv run alembic upgrade head
+ # Apply migrations
+ cd backend && uv run alembic upgrade head
 ```
 
 ### Frontend
@@ -215,6 +215,36 @@ This application is designed for **local, single-user operation only**. It does 
 - Input sanitization beyond basic validation
 
 For production use with multiple users or internet exposure, additional security measures are required.
+
+## Troubleshooting
+
+### Database Migration Issues
+
+If you encounter `type "metertype" already exists` errors:
+- The migration creates the PostgreSQL enum type automatically with the `meters` table
+- If you see duplicate type creation errors, check that the migration doesn't create the enum both explicitly and implicitly
+- To reset: `docker compose down --volumes` (⚠️ **deletes all data**)
+
+### Podman-Specific Issues
+
+This project works with both Docker and Podman. On Linux with Podman:
+
+- Containers may be managed via systemd: `systemctl --user status podman-compose@home-energy-usage-tracker.service`
+- If containers hang, check podman logs: `podman logs <container_name>`
+- For rootful podman, you may need `sudo` for socket access
+
+### API Endpoints Return 500 with Enum Errors
+
+If POST requests fail with `invalid input value for enum metertype: "ELECTRICITY"`:
+- SQLAlchemy persists enum member **names** by default (e.g., `ELECTRICITY`)
+- The database stores **values** (`electricity`)
+- Fix: Add `values_callable=lambda e: [m.value for m in e]` to SQLAlchemy Enum columns
+
+### Frontend Build Issues
+
+If TypeScript errors appear during frontend build:
+- Ensure `frontend/src/vite-env.d.ts` exists with `/// <reference types="vite/client" />`
+- Check for missing dependencies: `cd frontend && npm install`
 
 ## License
 
