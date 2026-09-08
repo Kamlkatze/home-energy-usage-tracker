@@ -63,7 +63,24 @@ A simple, local application for tracking electricity, gas, and water consumption
    - Backend API: http://localhost:8000
    - API Documentation: http://localhost:8000/docs
 
-### Local Development
+### Local Development with Docker
+
+For full Docker development (hot-reload for both frontend and backend):
+
+1. Start development stack:
+   ```bash
+   docker compose -f docker-compose.dev.yml up -d
+   ```
+
+2. Access:
+   - Frontend: http://localhost:3000 (Vite dev server with hot reload)
+   - Backend: http://localhost:8000/docs (FastAPI with auto-reload)
+
+**Key differences in development setup:**
+- Frontend: Vite dev server on port 3000 (not nginx)
+- Backend: Auto-reload enabled for code changes
+- Database: Healthcheck ensures backend waits for ready DB
+- Volumes: Code is mounted for live editing
 
 #### Backend Setup
 ```bash
@@ -217,6 +234,14 @@ This application is designed for **local, single-user operation only**. It does 
 For production use with multiple users or internet exposure, additional security measures are required.
 
 ## Troubleshooting
+
+### Docker Container Hangs on Stop
+
+If containers hang during shutdown with `SIGTERM failed to stop container ... resorting to SIGKILL`:
+- Fixed: Backend now uses `exec` to make uvicorn PID 1 for clean SIGTERM handling
+- Check: Both `docker-compose.yml` and `docker-compose.dev.yml` use `exec` in backend command
+- Works with: Production (nginx proxy) and Development (hot-reload) setups
+- Containers now stop within Docker/Podman timeout (usually 10s)
 
 ### Database Migration Issues
 

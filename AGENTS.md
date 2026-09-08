@@ -36,3 +36,6 @@
 3. Fixed frontend TypeScript errors: removed unused `@radix-ui/react-slot`, added `frontend/src/vite-env.d.ts`
 4. Fixed prod backend command: uses `/opt/venv/bin/python -m` instead of `uv run` (uv not in runtime image)
 5. Created missing files: `backend/alembic.ini`, `backend/.dockerignore`
+6. Fixed Docker SIGTERM handling: replaced `&&` with `exec` to ensure uvicorn receives SIGTERM directly (PID 1)
+7. Added healthcheck to development database container
+8. Fixed API URLs: production uses `/api` (nginx proxy), development uses `http://backend:8000`
