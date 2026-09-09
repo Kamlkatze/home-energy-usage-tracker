@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -75,38 +75,72 @@ def _raise_if_negative(consumption: Decimal) -> None:
         )
 
 
-def _get_covering_tariff(
+def _get_overlapping_tariffs(
     db: Session,
     meter_id: int,
     tariff_kind: models.TariffKind,
     from_: date,
     to: date,
-) -> models.TariffPeriod:
-    """Return the single tariff period fully covering [from, to], or 404.
+) -> list[models.TariffPeriod]:
+    """Return all tariff periods overlapping with [from, to], sorted by valid_from.
 
-    The range must be fully contained within one period; splitting
-    proportionally across multiple periods (tariff change within the
-    range) is out of scope.
+    The range must be fully covered by one or more consecutive periods.
+    Consumption is allocated proportionally by days in each overlapping period.
     """
-    tariff = (
+    tariffs = (
         db.query(models.TariffPeriod)
         .filter(
             models.TariffPeriod.meter_id == meter_id,
             models.TariffPeriod.tariff_kind == tariff_kind,
-            models.TariffPeriod.valid_from <= from_,
+            models.TariffPeriod.valid_from <= to,
             or_(
                 models.TariffPeriod.valid_to.is_(None),
-                models.TariffPeriod.valid_to >= to,
+                models.TariffPeriod.valid_to >= from_,
             ),
         )
-        .first()
+        .order_by(models.TariffPeriod.valid_from.asc())
+        .all()
     )
-    if tariff is None:
+    
+    if not tariffs:
         raise HTTPException(
             status_code=404,
             detail="Kein gültiger Tarif für diesen Zeitraum gefunden.",
         )
-    return tariff
+    
+    # Verify the range is fully covered by consecutive periods
+    # First, check if the first period covers the start
+    if tariffs[0].valid_from > from_:
+        raise HTTPException(
+            status_code=404,
+            detail="Kein gültiger Tarif für diesen Zeitraum gefunden.",
+        )
+    
+    # Check for gaps between periods
+    for i in range(len(tariffs) - 1):
+        current = tariffs[i]
+        next_period = tariffs[i + 1]
+        
+        # If current period has an end date, check that next period starts immediately after
+        if current.valid_to is not None:
+            # Add one day because valid_to is inclusive
+            next_day = current.valid_to + timedelta(days=1)
+            if next_period.valid_from > next_day:
+                # Gap detected
+                raise HTTPException(
+                    status_code=404,
+                    detail="Kein gültiger Tarif für diesen Zeitraum gefunden.",
+                )
+    
+    # Check if the range extends beyond the last period
+    last_tariff = tariffs[-1]
+    if last_tariff.valid_to is not None and last_tariff.valid_to < to:
+        raise HTTPException(
+            status_code=404,
+            detail="Kein gültiger Tarif für diesen Zeitraum gefunden.",
+        )
+    
+    return tariffs
 
 
 def _get_meter_or_404(db: Session, meter_id: int) -> models.Meter:
@@ -121,7 +155,7 @@ def _get_meter_or_404(db: Session, meter_id: int) -> models.Meter:
 def _compute_cost_fields(
     consumption: Decimal, tariff: models.TariffPeriod, from_: date, to: date
 ) -> tuple[Decimal, Decimal]:
-    """Compute (base_fee_total, total_cost) with the shared cost rules.
+    """Compute (base_fee_total, total_cost) for a single tariff period.
 
     Base fee proration uses a fixed 30-day month; money is rounded once
     at the output boundary (AGENTS.md).
@@ -144,6 +178,62 @@ def _compute_cost_fields(
     return base_fee_total, total_cost
 
 
+def _compute_cost_fields_multiperiod(
+    consumption: Decimal, tariffs: list[models.TariffPeriod], from_: date, to: date
+) -> tuple[Decimal, Decimal, Decimal]:
+    """Compute (base_fee_total, total_cost, first_price_per_unit) for multiple periods.
+
+    Consumption is allocated proportionally by overlapping days in each period.
+    Base fee proration uses a fixed 30-day month; money is rounded once
+    at the output boundary (AGENTS.md).
+    
+    Date range semantics:
+    - The requested range [from_, to) is inclusive-exclusive: 'from_' counts, 'to' does not.
+    - Tariff periods [valid_from, valid_to] are inclusive on both ends (DB daterange '[]').
+    - Overlap calculation converts tariff periods to exclusive end: [valid_from, valid_to + 1 day).
+    - Consumption is allocated proportionally by days in each overlapping subrange.
+    
+    Returns the first period's price_per_unit for backward compatibility in API response.
+    """
+    total_days = Decimal((to - from_).days)
+    if total_days == 0:
+        # Should not happen due to _raise_if_from_after_to, but handle defensively
+        total_days = Decimal("0.000001")
+    
+    base_fee_total_raw = Decimal(0)
+    energy_cost_raw = Decimal(0)
+    
+    for tariff in tariffs:
+        # Calculate overlap between [from_, to] and [tariff.valid_from, tariff.valid_to]
+        period_start = max(from_, tariff.valid_from)
+        period_end = to
+        if tariff.valid_to is not None:
+            period_end = min(to, tariff.valid_to + timedelta(days=1))  # valid_to is inclusive
+        
+        overlap_days = Decimal((period_end - period_start).days)
+        if overlap_days <= 0:
+            continue
+            
+        # Allocate consumption proportionally
+        consumption_in_period = consumption * overlap_days / total_days
+        
+        # A null base_fee_monthly is treated as 0.
+        base_fee_monthly = (
+            tariff.base_fee_monthly if tariff.base_fee_monthly is not None else Decimal(0)
+        )
+        base_fee_total_raw += base_fee_monthly * overlap_days / _DAYS_PER_MONTH
+        energy_cost_raw += consumption_in_period * tariff.price_per_unit
+    
+    # Round only at the output boundary (AGENTS.md).
+    base_fee_total = base_fee_total_raw.quantize(_CENT, rounding=ROUND_HALF_UP)
+    total_cost = (energy_cost_raw + base_fee_total_raw).quantize(_CENT, rounding=ROUND_HALF_UP)
+    
+    # Return first period's price for backward compatibility
+    first_price_per_unit = tariffs[0].price_per_unit
+    
+    return base_fee_total, total_cost, first_price_per_unit
+
+
 @router.get("/", response_model=schemas.CostCalculationResponse)
 def calculate_costs(
     meter_id: int = Query(...),
@@ -160,12 +250,14 @@ def calculate_costs(
     consumption = end_reading.value - start_reading.value
     _raise_if_negative(consumption)
 
-    tariff = _get_covering_tariff(
+    tariffs = _get_overlapping_tariffs(
         db, meter_id, models.TariffKind.CONSUMPTION, from_, to
     )
     meter = _get_meter_or_404(db, meter_id)
 
-    base_fee_total, total_cost = _compute_cost_fields(consumption, tariff, from_, to)
+    base_fee_total, total_cost, price_per_unit = _compute_cost_fields_multiperiod(
+        consumption, tariffs, from_, to
+    )
 
     return schemas.CostCalculationResponse(
         meter_id=meter_id,
@@ -173,7 +265,7 @@ def calculate_costs(
         to_date=to,
         consumption=consumption,
         unit=meter.unit,
-        price_per_unit=tariff.price_per_unit,
+        price_per_unit=price_per_unit,
         base_fee_total=base_fee_total,
         total_cost=total_cost,
     )
@@ -215,13 +307,13 @@ def calculate_wastewater_costs(
     wastewater_consumption = max(Decimal(0), cold_consumption - garden_consumption)
 
     # The wastewater tariff is attached to the cold-water meter.
-    tariff = _get_covering_tariff(
+    tariffs = _get_overlapping_tariffs(
         db, water_cold_meter_id, models.TariffKind.WASTEWATER, from_, to
     )
     meter = _get_meter_or_404(db, water_cold_meter_id)
 
-    base_fee_total, total_cost = _compute_cost_fields(
-        wastewater_consumption, tariff, from_, to
+    base_fee_total, total_cost, price_per_unit = _compute_cost_fields_multiperiod(
+        wastewater_consumption, tariffs, from_, to
     )
 
     return schemas.WastewaterCostCalculationResponse(
@@ -233,7 +325,7 @@ def calculate_wastewater_costs(
         garden_consumption=garden_consumption,
         wastewater_consumption=wastewater_consumption,
         unit=meter.unit,
-        price_per_unit=tariff.price_per_unit,
+        price_per_unit=price_per_unit,
         base_fee_total=base_fee_total,
         total_cost=total_cost,
     )
