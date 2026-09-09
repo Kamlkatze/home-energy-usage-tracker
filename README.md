@@ -252,17 +252,52 @@ For troubleshooting and advanced shutdown options, see the complete documentatio
 - `DELETE /api/readings/{id}` - Delete reading
 
 ### Tariff Periods
-- `GET /api/tariffs/` - List all tariff periods
-- `POST /api/tariffs/` - Create a new tariff period
+- `GET /api/tariffs/` - List all tariff periods (optional query parameter: `tariff_kind`)
+- `POST /api/tariffs/` - Create a new tariff period (tariff_kind defaults to "consumption" if omitted)
 - `GET /api/tariffs/{id}` - Get tariff period details
 - `PUT /api/tariffs/{id}` - Update tariff period
 - `DELETE /api/tariffs/{id}` - Delete tariff period
+
+#### TariffKind Values
+- `consumption` - Price per unit for consumption
+- `base_fee` - Monthly base fee (optional for consumption periods)
+- `feed_in` - Feed-in tariff 
+- `self_consumption` - Self-consumption rate
+- `metering_fee` - Metering/grid fee
+
+#### Example POST /api/tariffs/ request:
+```json
+{
+  "meter_id": 1,
+  "tariff_kind": "consumption",
+  "valid_from": "2024-01-01",
+  "valid_to": "2024-12-31",
+  "price_per_unit": "0.3567",
+  "base_fee_monthly": "15.50"
+}
+```
+
+#### Example GET /api/tariffs/?tariff_kind=consumption response:
+```json
+[
+  {
+    "id": 1,
+    "meter_id": 1,
+    "tariff_kind": "consumption",
+    "valid_from": "2024-01-01",
+    "valid_to": "2024-12-31",
+    "price_per_unit": "0.3567",
+    "base_fee_monthly": "15.50",
+    "created_at": "2024-01-01T12:00:00Z"
+  }
+]
+```
 
 ## Database Schema
 
 ### Meter
 - `id` (integer, primary key)
-- `meter_type` (enum: gas, water_cold, water_garden, electricity_import, electricity_export, electricity_production)
+- `meter_type` (enum: electricity_import, electricity_export, electricity_production, gas, water_cold, water_garden)
 - `label` (string, e.g., "Main Electricity Meter")
 - `unit` (string, e.g., "kWh", "m³") - **server-derived** from `meter_type`, not client-settable: a `unit` field in a POST/PUT request body is rejected with **422 Unprocessable Entity**
 - `created_at` (datetime)
@@ -274,17 +309,21 @@ For troubleshooting and advanced shutdown options, see the complete documentatio
 - `reading_date` (date)
 - `note` (string, optional)
 - `created_at` (datetime)
-- **Constraint**: Unique (meter_id, reading_date)
+- **Constraint**: Unique (meter_id, reading_date) - prevents duplicate readings on the same date
 
 ### TariffPeriod
 - `id` (integer, primary key)
 - `meter_id` (foreign key to Meter)
+- `tariff_kind` (enum: consumption, base_fee, feed_in, self_consumption, metering_fee)
 - `valid_from` (date)
-- `valid_to` (date, optional, null means "valid until today")
+- `valid_to` (date, optional, null means "open-ended - valid until today")
 - `price_per_unit` (numeric)
 - `base_fee_monthly` (numeric, optional)
 - `created_at` (datetime)
-- **Constraint**: Unique (meter_id, valid_from)
+- **Constraint**: EXCLUDE USING gist (meter_id WITH =, tariff_kind WITH =, daterange(valid_from, valid_to, '[]') WITH &&)
+  - Prevents overlapping periods within same (meter_id, tariff_kind)
+  - Different tariff_kind values may overlap in time (e.g., consumption price and feed-in tariff can be valid simultaneously)
+  - Both bounds inclusive: adjacent periods must use valid_to = day before next valid_from
 
 ## Development Commands
 
@@ -321,26 +360,61 @@ cd frontend && npm run lint
 home-energy-usage-tracker/
 ├── backend/
 │   ├── app/
-│   │   ├── main.py              # FastAPI application
-│   │   ├── config.py            # Configuration with pydantic-settings
-│   │   ├── database.py          # SQLAlchemy setup
-│   │   ├── models/              # SQLAlchemy models
-│   │   ├── schemas/             # Pydantic schemas
-│   │   └── api/                 # API routes
-│   ├── alembic/                 # Database migrations
-│   └── pyproject.toml          # Python dependencies
+│   │   ├── api/
+│   │   │   ├── __init__.py           # Router registration
+│   │   │   ├── deps.py               # Dependency injection (database session)
+│   │   │   ├── meters.py             # CRUD endpoints for meters
+│   │   │   ├── readings.py           # CRUD endpoints for readings
+│   │   │   └── tariff_periods.py     # CRUD endpoints for tariff periods
+│   │   ├── models/
+│   │   │   ├── __init__.py           # Exports all SQLAlchemy ORM models
+│   │   │   ├── base.py               # Base model with id and timestamp mixin
+│   │   │   ├── meter.py              # Meter ORM model with MeterType enum
+│   │   │   ├── reading.py            # Reading ORM model
+│   │   │   └── tariff_period.py      # TariffPeriod ORM model with TariffKind enum
+│   │   ├── schemas/
+│   │   │   ├── __init__.py           # Exports all Pydantic schemas
+│   │   │   ├── meter.py              # Meter schemas (Create, Update, Response)
+│   │   │   ├── reading.py            # Reading schemas
+│   │   │   └── tariff_period.py      # TariffPeriod schemas with TariffKind
+│   │   ├── __init__.py
+│   │   ├── config.py                 # Configuration with pydantic-settings
+│   │   ├── database.py               # SQLAlchemy engine and session factory
+│   │   └── main.py                   # FastAPI application with middleware
+│   ├── alembic/                       # Database migrations
+│   ├── tests/                         # Backend tests
+│   ├── pyproject.toml                # Python dependencies (uv)
+│   ├── uv.lock                       # Locked dependencies
+│   ├── .dockerignore
+│   ├── .ruff_cache/                   # Linting cache
+│   ├── .mypy_cache/                   # Type checking cache
+│   └── Dockerfile                    # Production backend image
 ├── frontend/
 │   ├── src/
-│   │   ├── api/                # API client
-│   │   ├── components/         # React components
-│   │   ├── pages/             # Page components
-│   │   ├── types/             # TypeScript interfaces
-│   │   └── App.tsx            # Main application
-│   └── package.json           # Node.js dependencies
-├── docker-compose.yml         # Production Docker setup
-├── docker-compose.dev.yml     # Development Docker setup
-└── .env.example              # Environment variables template
-```
+│   │   ├── api/                      # API client
+│   │   ├── components/               # React components
+│   │   ├── components/ui/            # shadcn/ui components
+│   │   ├── pages/                    # Page components
+│   │   ├── types/                    # TypeScript interfaces
+│   │   ├── hooks/                    # Custom React hooks
+│   │   ├── lib/                      # Utility functions
+│   │   ├── App.tsx                   # Main application
+│   │   └── main.tsx                  # React entry point
+│   ├── dist/                         # Production build output
+│   ├── node_modules/                 # Node.js dependencies
+│   ├── nginx.conf                    # Nginx configuration (production)
+│   ├── Dockerfile                    # Production frontend image (nginx)
+│   ├── Dockerfile.dev                # Development frontend image (Vite)
+│   ├── package.json                  # Node.js dependencies
+│   ├── package-lock.json             # Locked dependencies
+│   ├── tailwind.config.js            # Tailwind CSS configuration
+│   ├── postcss.config.js             # PostCSS configuration
+│   └── vite.config.ts                # Vite configuration
+├── docker-compose.yml                # Production Docker setup (3 services)
+├── docker-compose.dev.yml            # Development Docker setup (4 services with test DB)
+├── .env.example                      # Environment variables template
+├── AGENTS.md                         # Agent instructions for this project
+└── README.md                         # This file
 
 ## Security Note
 
