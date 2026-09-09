@@ -293,6 +293,28 @@ For troubleshooting and advanced shutdown options, see the complete documentatio
 ]
 ```
 
+### Costs
+- `GET /api/costs/?meter_id={id}&from={date}&to={date}` - Calculate the consumption cost for one meter between two dates (query parameters: `meter_id`, `from`, `to`). Returns **404** when no reading or no covering tariff period is found, **422** when `from > to` or the computed consumption is negative.
+
+#### Example GET /api/costs/?meter_id=1&from=2024-01-10&to=2024-03-10 response:
+```json
+{
+  "meter_id": 1,
+  "from_date": "2024-01-10",
+  "to_date": "2024-03-10",
+  "consumption": "150.500",
+  "unit": "kWh",
+  "price_per_unit": "0.35490",
+  "base_fee_total": "25.00",
+  "total_cost": "78.41"
+}
+```
+
+#### Known limitations of the first cost calculation iteration (intentional, by design)
+- **Consumption from two existing readings only**: consumption is the difference between the reading with the largest `reading_date` at or before `to` and the reading with the smallest `reading_date` at or after `from`. Readings are never interpolated or extrapolated — if either boundary reading is missing, the endpoint returns 404. A negative result (e.g. meter reset/rollover) returns 422 and is not clamped.
+- **Single tariff period required**: the whole `[from, to]` range must be fully contained within exactly one `consumption` tariff period (`valid_from <= from` and `valid_to >= to` or `valid_to` null). A range spanning a tariff change returns 404 — proportional splitting across multiple periods is not implemented.
+- **Fixed 30-day base fee proration**: `base_fee_total = base_fee_monthly * days_in_range / 30` with `days_in_range = (to - from).days` (inclusive-exclusive: `from` counts, `to` does not). A calendar-accurate month-length calculation is deliberately not used. A `null` `base_fee_monthly` is treated as 0.
+
 ## Database Schema
 
 ### Meter
@@ -363,6 +385,7 @@ home-energy-usage-tracker/
 │   ├── app/
 │   │   ├── api/
 │   │   │   ├── __init__.py           # Router registration
+│   │   │   ├── costs.py              # Cost calculation endpoint for a date range
 │   │   │   ├── deps.py               # Dependency injection (database session)
 │   │   │   ├── meters.py             # CRUD endpoints for meters
 │   │   │   ├── readings.py           # CRUD endpoints for readings
@@ -375,6 +398,7 @@ home-energy-usage-tracker/
 │   │   │   └── tariff_period.py      # TariffPeriod ORM model with TariffKind enum
 │   │   ├── schemas/
 │   │   │   ├── __init__.py           # Exports all Pydantic schemas
+│   │   │   ├── cost.py               # Cost calculation response schema
 │   │   │   ├── meter.py              # Meter schemas (Create, Update, Response)
 │   │   │   ├── reading.py            # Reading schemas
 │   │   │   └── tariff_period.py      # TariffPeriod schemas with TariffKind
