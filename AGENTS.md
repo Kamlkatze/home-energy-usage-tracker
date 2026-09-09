@@ -49,8 +49,4 @@
 13. Migration lesson: `op.add_column` does NOT auto-create native PG enum types (unlike `op.create_table`) – create the enum explicitly with `.create(checkfirst=True)` and drop it in downgrade. Use `DROP CONSTRAINT IF EXISTS` for constraint drops so a re-upgrade after downgrade still works
 14. Migration safety: the tariff migration checks existing rows for overlaps within (meter_id, tariff_kind) BEFORE creating the EXCLUDE constraint and aborts with a RuntimeError listing the conflicting rows – never auto-modify data in migrations
 15. Test default DB: conftest defaults TEST_DATABASE_URL to the PostgreSQL test DB (energy_tracker_test on localhost:5433, from db-test service). SQLite cannot enforce EXCLUDE/daterange, so tests must run on PostgreSQL
-17. Vite proxy configuration: Frontend development supports three environments via `VITE_PROXY_TARGET` environment variable:
-    - Docker dev: `VITE_PROXY_TARGET=http://backend:8000` (in docker-compose.dev.yml)
-    - Native dev: No env var → falls back to `http://localhost:8000` in vite.config.ts
-    - Production: Uses nginx with static build, not Vite dev server
-    - API client uses empty `VITE_API_URL` in dev (relative paths), `/api` in prod
+17. Environment variable structure: Centralized .env file with database credentials (POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB) used by both docker-compose.yml and docker-compose.dev.yml via ${VARNAME:-default} substitution. DATABASE_URL and DATABASE_URL_ASYNC are constructed from these credentials in Compose files

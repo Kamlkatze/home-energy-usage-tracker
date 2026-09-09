@@ -59,9 +59,86 @@ A simple, local application for tracking electricity, gas, and water consumption
    ```
 
 4. Access the application:
-   - Frontend: http://localhost:3000
+    - Frontend: http://localhost:3000
+    - Backend API: http://localhost:8000
+    - API Documentation: http://localhost:8000/docs
+
+### Environment Configuration
+
+The application uses a centralized `.env` file for configuration. When you copy `.env.example` to `.env`, you can customize these settings:
+
+**Database Configuration:**
+```bash
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=postgres
+POSTGRES_DB=energy_tracker
+POSTGRES_DB_TEST=energy_tracker_test  # for development/testing
+```
+
+**Network Configuration:**
+```bash
+DATABASE_HOST=localhost  # for native development (outside Docker)
+DATABASE_PORT=5432
+```
+
+**Backend Configuration:**
+```bash
+API_V1_PREFIX=/api
+PROJECT_NAME=Home Energy Usage Tracker
+CORS_ORIGINS=["http://localhost:3000", "http://localhost:5173"]
+```
+
+**Frontend Configuration (native development only):**
+```bash
+VITE_API_URL=http://localhost:8000  # only used outside Docker
+```
+
+**How it works:**
+- Docker Compose files use `${VARNAME:-default}` substitution to load values from `.env`
+- Database URLs (`DATABASE_URL`, `DATABASE_URL_ASYNC`) are automatically constructed from the credentials
+- In production, `VITE_API_URL` is hardcoded to `/api` for nginx proxy routing
+- In development, `VITE_API_URL` is empty for relative API calls through Vite proxy
+
+### Native Development (Without Docker)
+
+If you prefer to run services directly without Docker:
+
+1. **Setup Database:**
+   ```bash
+   docker compose up db -d  # or use a locally installed PostgreSQL
+   ```
+
+2. **Setup Backend:**
+   ```bash
+   cd backend
+   uv venv
+   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+   uv pip install -e .
+   ```
+
+3. **Setup Frontend:**
+   ```bash
+   cd frontend
+   npm install
+   ```
+
+4. **Start Services:**
+   ```bash
+   # In terminal 1: Backend
+   cd backend
+   uv run uvicorn app.main:app --reload
+
+   # In terminal 2: Frontend
+   cd frontend
+   npm run dev
+   ```
+
+5. **Access:**
+   - Frontend: http://localhost:5173
    - Backend API: http://localhost:8000
    - API Documentation: http://localhost:8000/docs
+
+**Note:** The `.env` file must have `DATABASE_HOST=localhost` and `VITE_API_URL=http://localhost:8000` for native development.
 
 ### Local Development with Docker
 
@@ -145,36 +222,6 @@ docker ps -a --filter name=home-energy-usage-tracker
 ```
 
 For troubleshooting and advanced shutdown options, see the complete documentation in [DOCKER_SHUTDOWN.md](DOCKER_SHUTDOWN.md).
-```bash
-cd backend
-uv venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-uv pip install -e .
-```
-
-#### Frontend Setup
-```bash
-cd frontend
-npm install
-```
-
-#### Start Development Services
-1. Start database:
-   ```bash
-   docker compose up db -d
-   ```
-
-2. Start backend:
-   ```bash
-   cd backend
-   uv run uvicorn app.main:app --reload
-   ```
-
-3. Start frontend:
-   ```bash
-   cd frontend
-   npm run dev
-   ```
 
 ## API Endpoints
 
@@ -307,6 +354,19 @@ This application is designed for **local, single-user operation only**. It does 
 For production use with multiple users or internet exposure, additional security measures are required.
 
 ## Troubleshooting
+
+### Environment Variable Issues
+
+If services fail to connect or use incorrect database URLs:
+
+1. **Check `.env` file exists:** Make sure `.env.example` was copied to `.env`
+2. **Verify Docker Compose substitution:** 
+   - Production: `docker compose config` shows resolved environment variables
+   - Development: `docker compose -f docker-compose.dev.yml config`
+3. **Database connection issues:**
+   - Docker containers: URLs use `db` hostname (e.g., `postgresql://postgres:postgres@db:5432/energy_tracker`)
+   - Native development: URLs use `localhost` hostname (matches `.env` file)
+   - Ensure `DATABASE_HOST` is `localhost` for native dev, `db` for Docker
 
 ### Docker Container Hangs on Stop
 
