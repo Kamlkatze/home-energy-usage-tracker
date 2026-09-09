@@ -8,6 +8,7 @@ from ..models.meter import MeterType
 class MeterBase(BaseModel):
     meter_type: MeterType
     label: str
+    meter_number: str | None = None
 
 
 class MeterCreate(MeterBase):
@@ -24,6 +25,7 @@ class MeterUpdate(BaseModel):
 
     meter_type: MeterType | None = None
     label: str | None = None
+    meter_number: str | None = None
 
 
 class Meter(MeterBase):

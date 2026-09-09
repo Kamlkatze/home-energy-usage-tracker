@@ -139,6 +139,12 @@ const MeterDetail: React.FC = () => {
                 <h3 className="text-sm font-medium text-muted-foreground">Unit</h3>
                 <p className="text-lg">{meter.unit}</p>
               </div>
+              {meter.meter_number && (
+                <div>
+                  <h3 className="text-sm font-medium text-muted-foreground">Meter Number</h3>
+                  <p className="text-lg font-mono">{meter.meter_number}</p>
+                </div>
+              )}
               <div>
                 <h3 className="text-sm font-medium text-muted-foreground">Created</h3>
                 <p className="text-lg">{new Date(meter.created_at).toLocaleDateString()}</p>

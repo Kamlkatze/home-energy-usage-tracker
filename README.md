@@ -299,6 +299,7 @@ For troubleshooting and advanced shutdown options, see the complete documentatio
 - `id` (integer, primary key)
 - `meter_type` (enum: electricity_import, electricity_export, electricity_production, gas, water_cold, water_garden)
 - `label` (string, e.g., "Main Electricity Meter")
+- `meter_number` (string, optional, e.g., "1EMH0012345678")
 - `unit` (string, e.g., "kWh", "m³") - **server-derived** from `meter_type`, not client-settable: a `unit` field in a POST/PUT request body is rejected with **422 Unprocessable Entity**
 - `created_at` (datetime)
 

@@ -18,6 +18,7 @@ const MeterForm: React.FC = () => {
   const [formData, setFormData] = useState({
     meter_type: '' as MeterType | '',
     label: '',
+    meter_number: '',
   });
 
   // Select the first meter type once the types have loaded
@@ -58,6 +59,7 @@ const MeterForm: React.FC = () => {
       const payload = {
         meter_type: formData.meter_type,
         label: formData.label.trim(),
+        meter_number: formData.meter_number.trim() || null,
       };
 
       await metersApi.create(payload);
@@ -100,22 +102,38 @@ const MeterForm: React.FC = () => {
             </CardHeader>
             <CardContent>
               <form onSubmit={handleSubmit} className="space-y-6">
-                <div className="space-y-2">
-                  <Label htmlFor="label">Name *</Label>
-                  <Input
-                    id="label"
-                    name="label"
-                    type="text"
-                    required
-                    value={formData.label}
-                    onChange={handleChange}
-                    placeholder="z. B. Hauptzähler Strom, Kaltwasser, Gasherdkreis"
-                    maxLength={100}
-                  />
-                  <p className="text-sm text-muted-foreground">
-                    Beschreibender Name für den Zähler (max. 100 Zeichen)
-                  </p>
-                </div>
+<div className="space-y-2">
+                   <Label htmlFor="label">Name *</Label>
+                   <Input
+                     id="label"
+                     name="label"
+                     type="text"
+                     required
+                     value={formData.label}
+                     onChange={handleChange}
+                     placeholder="z. B. Hauptzähler Strom, Kaltwasser, Gasherdkreis"
+                     maxLength={100}
+                   />
+                   <p className="text-sm text-muted-foreground">
+                     Beschreibender Name für den Zähler (max. 100 Zeichen)
+                   </p>
+                 </div>
+
+                 <div className="space-y-2">
+                   <Label htmlFor="meter_number">Zählernummer</Label>
+                   <Input
+                     id="meter_number"
+                     name="meter_number"
+                     type="text"
+                     value={formData.meter_number}
+                     onChange={handleChange}
+                     placeholder="z. B. 1EMH0012345678"
+                     maxLength={100}
+                   />
+                   <p className="text-sm text-muted-foreground">
+                     Optionale eindeutige Zählernummer des Herstellers
+                   </p>
+                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">

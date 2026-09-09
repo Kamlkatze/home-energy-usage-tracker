@@ -237,3 +237,87 @@ def test_read_meter_types(client):
             "unit": "kWh",
         },
     ]
+
+
+def test_create_meter_without_meter_number(client, sample_meter_data):
+    """Test creating a meter without meter_number (value should be null)."""
+    # Ensure meter_number is not in the sample data
+    assert "meter_number" not in sample_meter_data
+    
+    response = client.post("/api/meters/", json=sample_meter_data)
+    assert response.status_code == 200
+    
+    data = response.json()
+    assert data["id"] == 1
+    assert data["meter_type"] == sample_meter_data["meter_type"]
+    assert data["label"] == sample_meter_data["label"]
+    assert "meter_number" in data
+    assert data["meter_number"] is None
+    assert "created_at" in data
+
+
+def test_create_meter_with_meter_number(client):
+    """Test creating a meter with meter_number set."""
+    meter_data = {
+        "meter_type": "electricity_import",
+        "label": "Main Electricity Meter",
+        "meter_number": "1EMH0012345678"
+    }
+    
+    response = client.post("/api/meters/", json=meter_data)
+    assert response.status_code == 200
+    
+    data = response.json()
+    assert data["meter_type"] == "electricity_import"
+    assert data["label"] == "Main Electricity Meter"
+    assert data["meter_number"] == "1EMH0012345678"
+    assert data["unit"] == "kWh"
+
+
+def test_update_meter_number(client, sample_meter_data):
+    """Test updating meter_number on an existing meter."""
+    # Create meter without meter_number
+    create_response = client.post("/api/meters/", json=sample_meter_data)
+    meter_id = create_response.json()["id"]
+    
+    # Update meter_number
+    update_data = {"meter_number": "1EMH0098765432"}
+    response = client.put(f"/api/meters/{meter_id}", json=update_data)
+    
+    assert response.status_code == 200
+    data = response.json()
+    assert data["meter_number"] == "1EMH0098765432"
+    assert data["label"] == sample_meter_data["label"]  # unchanged
+    assert data["meter_type"] == sample_meter_data["meter_type"]  # unchanged
+    
+    # Verify via GET
+    get_response = client.get(f"/api/meters/{meter_id}")
+    assert get_response.status_code == 200
+    get_data = get_response.json()
+    assert get_data["meter_number"] == "1EMH0098765432"
+
+
+def test_update_meter_number_to_null(client):
+    """Test updating meter_number to null (clearing it)."""
+    # Create meter with meter_number
+    meter_data = {
+        "meter_type": "gas",
+        "label": "Test Meter",
+        "meter_number": "1EMH0012345678"
+    }
+    create_response = client.post("/api/meters/", json=meter_data)
+    meter_id = create_response.json()["id"]
+    
+    # Update meter_number to null
+    update_data = {"meter_number": None}
+    response = client.put(f"/api/meters/{meter_id}", json=update_data)
+    
+    assert response.status_code == 200
+    data = response.json()
+    assert data["meter_number"] is None
+    
+    # Verify via GET
+    get_response = client.get(f"/api/meters/{meter_id}")
+    assert get_response.status_code == 200
+    get_data = get_response.json()
+    assert get_data["meter_number"] is None

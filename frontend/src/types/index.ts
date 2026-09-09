@@ -20,6 +20,7 @@ export interface Meter {
   id: number;
   meter_type: MeterType;
   label: string;
+  meter_number: string | null;
   unit: string;
   created_at: string;
 }

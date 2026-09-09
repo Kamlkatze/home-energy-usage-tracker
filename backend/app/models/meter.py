@@ -52,6 +52,7 @@ class Meter(Base, TimestampMixin):
         nullable=False,
     )
     label: Mapped[str] = mapped_column(String(100), nullable=False)
+    meter_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
     unit: Mapped[str] = mapped_column(String(20), nullable=False)
     
     readings: Mapped[list["Reading"]] = relationship(
