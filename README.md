@@ -264,6 +264,7 @@ For troubleshooting and advanced shutdown options, see the complete documentatio
 - `feed_in` - Feed-in tariff 
 - `self_consumption` - Self-consumption rate
 - `metering_fee` - Metering/grid fee
+- `wastewater` - Price per unit for wastewater (billed on the cold-water meter)
 
 #### Example POST /api/tariffs/ request:
 ```json
@@ -310,6 +311,30 @@ For troubleshooting and advanced shutdown options, see the complete documentatio
 }
 ```
 
+- `GET /api/costs/wastewater/?water_cold_meter_id={id}&water_garden_meter_id={id}&from={date}&to={date}` - Calculate the wastewater cost between two dates. Wastewater is a derived value, not a real meter: `wastewater_consumption = max(0, cold-water consumption - garden-water consumption)`, billed against a `wastewater` tariff period attached to the **cold-water meter's** id (query parameters: `water_cold_meter_id`, `water_garden_meter_id` (optional), `from`, `to`). Returns **404** when no reading or no covering wastewater tariff period is found, **422** when `from > to` or the cold-water consumption is negative.
+
+#### Garden meter omitted vs. garden meter without readings (important distinction)
+- **`water_garden_meter_id` omitted entirely**: treated as "no garden meter installed". `garden_consumption = 0` and the entire cold-water consumption counts as wastewater. No garden readings are required. `water_garden_meter_id` is `null` in the response.
+- **`water_garden_meter_id` provided**: the garden meter's start/end readings are looked up with the exact same rule as the cold meter. If the garden meter has **no readings in the range**, the endpoint returns **404** ("Kein Zählerstand im angegebenen Zeitraum gefunden.") — the client explicitly claimed this meter is relevant, so silently treating it as 0 would be wrong.
+- A garden consumption exceeding the cold consumption is a data quality issue that is not validated here; `wastewater_consumption` is simply floored at 0.
+
+#### Example GET /api/costs/wastewater/?water_cold_meter_id=1&water_garden_meter_id=2&from=2024-01-10&to=2024-03-10 response:
+```json
+{
+  "water_cold_meter_id": 1,
+  "water_garden_meter_id": 2,
+  "from_date": "2024-01-10",
+  "to_date": "2024-03-10",
+  "cold_consumption": "150.500",
+  "garden_consumption": "59.500",
+  "wastewater_consumption": "91.000",
+  "unit": "m³",
+  "price_per_unit": "2.10000",
+  "base_fee_total": "12.00",
+  "total_cost": "203.10"
+}
+```
+
 #### Known limitations of the first cost calculation iteration (intentional, by design)
 - **Consumption from two existing readings only**: consumption is the difference between the reading with the largest `reading_date` at or before `to` and the reading with the smallest `reading_date` at or after `from`. Readings are never interpolated or extrapolated — if either boundary reading is missing, the endpoint returns 404. A negative result (e.g. meter reset/rollover) returns 422 and is not clamped.
 - **Single tariff period required**: the whole `[from, to]` range must be fully contained within exactly one `consumption` tariff period (`valid_from <= from` and `valid_to >= to` or `valid_to` null). A range spanning a tariff change returns 404 — proportional splitting across multiple periods is not implemented.
@@ -337,7 +362,7 @@ For troubleshooting and advanced shutdown options, see the complete documentatio
 ### TariffPeriod
 - `id` (integer, primary key)
 - `meter_id` (foreign key to Meter)
-- `tariff_kind` (enum: consumption, base_fee, feed_in, self_consumption, metering_fee)
+- `tariff_kind` (enum: consumption, base_fee, feed_in, self_consumption, metering_fee, wastewater)
 - `valid_from` (date)
 - `valid_to` (date, optional, null means "open-ended - valid until today")
 - `price_per_unit` (numeric)
@@ -440,6 +465,7 @@ home-energy-usage-tracker/
 ├── .env.example                      # Environment variables template
 ├── AGENTS.md                         # Agent instructions for this project
 └── README.md                         # This file
+```
 
 ## Security Note
 

@@ -18,6 +18,7 @@ class TariffKind(enum.Enum):
     FEED_IN = "feed_in"
     SELF_CONSUMPTION = "self_consumption"
     METERING_FEE = "metering_fee"
+    WASTEWATER = "wastewater"
 
 
 class TariffPeriod(Base, TimestampMixin):

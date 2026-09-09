@@ -1,4 +1,4 @@
-from .cost import CostCalculationResponse
+from .cost import CostCalculationResponse, WastewaterCostCalculationResponse
 from .meter import Meter, MeterCreate, MeterTypeInfo, MeterUpdate
 from .reading import Reading, ReadingCreate, ReadingUpdate
 from .tariff_period import TariffPeriod, TariffPeriodCreate, TariffPeriodUpdate
@@ -15,4 +15,5 @@ __all__ = [
     "TariffPeriod",
     "TariffPeriodCreate",
     "TariffPeriodUpdate",
+    "WastewaterCostCalculationResponse",
 ]

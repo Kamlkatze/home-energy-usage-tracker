@@ -13,3 +13,17 @@ class CostCalculationResponse(BaseModel):
     price_per_unit: Decimal
     base_fee_total: Decimal
     total_cost: Decimal
+
+
+class WastewaterCostCalculationResponse(BaseModel):
+    water_cold_meter_id: int
+    water_garden_meter_id: int | None
+    from_date: date
+    to_date: date
+    cold_consumption: Decimal
+    garden_consumption: Decimal
+    wastewater_consumption: Decimal
+    unit: str
+    price_per_unit: Decimal
+    base_fee_total: Decimal
+    total_cost: Decimal
