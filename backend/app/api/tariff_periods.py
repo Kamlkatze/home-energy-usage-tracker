@@ -12,9 +12,13 @@ router = APIRouter()
 def read_tariff_periods(
     skip: int = 0,
     limit: int = 100,
+    tariff_kind: models.TariffKind | None = None,
     db: Session = Depends(get_database_session),
 ):
-    periods = db.query(models.TariffPeriod).offset(skip).limit(limit).all()
+    query = db.query(models.TariffPeriod)
+    if tariff_kind is not None:
+        query = query.filter(models.TariffPeriod.tariff_kind == tariff_kind)
+    periods = query.offset(skip).limit(limit).all()
     return periods
 
 

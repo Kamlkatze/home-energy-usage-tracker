@@ -13,10 +13,16 @@ from app.database import get_db
 from app.main import app
 from app.models.base import Base
 
-# Use PostgreSQL test database if available, fallback to SQLite for local testing
+# Tests MUST run against PostgreSQL: the tariff_periods EXCLUDE constraint
+# (overlap prevention) and daterange/btree_gist have no SQLite equivalent,
+# so overlap tests would silently not be enforced on SQLite.
+# The default points at the dedicated test DB from docker-compose.dev.yml
+# (db-test service, energy_tracker_test on port 5433). Override with
+# TEST_DATABASE_URL if needed - note that tests requiring the EXCLUDE
+# constraint will FAIL (not pass silently) on SQLite.
 TEST_DATABASE_URL = os.environ.get(
     "TEST_DATABASE_URL",
-    "sqlite:///:memory:"
+    "postgresql://postgres:postgres@localhost:5433/energy_tracker_test"
 )
 
 @pytest.fixture(scope="session")
@@ -40,6 +46,7 @@ def engine():
         
         try:
             from alembic.config import Config
+
             from alembic import command
             alembic_cfg = Config("alembic.ini")
             alembic_cfg.set_main_option("sqlalchemy.url", TEST_DATABASE_URL)
