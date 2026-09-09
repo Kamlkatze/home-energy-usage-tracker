@@ -335,10 +335,70 @@ For troubleshooting and advanced shutdown options, see the complete documentatio
 }
 ```
 
-#### Known limitations of the first cost calculation iteration (intentional, by design)
-- **Consumption from two existing readings only**: consumption is the difference between the reading with the largest `reading_date` at or before `to` and the reading with the smallest `reading_date` at or after `from`. Readings are never interpolated or extrapolated — if either boundary reading is missing, the endpoint returns 404. A negative result (e.g. meter reset/rollover) returns 422 and is not clamped.
-- **Single tariff period required**: the whole `[from, to]` range must be fully contained within exactly one `consumption` tariff period (`valid_from <= from` and `valid_to >= to` or `valid_to` null). A range spanning a tariff change returns 404 — proportional splitting across multiple periods is not implemented.
-- **Fixed 30-day base fee proration**: `base_fee_total = base_fee_monthly * days_in_range / 30` with `days_in_range = (to - from).days` (inclusive-exclusive: `from` counts, `to` does not). A calendar-accurate month-length calculation is deliberately not used. A `null` `base_fee_monthly` is treated as 0.
+### Projections
+- `GET /api/meters/{id}/projection?year={year}&as_of_date={date}` - Calculate annual consumption projection for a meter. The `as_of_date` parameter is optional, defaults to server date (date.today()). Returns **200 OK** even with insufficient data (projection = null), **404** if meter not found, **422** for invalid year (outside 2000-2100 range).
+
+**Calculation Logic:**
+- **Year completed** (year < as_of_date.year): Actual consumption = end.value - start.value (real yearly consumption)
+- **Year ongoing** (year >= as_of_date.year): Linear projection = (actual consumption / elapsed days) * 365
+- **Insufficient data**: When start/end readings missing or start >= end
+
+**Start point determination:**
+1. Preference: Reading exactly on December 31st of previous year
+2. Fallback: First reading in the target year
+
+#### Example GET /api/meters/1/projection?year=2025&as_of_date=2025-06-01 response (ongoing year):
+```json
+{
+  "meter_id": 1,
+  "year": 2025,
+  "unit": "kWh",
+  "actual_consumption_to_date": "250.500",
+  "days_elapsed": 152,
+  "projected_annual_consumption": "601.447",
+  "basis": "linear_from_prev_year_end",
+  "message": null
+}
+```
+
+#### Example GET /api/meters/1/projection?year=2024 response (completed year):
+```json
+{
+  "meter_id": 1,
+  "year": 2024,
+  "unit": "kWh",
+  "actual_consumption_to_date": "850.250",
+  "days_elapsed": 366,
+  "projected_annual_consumption": "850.250",
+  "basis": "actual_full_year",
+  "message": null
+}
+```
+
+#### Example insufficient data response:
+```json
+{
+  "meter_id": 1,
+  "year": 2024,
+  "unit": "kWh",
+  "actual_consumption_to_date": null,
+  "days_elapsed": null,
+  "projected_annual_consumption": null,
+  "basis": "insufficient_data",
+  "message": "Nicht genügend Zählerstände im Jahr 2024 vorhanden, um eine Hochrechnung zu erstellen."
+}
+```
+
+**Basis values:**
+- `"linear_from_prev_year_end"` - Start reading from December 31st of previous year
+- `"linear_from_first_reading_of_year"` - Start reading from first reading in target year (fallback)
+- `"actual_full_year"` - Year completed, actual consumption is final
+- `"insufficient_data"` - Not enough readings for calculation
+
+**Known limitations:**
+- Uses only two boundary points (start/end) for linear projection, no regression over multiple intermediate values
+- Does not account for seasonal consumption patterns
+- Negative consumption values (meter rollover) are calculated as-is, not validated or clamped
 
 ## Database Schema
 
@@ -413,6 +473,7 @@ home-energy-usage-tracker/
 │   │   │   ├── costs.py              # Cost calculation endpoint for a date range
 │   │   │   ├── deps.py               # Dependency injection (database session)
 │   │   │   ├── meters.py             # CRUD endpoints for meters
+│   │   │   ├── projections.py        # Projection endpoints for annual consumption
 │   │   │   ├── readings.py           # CRUD endpoints for readings
 │   │   │   └── tariff_periods.py     # CRUD endpoints for tariff periods
 │   │   ├── models/
@@ -425,8 +486,11 @@ home-energy-usage-tracker/
 │   │   │   ├── __init__.py           # Exports all Pydantic schemas
 │   │   │   ├── cost.py               # Cost calculation response schema
 │   │   │   ├── meter.py              # Meter schemas (Create, Update, Response)
+│   │   │   ├── projection.py         # Projection response schema
 │   │   │   ├── reading.py            # Reading schemas
 │   │   │   └── tariff_period.py      # TariffPeriod schemas with TariffKind
+│   │   ├── services/
+│   │   │   └── projection.py         # Business logic for projection calculations
 │   │   ├── __init__.py
 │   │   ├── config.py                 # Configuration with pydantic-settings
 │   │   ├── database.py               # SQLAlchemy engine and session factory

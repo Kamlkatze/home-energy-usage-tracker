@@ -149,9 +149,9 @@ def calculate_costs(
     meter_id: int = Query(...),
     # "from" is a Python keyword, so the parameter is aliased in the
     # query string.
-    from_: date = Query(..., alias="from"),  # noqa: B008 (FastAPI DI style)
-    to: date = Query(...),  # noqa: B008 (FastAPI DI style)
-    db: Session = Depends(get_database_session),  # noqa: B008 (existing pattern)
+    from_: date = Query(..., alias="from"),
+    to: date = Query(...),
+    db: Session = Depends(get_database_session),
 ):
     _raise_if_from_after_to(from_, to)
 
@@ -187,9 +187,9 @@ def calculate_wastewater_costs(
     water_garden_meter_id: int | None = Query(None),
     # "from" is a Python keyword, so the parameter is aliased in the
     # query string.
-    from_: date = Query(..., alias="from"),  # noqa: B008 (FastAPI DI style)
-    to: date = Query(...),  # noqa: B008 (FastAPI DI style)
-    db: Session = Depends(get_database_session),  # noqa: B008 (existing pattern)
+    from_: date = Query(..., alias="from"),
+    to: date = Query(...),
+    db: Session = Depends(get_database_session),
 ):
     _raise_if_from_after_to(from_, to)
 
