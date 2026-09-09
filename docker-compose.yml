@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: energy_tracker
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/energy_tracker
+      DATABASE_URL_ASYNC: postgresql+asyncpg://postgres:postgres@db:5432/energy_tracker
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/app:/app/app
+    command: >
+      sh -c "
+        /opt/venv/bin/python -m alembic upgrade head
+        exec /opt/venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+      "
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    depends_on:
+      - backend
+    environment:
+      VITE_API_URL: /api
+    ports:
+      - "3000:80"
+
+volumes:
+  postgres_data:
