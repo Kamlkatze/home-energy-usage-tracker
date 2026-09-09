@@ -1,6 +1,20 @@
-export type MeterType = 'electricity' | 'gas' | 'water';
+export type MeterType =
+  | 'gas'
+  | 'water_cold'
+  | 'water_garden'
+  | 'electricity_import'
+  | 'electricity_export'
+  | 'electricity_production';
 
 export type TariffKind = 'consumption' | 'base_fee' | 'feed_in' | 'self_consumption' | 'metering_fee';
+
+// One entry of GET /api/meters/types: the unit is server-derived from
+// the meter type and not configurable by the client.
+export interface MeterTypeInfo {
+  value: MeterType;
+  label: string;
+  unit: string;
+}
 
 export interface Meter {
   id: number;

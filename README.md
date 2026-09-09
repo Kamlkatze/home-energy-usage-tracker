@@ -4,7 +4,7 @@ A simple, local application for tracking electricity, gas, and water consumption
 
 ## Features
 
-- **Track multiple meters**: Electricity (kWh), Gas (m³), Water (m³)
+- **Track multiple meters**: Gas, cold/garden water (m³), electricity import/export/production (kWh) — the unit is derived automatically from the meter type
 - **Record readings**: Simple form to add meter readings with dates and optional notes
 - **Visualize consumption**: Line charts showing usage trends over time
 - **Tariff management**: Track price per unit and base fees for different periods
@@ -179,6 +179,17 @@ npm install
 ## API Endpoints
 
 ### Meters
+- `GET /api/meters/types` - List all meter types with German label and fixed unit. Example response:
+  ```json
+  [
+    { "value": "gas", "label": "Gas", "unit": "m³" },
+    { "value": "water_cold", "label": "Kaltwasser", "unit": "m³" },
+    { "value": "water_garden", "label": "Gartenwasser", "unit": "m³" },
+    { "value": "electricity_import", "label": "Strom Bezug", "unit": "kWh" },
+    { "value": "electricity_export", "label": "Strom Einspeisung", "unit": "kWh" },
+    { "value": "electricity_production", "label": "Strom Erzeugung", "unit": "kWh" }
+  ]
+  ```
 - `GET /api/meters/` - List all meters
 - `POST /api/meters/` - Create a new meter
 - `GET /api/meters/{id}` - Get meter details
@@ -204,9 +215,9 @@ npm install
 
 ### Meter
 - `id` (integer, primary key)
-- `meter_type` (enum: electricity, gas, water)
+- `meter_type` (enum: gas, water_cold, water_garden, electricity_import, electricity_export, electricity_production)
 - `label` (string, e.g., "Main Electricity Meter")
-- `unit` (string, e.g., "kWh", "m³")
+- `unit` (string, e.g., "kWh", "m³") - **server-derived** from `meter_type`, not client-settable: a `unit` field in a POST/PUT request body is rejected with **422 Unprocessable Entity**
 - `created_at` (datetime)
 
 ### Reading

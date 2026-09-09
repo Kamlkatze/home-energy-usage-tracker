@@ -10,6 +10,11 @@ const apiClient = axios.create({
 });
 
 export const metersApi = {
+  getTypes: async () => {
+    const response = await apiClient.get('/api/meters/types');
+    return response.data;
+  },
+
   getAll: async () => {
     const response = await apiClient.get('/api/meters/');
     return response.data;

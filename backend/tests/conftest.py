@@ -116,11 +116,14 @@ def client(db_session):
 
 @pytest.fixture
 def sample_meter_data():
-    """Sample meter data for testing."""
+    """Sample meter data for testing.
+
+    Note: no "unit" field - the unit is derived server-side from
+    meter_type and a client-supplied unit is rejected with 422.
+    """
     return {
-        "meter_type": "electricity",
-        "label": "Main Electricity Meter",
-        "unit": "kWh"
+        "meter_type": "gas",
+        "label": "Main Gas Meter",
     }
 
 @pytest.fixture

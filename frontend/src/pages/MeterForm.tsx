@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -6,26 +6,34 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Select, SelectItem } from '../components/ui/select';
 import { metersApi } from '../api/client';
+import { useMeterTypes } from '../hooks/useMeterTypes';
 import { MeterType } from '../types';
 import { ArrowLeft, CheckCircle } from 'lucide-react';
 
-const METER_TYPE_LABELS: Record<MeterType, string> = {
-  electricity: 'Electricity',
-  gas: 'Gas',
-  water: 'Water',
-};
-
-const METER_TYPES = Object.keys(METER_TYPE_LABELS) as MeterType[];
-
 const MeterForm: React.FC = () => {
   const navigate = useNavigate();
+  const meterTypes = useMeterTypes();
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [formData, setFormData] = useState({
-    meter_type: 'electricity' as MeterType,
+    meter_type: '' as MeterType | '',
     label: '',
-    unit: '',
   });
+
+  // Select the first meter type once the types have loaded
+  useEffect(() => {
+    if (meterTypes.length > 0) {
+      setFormData((prev) =>
+        prev.meter_type === ''
+          ? { ...prev, meter_type: meterTypes[0].value }
+          : prev
+      );
+    }
+  }, [meterTypes]);
+
+  const selectedType = meterTypes.find(
+    (type) => type.value === formData.meter_type
+  );
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -38,29 +46,29 @@ const MeterForm: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (!formData.meter_type || !formData.label.trim() || !formData.unit.trim()) {
-      alert('Please fill in all required fields');
+
+    if (!formData.meter_type || !formData.label.trim()) {
+      alert('Bitte alle Pflichtfelder ausfüllen');
       return;
     }
 
     try {
       setLoading(true);
+      // No "unit" field: the unit is derived server-side from meter_type
       const payload = {
         meter_type: formData.meter_type,
         label: formData.label.trim(),
-        unit: formData.unit.trim(),
       };
-      
+
       await metersApi.create(payload);
       setSuccess(true);
-      
+
       setTimeout(() => {
         navigate('/meters');
       }, 2000);
     } catch (err) {
       console.error('Error creating meter:', err);
-      alert('Failed to create meter. Please try again.');
+      alert('Fehler beim Erstellen des Zählers. Bitte erneut versuchen.');
     } finally {
       setLoading(false);
     }
@@ -70,7 +78,7 @@ const MeterForm: React.FC = () => {
     <div className="p-6">
       <Button variant="outline" className="mb-6 gap-2" onClick={() => navigate('/meters')}>
         <ArrowLeft className="h-4 w-4" />
-        Back to Meters
+        Zurück zu den Zählern
       </Button>
 
       <div className="max-w-2xl mx-auto">
@@ -78,17 +86,17 @@ const MeterForm: React.FC = () => {
           <Card>
             <CardContent className="p-8 text-center">
               <CheckCircle className="h-16 w-16 text-green-500 mx-auto mb-4" />
-              <h2 className="text-2xl font-bold mb-2">Meter Added Successfully!</h2>
+              <h2 className="text-2xl font-bold mb-2">Zähler hinzugefügt!</h2>
               <p className="text-muted-foreground mb-4">
-                The meter has been created and will appear in the meters list.
+                Der Zähler wurde erstellt und erscheint in der Zählerliste.
               </p>
-              <p className="text-sm text-muted-foreground">Redirecting to meters list...</p>
+              <p className="text-sm text-muted-foreground">Weiterleitung zur Zählerliste...</p>
             </CardContent>
           </Card>
         ) : (
           <Card>
             <CardHeader>
-              <CardTitle>Add New Meter</CardTitle>
+              <CardTitle>Neuen Zähler hinzufügen</CardTitle>
             </CardHeader>
             <CardContent>
               <form onSubmit={handleSubmit} className="space-y-6">
@@ -101,44 +109,42 @@ const MeterForm: React.FC = () => {
                     required
                     value={formData.label}
                     onChange={handleChange}
-                    placeholder="e.g., Main electricity meter, Water supply, Gas heater"
+                    placeholder="z. B. Hauptzähler Strom, Kaltwasser, Gasherdkreis"
                     maxLength={100}
                   />
                   <p className="text-sm text-muted-foreground">
-                    Descriptive name for the meter (max 100 characters)
+                    Beschreibender Name für den Zähler (max. 100 Zeichen)
                   </p>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
-                    <Label htmlFor="meter_type">Meter Type *</Label>
+                    <Label htmlFor="meter_type">Zählertyp *</Label>
                     <Select
                       id="meter_type"
                       value={formData.meter_type}
                       onChange={handleTypeChange}
                     >
-                      {METER_TYPES.map((type) => (
-                        <SelectItem key={type} value={type}>
-                          {METER_TYPE_LABELS[type]}
+                      {meterTypes.map((type) => (
+                        <SelectItem key={type.value} value={type.value}>
+                          {type.label}
                         </SelectItem>
                       ))}
                     </Select>
+                    <p className="text-sm text-muted-foreground">
+                      Bestimmt die Messeinheit des Zählers
+                    </p>
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="unit">Unit *</Label>
-                    <Input
-                      id="unit"
-                      name="unit"
-                      type="text"
-                      required
-                      value={formData.unit}
-                      onChange={handleChange}
-                      placeholder="e.g., kWh, m³, l"
-                      maxLength={20}
-                    />
+                    <Label>Einheit</Label>
+                    {selectedType ? (
+                      <p className="text-lg">{selectedType.unit}</p>
+                    ) : (
+                      <p className="text-lg text-muted-foreground">–</p>
+                    )}
                     <p className="text-sm text-muted-foreground">
-                      Unit of measurement (max 20 characters)
+                      Wird automatisch durch den Zählertyp bestimmt
                     </p>
                   </div>
                 </div>
@@ -150,10 +156,10 @@ const MeterForm: React.FC = () => {
                     onClick={() => navigate('/meters')}
                     disabled={loading}
                   >
-                    Cancel
+                    Abbrechen
                   </Button>
                   <Button type="submit" disabled={loading}>
-                    {loading ? 'Creating...' : 'Create Meter'}
+                    {loading ? 'Speichern...' : 'Zähler erstellen'}
                   </Button>
                 </div>
               </form>
@@ -163,7 +169,7 @@ const MeterForm: React.FC = () => {
 
         <div className="mt-6 text-center text-sm text-muted-foreground">
           <p>
-            * Required fields. Meters are used to track consumption readings and tariffs.
+            * Pflichtfelder. Zähler werden verwendet, um Zählerstände und Tarifzeiträume zu erfassen.
           </p>
         </div>
       </div>

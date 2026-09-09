@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from .. import models, schemas
+from ..models.meter import METER_TYPE_LABELS, METER_TYPE_UNITS, MeterType
 from .deps import get_database_session
 
 router = APIRouter()
@@ -16,6 +17,21 @@ def read_meters(
 ):
     meters = db.query(models.Meter).offset(skip).limit(limit).all()
     return meters
+
+
+# NOTE: must be registered before GET /{meter_id}, otherwise "types" would
+# be captured by the {meter_id} path parameter and fail int validation.
+@router.get("/types", response_model=list[schemas.MeterTypeInfo])
+def read_meter_types():
+    """List all meter types with their German label and fixed unit."""
+    return [
+        schemas.MeterTypeInfo(
+            value=meter_type,
+            label=METER_TYPE_LABELS[meter_type],
+            unit=METER_TYPE_UNITS[meter_type],
+        )
+        for meter_type in MeterType
+    ]
 
 
 @router.get("/{meter_id}", response_model=schemas.Meter)
@@ -34,7 +50,12 @@ def create_meter(
     meter: schemas.MeterCreate,
     db: Session = Depends(get_database_session),
 ):
-    db_meter = models.Meter(**meter.model_dump())
+    # The unit is always derived from meter_type and never taken from
+    # client input (MeterCreate rejects a "unit" field with 422).
+    db_meter = models.Meter(
+        **meter.model_dump(),
+        unit=METER_TYPE_UNITS[meter.meter_type],
+    )
     db.add(db_meter)
     db.commit()
     db.refresh(db_meter)
@@ -52,6 +73,10 @@ def update_meter(
         raise HTTPException(status_code=404, detail="Meter not found")
     
     update_data = meter_update.model_dump(exclude_unset=True)
+    # The unit is derived from meter_type (never client-settable), so it must
+    # be re-derived whenever the meter type changes in an update.
+    if "meter_type" in update_data:
+        update_data["unit"] = METER_TYPE_UNITS[update_data["meter_type"]]
     for field, value in update_data.items():
         setattr(db_meter, field, value)
     

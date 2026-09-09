@@ -11,10 +11,36 @@ if TYPE_CHECKING:
     from .tariff_period import TariffPeriod
 
 
-class MeterType(enum.Enum):
-    ELECTRICITY = "electricity"
+class MeterType(str, enum.Enum):
     GAS = "gas"
-    WATER = "water"
+    WATER_COLD = "water_cold"
+    WATER_GARDEN = "water_garden"
+    ELECTRICITY_IMPORT = "electricity_import"
+    ELECTRICITY_EXPORT = "electricity_export"
+    ELECTRICITY_PRODUCTION = "electricity_production"
+
+
+# Maps each meter type to its fixed unit of measurement.
+# Units are not user-configurable — they are implied by the meter type.
+METER_TYPE_UNITS: dict[MeterType, str] = {
+    MeterType.GAS: "m³",
+    MeterType.WATER_COLD: "m³",
+    MeterType.WATER_GARDEN: "m³",
+    MeterType.ELECTRICITY_IMPORT: "kWh",
+    MeterType.ELECTRICITY_EXPORT: "kWh",
+    MeterType.ELECTRICITY_PRODUCTION: "kWh",
+}
+
+# German display labels for each meter type, used by the
+# GET /api/meters/types endpoint consumed by the frontend.
+METER_TYPE_LABELS: dict[MeterType, str] = {
+    MeterType.GAS: "Gas",
+    MeterType.WATER_COLD: "Kaltwasser",
+    MeterType.WATER_GARDEN: "Gartenwasser",
+    MeterType.ELECTRICITY_IMPORT: "Strom Bezug",
+    MeterType.ELECTRICITY_EXPORT: "Strom Einspeisung",
+    MeterType.ELECTRICITY_PRODUCTION: "Strom Erzeugung",
+}
 
 
 class Meter(Base, TimestampMixin):

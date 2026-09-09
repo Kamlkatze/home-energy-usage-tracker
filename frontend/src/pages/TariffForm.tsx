@@ -6,6 +6,7 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Select, SelectItem } from '../components/ui/select';
 import { tariffsApi, metersApi } from '../api/client';
+import { meterTypeLabel, useMeterTypes } from '../hooks/useMeterTypes';
 import { Meter, TariffKind } from '../types';
 import { ArrowLeft, CheckCircle } from 'lucide-react';
 
@@ -22,6 +23,7 @@ const TARIFF_KINDS = Object.keys(TARIFF_KIND_LABELS) as TariffKind[];
 const TariffForm: React.FC = () => {
   const navigate = useNavigate();
   const [meters, setMeters] = useState<Meter[]>([]);
+  const meterTypes = useMeterTypes();
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [formData, setFormData] = useState({
@@ -139,13 +141,13 @@ const TariffForm: React.FC = () => {
                   >
                     {meters.map((meter) => (
                       <SelectItem key={meter.id} value={meter.id.toString()}>
-                        {meter.label} ({meter.meter_type} • {meter.unit})
+                        {meter.label} ({meterTypeLabel(meterTypes, meter.meter_type)} • {meter.unit})
                       </SelectItem>
                     ))}
                   </Select>
                   {selectedMeter && (
                     <p className="text-sm text-muted-foreground">
-                      Ausgewählter Zähler: {selectedMeter.label} ({selectedMeter.meter_type})
+                      Ausgewählter Zähler: {selectedMeter.label} ({meterTypeLabel(meterTypes, selectedMeter.meter_type)})
                     </p>
                   )}
                 </div>

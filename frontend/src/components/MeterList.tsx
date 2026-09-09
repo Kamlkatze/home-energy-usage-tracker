@@ -3,10 +3,12 @@ import { Link } from 'react-router-dom';
 import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { metersApi } from '../api/client';
+import { meterTypeLabel, useMeterTypes } from '../hooks/useMeterTypes';
 import { Meter } from '../types';
 
 const MeterList: React.FC = () => {
   const [meters, setMeters] = useState<Meter[]>([]);
+  const meterTypes = useMeterTypes();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -72,8 +74,8 @@ const MeterList: React.FC = () => {
                     <div className="flex justify-between items-start mb-2">
                       <div>
                         <h3 className="font-semibold text-lg">{meter.label}</h3>
-                        <p className="text-sm text-muted-foreground capitalize">
-                          {meter.meter_type}
+                        <p className="text-sm text-muted-foreground">
+                          {meterTypeLabel(meterTypes, meter.meter_type)}
                         </p>
                       </div>
                       <span className="text-sm font-medium bg-primary/10 text-primary px-2 py-1 rounded">
