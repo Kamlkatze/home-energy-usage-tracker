@@ -69,7 +69,7 @@ Known constraint mappings:
 ## Test Data
 
 Fixtures provide sample data for:
-- Meters (electricity/gas/water)
+- Meters (all 6 meter types)
 - Readings (consumption values)
 - Tariff periods (pricing periods)
 

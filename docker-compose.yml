@@ -1,12 +1,10 @@
-version: '3.8'
-
 services:
   db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: energy_tracker
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ${POSTGRES_DB:-energy_tracker}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
@@ -25,8 +23,11 @@ services:
       db:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@db:5432/energy_tracker
-      DATABASE_URL_ASYNC: postgresql+asyncpg://postgres:postgres@db:5432/energy_tracker
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-energy_tracker}
+      DATABASE_URL_ASYNC: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-energy_tracker}
+      API_V1_PREFIX: ${API_V1_PREFIX:-/api}
+      PROJECT_NAME: ${PROJECT_NAME:-Home Energy Usage Tracker}
+      CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:3000","http://localhost:5173"]}
     ports:
       - "8000:8000"
     volumes:

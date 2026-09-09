@@ -4,6 +4,7 @@ import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { metersApi } from '../api/client';
+import { meterTypeLabel, useMeterTypes } from '../hooks/useMeterTypes';
 import { Meter, Reading } from '../types';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { ArrowLeft } from 'lucide-react';
@@ -12,6 +13,7 @@ const MeterDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const [meter, setMeter] = useState<Meter | null>(null);
   const [readings, setReadings] = useState<Reading[]>([]);
+  const meterTypes = useMeterTypes();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -82,8 +84,8 @@ const MeterDetail: React.FC = () => {
           </Button>
         </Link>
         <h1 className="text-2xl font-bold">{meter.label}</h1>
-        <span className="text-sm font-medium bg-primary/10 text-primary px-3 py-1 rounded-full capitalize">
-          {meter.meter_type} • {meter.unit}
+        <span className="text-sm font-medium bg-primary/10 text-primary px-3 py-1 rounded-full">
+          {meterTypeLabel(meterTypes, meter.meter_type)} • {meter.unit}
         </span>
       </div>
 
@@ -131,12 +133,18 @@ const MeterDetail: React.FC = () => {
             <div className="space-y-4">
               <div>
                 <h3 className="text-sm font-medium text-muted-foreground">Type</h3>
-                <p className="text-lg capitalize">{meter.meter_type}</p>
+                <p className="text-lg">{meterTypeLabel(meterTypes, meter.meter_type)}</p>
               </div>
               <div>
                 <h3 className="text-sm font-medium text-muted-foreground">Unit</h3>
                 <p className="text-lg">{meter.unit}</p>
               </div>
+              {meter.meter_number && (
+                <div>
+                  <h3 className="text-sm font-medium text-muted-foreground">Meter Number</h3>
+                  <p className="text-lg font-mono">{meter.meter_number}</p>
+                </div>
+              )}
               <div>
                 <h3 className="text-sm font-medium text-muted-foreground">Created</h3>
                 <p className="text-lg">{new Date(meter.created_at).toLocaleDateString()}</p>
