@@ -21,6 +21,8 @@ def test_create_tariff_period(client, sample_meter_data, sample_tariff_period_da
     
     assert data["id"] == 1
     assert data["meter_id"] == meter_id
+    # tariff_kind omitted in payload -> defaults to consumption
+    assert data["tariff_kind"] == "consumption"
     assert data["valid_from"] == tariff_data["valid_from"]
     assert data["valid_to"] == tariff_data["valid_to"]
     assert Decimal(data["price_per_unit"]) == Decimal(tariff_data["price_per_unit"])
@@ -64,7 +66,11 @@ def test_create_tariff_period_invalid_meter(client):
 
 
 def test_create_tariff_period_duplicate_valid_from(client, sample_meter_data):
-    """Test creating tariff period with duplicate valid_from for same meter."""
+    """Test creating tariff period with duplicate valid_from for same meter.
+
+    Same valid_from always overlaps (lower bound inclusive), so the EXCLUDE
+    constraint now rejects this instead of the old UNIQUE constraint.
+    """
     meter_response = client.post("/api/meters/", json=sample_meter_data)
     meter_id = meter_response.json()["id"]
     
@@ -85,7 +91,10 @@ def test_create_tariff_period_duplicate_valid_from(client, sample_meter_data):
     assert "detail" in response2.json()
     # Accept both specific and generic messages for compatibility
     assert response2.json()["detail"] in [
-        "Für diesen Zähler existiert bereits ein Tarifzeitraum mit diesem Startdatum.",
+        (
+            "Für diesen Zähler und diese Tarifart überschneidet sich der Zeitraum "
+            "mit einem bestehenden Eintrag."
+        ),
         "Der Vorgang verletzt eine Datenbank-Beschränkung."
     ]
 
@@ -207,22 +216,26 @@ def test_delete_nonexistent_tariff_period(client):
     assert "detail" in response.json()
 
 
-def test_tariff_period_overlap_constraint(client, sample_meter_data):
-    """Test that overlapping tariff periods are prevented (implied by unique constraint)."""
+def test_create_adjacent_tariff_periods_ok(client, sample_meter_data):
+    """Adjacent periods without overlap must both be accepted.
+
+    valid_to is inclusive, so the next period must start the day after.
+    """
     meter_response = client.post("/api/meters/", json=sample_meter_data)
     meter_id = meter_response.json()["id"]
     
-    # First tariff period
+    # First tariff period: 2024-01-01 .. 2024-12-31 (inclusive)
     tariff_data1 = {
         "meter_id": meter_id,
         "valid_from": "2024-01-01",
+        "valid_to": "2024-12-31",
         "price_per_unit": "0.35490"
     }
     
-    # Second tariff period with different valid_from
+    # Second tariff period starts directly after: 2025-01-01 ..
     tariff_data2 = {
         "meter_id": meter_id,
-        "valid_from": "2024-07-01",
+        "valid_from": "2025-01-01",
         "price_per_unit": "0.40000"
     }
     
@@ -231,6 +244,150 @@ def test_tariff_period_overlap_constraint(client, sample_meter_data):
     
     response2 = client.post("/api/tariffs/", json=tariff_data2)
     assert response2.status_code == 200
+
+
+def test_create_tariff_period_same_kind_overlap_conflict(client, sample_meter_data):
+    """Overlapping periods with the same tariff_kind must be rejected with 409."""
+    meter_response = client.post("/api/meters/", json=sample_meter_data)
+    meter_id = meter_response.json()["id"]
+    
+    tariff_data1 = {
+        "meter_id": meter_id,
+        "tariff_kind": "consumption",
+        "valid_from": "2024-01-01",
+        "valid_to": "2024-12-31",
+        "price_per_unit": "0.35490"
+    }
+    
+    # Overlaps 2024-06-01..2024-08-31 within the same tariff_kind
+    tariff_data2 = {
+        "meter_id": meter_id,
+        "tariff_kind": "consumption",
+        "valid_from": "2024-06-01",
+        "valid_to": "2024-08-31",
+        "price_per_unit": "0.40000"
+    }
+    
+    response1 = client.post("/api/tariffs/", json=tariff_data1)
+    assert response1.status_code == 200
+    
+    response2 = client.post("/api/tariffs/", json=tariff_data2)
+    assert response2.status_code == 409
+    assert response2.json()["detail"] == (
+        "Für diesen Zähler und diese Tarifart überschneidet sich der Zeitraum "
+        "mit einem bestehenden Eintrag."
+    )
+
+
+def test_create_tariff_period_different_kind_identical_range_ok(client, sample_meter_data):
+    """Different tariff_kind values may use identical ranges (parallel components)."""
+    meter_response = client.post("/api/meters/", json=sample_meter_data)
+    meter_id = meter_response.json()["id"]
+    
+    tariff_data1 = {
+        "meter_id": meter_id,
+        "tariff_kind": "consumption",
+        "valid_from": "2024-01-01",
+        "valid_to": "2024-12-31",
+        "price_per_unit": "0.35490"
+    }
+    
+    tariff_data2 = {
+        "meter_id": meter_id,
+        "tariff_kind": "feed_in",
+        "valid_from": "2024-01-01",
+        "valid_to": "2024-12-31",
+        "price_per_unit": "0.08200"
+    }
+    
+    # The API returns 200 for successful creates (no 201 configured)
+    response1 = client.post("/api/tariffs/", json=tariff_data1)
+    assert response1.status_code == 200
+    assert response1.json()["tariff_kind"] == "consumption"
+    
+    response2 = client.post("/api/tariffs/", json=tariff_data2)
+    assert response2.status_code == 200
+    assert response2.json()["tariff_kind"] == "feed_in"
+
+
+def test_create_open_ended_period_conflicts_with_later_period(client, sample_meter_data):
+    """An open-ended period (valid_to = NULL) must conflict with any later period
+    of the same tariff_kind: daterange(valid_from, NULL, '[]') is unbounded above."""
+    meter_response = client.post("/api/meters/", json=sample_meter_data)
+    meter_id = meter_response.json()["id"]
+    
+    # Open-ended period
+    tariff_data1 = {
+        "meter_id": meter_id,
+        "tariff_kind": "consumption",
+        "valid_from": "2024-01-01",
+        "valid_to": None,
+        "price_per_unit": "0.35490"
+    }
+    
+    # Later period overlaps the unbounded open-ended one
+    tariff_data2 = {
+        "meter_id": meter_id,
+        "tariff_kind": "consumption",
+        "valid_from": "2025-01-01",
+        "price_per_unit": "0.40000"
+    }
+    
+    response1 = client.post("/api/tariffs/", json=tariff_data1)
+    assert response1.status_code == 200
+    
+    response2 = client.post("/api/tariffs/", json=tariff_data2)
+    assert response2.status_code == 409
+    assert response2.json()["detail"] == (
+        "Für diesen Zähler und diese Tarifart überschneidet sich der Zeitraum "
+        "mit einem bestehenden Eintrag."
+    )
+
+
+def test_filter_tariff_periods_by_tariff_kind(client, sample_meter_data):
+    """GET /api/tariffs/?tariff_kind=... must filter by kind."""
+    meter_response = client.post("/api/meters/", json=sample_meter_data)
+    meter_id = meter_response.json()["id"]
+    
+    consumption_data = {
+        "meter_id": meter_id,
+        "tariff_kind": "consumption",
+        "valid_from": "2024-01-01",
+        "price_per_unit": "0.35490"
+    }
+    feed_in_data = {
+        "meter_id": meter_id,
+        "tariff_kind": "feed_in",
+        "valid_from": "2024-01-01",
+        "price_per_unit": "0.08200"
+    }
+    
+    consumption_response = client.post("/api/tariffs/", json=consumption_data)
+    assert consumption_response.status_code == 200
+    feed_in_response = client.post("/api/tariffs/", json=feed_in_data)
+    assert feed_in_response.status_code == 200
+    consumption_id = consumption_response.json()["id"]
+    feed_in_id = feed_in_response.json()["id"]
+    
+    # Without filter: both are returned
+    all_response = client.get("/api/tariffs/")
+    assert all_response.status_code == 200
+    assert len(all_response.json()) == 2
+    
+    # Filtered: only feed_in
+    filtered_response = client.get("/api/tariffs/?tariff_kind=feed_in")
+    assert filtered_response.status_code == 200
+    data = filtered_response.json()
+    assert len(data) == 1
+    assert data[0]["id"] == feed_in_id
+    assert data[0]["tariff_kind"] == "feed_in"
+    assert data[0]["id"] != consumption_id
+    
+    # Filter for the other kind
+    consumption_filtered = client.get("/api/tariffs/?tariff_kind=consumption")
+    assert consumption_filtered.status_code == 200
+    assert len(consumption_filtered.json()) == 1
+    assert consumption_filtered.json()[0]["tariff_kind"] == "consumption"
 
 
 def test_health_endpoint(client):

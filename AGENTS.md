@@ -1,7 +1,7 @@
 # Agent Instructions
 
 ## Hard rules
-- `app/models/` contains SQLAlchemy ORM models with domain enums (e.g., `MeterType`)
+- `app/models/` contains SQLAlchemy ORM models with domain enums (e.g., `MeterType`, `TariffKind`)
 - All money and quantity values: `Decimal`, never `float`
 - Round only at output boundary: `.quantize(Decimal("0.01"), ROUND_HALF_UP)`
 - Decimal amounts are serialized as strings in JSON to preserve precision
@@ -13,7 +13,7 @@
 - Do not silently substitute a technology for the one that was requested (e.g. SQLite instead of PostgreSQL) - ask or report instead
 
 ## Commands
-- Test:   `cd backend && uv run --extra dev pytest` (no tests exist yet)
+- Test:   `cd backend && uv run --extra dev pytest` (needs the `db-test` container from docker-compose.dev.yml on port 5433; default TEST_DATABASE_URL is PostgreSQL there – tests requiring the EXCLUDE constraint FAIL on SQLite, by design)
 - Lint:   `cd backend && uv run --extra dev ruff check --fix && uv run --extra dev mypy app/models`
 - Dev:    `docker compose -f docker-compose.dev.yml up`
 - Prod:   `docker compose up -d --build` (uses docker-compose.yml, mounts `./backend/app:/app/app`)
@@ -44,3 +44,13 @@
 8. Fixed API URLs: production uses `/api` (nginx proxy), development uses `http://backend:8000`
 9. Fixed frontend SIGTERM handling: Added `exec` to nginx and npm commands in Dockerfiles for clean shutdown
 10. Standardized Dockerfile naming: frontend/Dockerfile (production), frontend/Dockerfile.dev (development), backend/Dockerfile
+11. Tariff overlap prevention: `excl_tariff_period_no_overlap` (EXCLUDE USING gist over meter_id, tariff_kind, daterange(valid_from, valid_to, '[]')) prevents overlaps within the same (meter_id, tariff_kind); different tariff_kind values may overlap. Dropped the old `uq_meter_valid_from` UNIQUE constraint – the EXCLUDE constraint covers it (same valid_from always overlaps, lower bound is inclusive). Downgrade does NOT recreate it (data with same valid_from but different tariff_kind would violate it)
+12. `valid_to` semantics: nullable = open-ended (still valid today), both bounds INCLUSIVE (daterange '[]') – adjacent periods must use valid_to = day before next valid_from
+13. Migration lesson: `op.add_column` does NOT auto-create native PG enum types (unlike `op.create_table`) – create the enum explicitly with `.create(checkfirst=True)` and drop it in downgrade. Use `DROP CONSTRAINT IF EXISTS` for constraint drops so a re-upgrade after downgrade still works
+14. Migration safety: the tariff migration checks existing rows for overlaps within (meter_id, tariff_kind) BEFORE creating the EXCLUDE constraint and aborts with a RuntimeError listing the conflicting rows – never auto-modify data in migrations
+15. Test default DB: conftest defaults TEST_DATABASE_URL to the PostgreSQL test DB (energy_tracker_test on localhost:5433, from db-test service). SQLite cannot enforce EXCLUDE/daterange, so tests must run on PostgreSQL
+17. Vite proxy configuration: Frontend development supports three environments via `VITE_PROXY_TARGET` environment variable:
+    - Docker dev: `VITE_PROXY_TARGET=http://backend:8000` (in docker-compose.dev.yml)
+    - Native dev: No env var → falls back to `http://localhost:8000` in vite.config.ts
+    - Production: Uses nginx with static build, not Vite dev server
+    - API client uses empty `VITE_API_URL` in dev (relative paths), `/api` in prod

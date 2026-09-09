@@ -25,9 +25,16 @@ Two approaches are supported:
 
 ```bash
 # With PostgreSQL test database (recommended)
+# Start test database container, if not yet started:
+docker compose -f docker-compose.dev.yml up -d db-test
+# Start tests
 cd backend
 TEST_DATABASE_URL="postgresql://postgres:postgres@localhost:5433/energy_tracker_test" \
   uv run --extra dev pytest
+
+# Stop Docker container again
+cd ..
+docker compose -f docker-compose.dev.yml down db-test
 
 # With SQLite (fallback)
 cd backend

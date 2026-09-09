@@ -78,9 +78,13 @@ For full Docker development (hot-reload for both frontend and backend):
 
 **Key differences in development setup:**
 - Frontend: Vite dev server on port 3000 (not nginx)
-- Backend: Auto-reload enabled for code changes
-- Database: Healthcheck ensures backend waits for ready DB
-- Volumes: Code is mounted for live editing
+  - Backend: Auto-reload enabled for code changes
+  - Database: Healthcheck ensures backend waits for ready DB
+  - Volumes: Code is mounted for live editing
+  - Proxy Configuration:
+    - Docker dev: API calls go through Vite proxy to `backend:8000`
+    - Native dev: API calls go directly to `localhost:8000` (no Vite proxy)
+    - Production: API calls go through nginx proxy to `backend:8000`
 
 #### Backend Setup
 

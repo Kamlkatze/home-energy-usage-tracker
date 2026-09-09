@@ -17,15 +17,21 @@ const MeterDetail: React.FC = () => {
 
   useEffect(() => {
     if (id) {
-      fetchData();
+      const meterId = parseInt(id);
+      if (isNaN(meterId)) {
+        setError('Invalid meter ID');
+        setLoading(false);
+        return;
+      }
+      fetchData(meterId);
     }
   }, [id]);
 
-  const fetchData = async () => {
+  const fetchData = async (meterId: number) => {
     try {
       setLoading(true);
-      const meterData = await metersApi.getById(parseInt(id!));
-      const readingsData = await metersApi.getReadings(parseInt(id!));
+      const meterData = await metersApi.getById(meterId);
+      const readingsData = await metersApi.getReadings(meterId);
       
       setMeter(meterData);
       setReadings(readingsData);
