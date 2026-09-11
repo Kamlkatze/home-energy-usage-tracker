@@ -1,7 +1,7 @@
 """Extend MeterType enum from 3 generic to 6 specific values
 
-Revision ID: extend_meter_type_enum
-Revises: tariff_kind_no_overlap
+Revision ID: b92bea1faa8f
+Revises: 1f8d3205b439
 Create Date: 2026-09-09 00:00:00.000000
 
 A PostgreSQL enum type cannot have values removed via ALTER TYPE, so the
@@ -15,8 +15,8 @@ Downgrade restores the original 3-value enum (same swap technique).
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision = 'extend_meter_type_enum'
-down_revision = 'tariff_kind_no_overlap'
+revision = 'b92bea1faa8f'
+down_revision = '1f8d3205b439'
 branch_labels = None
 depends_on = None
 
