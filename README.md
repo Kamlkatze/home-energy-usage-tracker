@@ -337,8 +337,67 @@ For troubleshooting and advanced shutdown options, see the complete documentatio
 }
 ```
 
-### Projections
-- `GET /api/meters/{id}/projection?year={year}&as_of_date={date}` - Calculate annual consumption projection for a meter. The `as_of_date` parameter is optional, defaults to server date (date.today()). Returns **200 OK** even with insufficient data (projection = null), **404** if meter not found, **422** for invalid year (outside 2000-2100 range).
+### Yearly Projection with Cost
+- `GET /api/costs/yearly-projection?meter_id={id}&year={year}&as_of_date={date}` - Combine annual consumption projection with cost calculation. The `as_of_date` parameter is optional, defaults to server date (datetime.now(UTC).date()). Returns **200 OK** even with insufficient data or missing tariff, **404** if meter not found, **422** for invalid year (outside 2000-2100 range).
+
+**Calculation Logic:**
+1. **Projection**: Uses the same logic as `/api/meters/{id}/projection` to get projected annual consumption
+2. **Active tariff**: Finds the consumption tariff active on `as_of_date` for the meter
+3. **Actual cost**: Calculates cost from Jan 1 of `year` to `as_of_date` using existing cost calculation logic
+4. **Projected cost**: Estimates annual cost using projected consumption and active tariff's rates
+
+**Edge cases:**
+- No active tariff → `projected_annual_cost = null` with explanatory message
+- Insufficient data for projection → `projected_annual_cost = null` (projection basis will be "insufficient_data")
+- Multiple tariff periods historically → correctly picks the one active on `as_of_date`
+
+#### Example GET /api/costs/yearly-projection?meter_id=1&year=2025&as_of_date=2025-06-01 response:
+```json
+{
+  "meter_id": 1,
+  "year": 2025,
+  "unit": "kWh",
+  "as_of_date": "2025-06-01",
+  "actual_consumption_to_date": "250.500",
+  "projected_annual_consumption": "601.447",
+  "basis": "linear_from_prev_year_end",
+  "actual_cost_to_date": "92.35",
+  "projected_annual_cost": "221.89",
+  "message": null
+}
+```
+
+#### Example no active tariff response:
+```json
+{
+  "meter_id": 1,
+  "year": 2025,
+  "unit": "kWh",
+  "as_of_date": "2025-06-01",
+  "actual_consumption_to_date": "250.500",
+  "projected_annual_consumption": "601.447",
+  "basis": "linear_from_prev_year_end",
+  "actual_cost_to_date": null,
+  "projected_annual_cost": null,
+  "message": "Kein aktiver Tarif für dieses Datum gefunden."
+}
+```
+
+#### Example insufficient data response:
+```json
+{
+  "meter_id": 1,
+  "year": 2025,
+  "unit": "kWh",
+  "as_of_date": "2025-06-01",
+  "actual_consumption_to_date": null,
+  "projected_annual_consumption": null,
+  "basis": "insufficient_data",
+  "actual_cost_to_date": null,
+  "projected_annual_cost": null,
+  "message": "Nicht genügend Zählerstände im Jahr 2025 vorhanden, um eine Hochrechnung zu erstellen."
+}
+```
 
 **Calculation Logic:**
 - **Year completed** (year < as_of_date.year): Actual consumption = end.value - start.value (real yearly consumption)
@@ -490,7 +549,8 @@ home-energy-usage-tracker/
 │   │   │   ├── meter.py              # Meter schemas (Create, Update, Response)
 │   │   │   ├── projection.py         # Projection response schema
 │   │   │   ├── reading.py            # Reading schemas
-│   │   │   └── tariff_period.py      # TariffPeriod schemas with TariffKind
+│   │   │   ├── tariff_period.py      # TariffPeriod schemas with TariffKind
+│   │   │   └── yearly_projection_cost.py # Yearly projection with cost response schema
 │   │   ├── services/
 │   │   │   └── projection.py         # Business logic for projection calculations
 │   │   ├── __init__.py

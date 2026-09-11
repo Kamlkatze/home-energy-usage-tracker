@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -6,6 +6,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from .. import models, schemas
+from ..services.projection import ProjectionService
 from .deps import get_database_session
 
 router = APIRouter()
@@ -141,6 +142,90 @@ def _get_overlapping_tariffs(
         )
     
     return tariffs
+
+
+def _get_boundary_readings_for_yearly_cost(
+    db: Session, meter_id: int, year: int, as_of_date: date
+) -> tuple[models.Reading, models.Reading] | tuple[None, None]:
+    """Find boundary readings for yearly cost calculation.
+    
+    Similar to projection logic:
+    - Start: prefer reading on Dec 31 of previous year, fallback to first reading in year
+    - End: last reading <= as_of_date
+    """
+    # Try to get reading from previous year's end exactly
+    prev_year_end = date(year - 1, 12, 31)
+    prev_year_reading = (
+        db.query(models.Reading)
+        .filter(
+            models.Reading.meter_id == meter_id,
+            models.Reading.reading_date == prev_year_end
+        )
+        .first()
+    )
+    
+    if prev_year_reading:
+        start_reading = prev_year_reading
+    else:
+        # Fallback to first reading in the target year
+        year_start = date(year, 1, 1)
+        start_reading = (
+            db.query(models.Reading)
+            .filter(
+                models.Reading.meter_id == meter_id,
+                models.Reading.reading_date >= year_start,
+                models.Reading.reading_date <= as_of_date
+            )
+            .order_by(models.Reading.reading_date.asc())
+            .first()
+        )
+    
+    # End reading: last reading <= as_of_date
+    end_reading = (
+        db.query(models.Reading)
+        .filter(
+            models.Reading.meter_id == meter_id,
+            models.Reading.reading_date <= as_of_date
+        )
+        .order_by(models.Reading.reading_date.desc())
+        .first()
+    )
+    
+    if not start_reading or not end_reading:
+        return None, None
+    
+    # Check if start and end are valid (end > start)
+    if end_reading.reading_date <= start_reading.reading_date:
+        return None, None
+    
+    return start_reading, end_reading
+
+
+def _get_active_tariff_for_date(
+    db: Session,
+    meter_id: int,
+    tariff_kind: models.TariffKind,
+    target_date: date,
+) -> models.TariffPeriod | None:
+    """Get the tariff period active on a specific date.
+    
+    Returns the tariff period where target_date falls within [valid_from, valid_to]
+    (both bounds inclusive) or valid_to is NULL (open-ended).
+    Returns None if no active tariff found.
+    """
+    return (
+        db.query(models.TariffPeriod)
+        .filter(
+            models.TariffPeriod.meter_id == meter_id,
+            models.TariffPeriod.tariff_kind == tariff_kind,
+            models.TariffPeriod.valid_from <= target_date,
+            or_(
+                models.TariffPeriod.valid_to.is_(None),
+                models.TariffPeriod.valid_to >= target_date,
+            ),
+        )
+        .first()
+    )
 
 
 def _get_meter_or_404(db: Session, meter_id: int) -> models.Meter:
@@ -328,4 +413,190 @@ def calculate_wastewater_costs(
         price_per_unit=price_per_unit,
         base_fee_total=base_fee_total,
         total_cost=total_cost,
+    )
+
+@router.get("/yearly-projection", response_model=schemas.YearlyProjectionWithCostResponse)
+def get_yearly_projection_with_cost(
+    meter_id: int = Query(..., description="Zähler ID"),
+    year: int = Query(..., description="Jahr für das die Hochrechnung erstellt wird"),
+    as_of_date: date | None = Query(
+        None,
+        description=(
+            "Referenzdatum 'heute', bestimmt den aktiven Tarif und das "
+            "Ende des bisherigen Verbrauchszeitraums. "
+            "Falls nicht angegeben: Server-Datum (date.today())."
+        ),
+    ),
+    db: Session = Depends(get_database_session),
+) -> schemas.YearlyProjectionWithCostResponse:
+    """Calculate yearly projection with estimated cost.
+    
+    Combines the annual consumption projection with cost calculation:
+    1. Gets projected annual consumption from ProjectionService
+    2. Determines tariff active on as_of_date (tariff_kind="consumption")
+    3. Calculates actual cost from Jan 1 to as_of_date using existing cost logic
+    4. Estimates projected annual cost using projected consumption and active tariff
+    
+    Edge cases:
+    - No active tariff → projected_annual_cost = null with message
+    - No projection possible (insufficient_data) → projected_annual_cost = null
+    - Meter not found → 404
+    - Invalid year → 422
+    """
+    if as_of_date is None:
+        as_of_date = datetime.now(UTC).date()
+    
+    # 1. Get projection from ProjectionService
+    try:
+        projection_data = ProjectionService.calculate_projection(
+            db=db,
+            meter_id=meter_id,
+            year=year,
+            as_of_date=as_of_date,
+        )
+    except ValueError as e:
+        error_msg = str(e)
+        if "Meter mit ID" in error_msg:
+            raise HTTPException(status_code=404, detail=error_msg)
+        elif "Jahr" in error_msg:
+            raise HTTPException(status_code=422, detail=error_msg)
+        else:
+            # Unexpected validation error
+            raise HTTPException(status_code=422, detail=error_msg)
+    except Exception as e:  # noqa: BLE001
+        # Catch-all for unexpected errors (database errors, etc.)
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Interner Serverfehler: {e!s}"
+        )
+    
+    # 2. Get active tariff for as_of_date
+    active_tariff = _get_active_tariff_for_date(
+        db=db,
+        meter_id=meter_id,
+        tariff_kind=models.TariffKind.CONSUMPTION,
+        target_date=as_of_date,
+    )
+    
+    # 3. Calculate actual cost to date (Jan 1 of year to as_of_date)
+    actual_cost_to_date = None
+    try:
+        year_start = date(year, 1, 1)
+        
+        # Use existing cost calculation logic for actual cost
+        if as_of_date > year_start:
+            # For ongoing years, use projection-like boundary reading logic
+            # This ensures consistency with projection's actual_consumption_to_date
+            boundary_readings = _get_boundary_readings_for_yearly_cost(
+                db, meter_id, year, as_of_date
+            )
+            
+            if boundary_readings[0] is not None and boundary_readings[1] is not None:
+                start_reading, end_reading = boundary_readings
+                total_consumption = end_reading.value - start_reading.value
+                _raise_if_negative(total_consumption)
+                
+                # Calculate the actual period covered by the readings
+                reading_start_date = start_reading.reading_date
+                reading_end_date = end_reading.reading_date
+                total_days = (reading_end_date - reading_start_date).days
+                
+                if total_days > 0:
+                    # Calculate overlap with Jan 1 to as_of_date period
+                    cost_start_date = max(year_start, reading_start_date)
+                    cost_end_date = min(as_of_date, reading_end_date)
+                    
+                    # Prorate consumption based on overlap days
+                    overlap_days = (cost_end_date - cost_start_date).days
+                    if overlap_days > 0:
+                        prorated_consumption = total_consumption * Decimal(overlap_days) / Decimal(total_days)
+                        
+                        # Get tariffs covering the period
+                        tariffs_period = _get_overlapping_tariffs(
+                            db, meter_id, models.TariffKind.CONSUMPTION, cost_start_date, cost_end_date
+                        )
+                        
+                        # Calculate cost using existing multi-period logic
+                        _, total_cost, _ = _compute_cost_fields_multiperiod(
+                            prorated_consumption, tariffs_period, cost_start_date, cost_end_date
+                        )
+                        actual_cost_to_date = total_cost
+    except HTTPException:
+        # If no readings or no tariff for the period, actual_cost_to_date remains None
+        # This is acceptable - we still return projection data
+        pass
+    except ValueError:
+        # Log but don't fail the whole request
+        # actual_cost_to_date remains None
+        pass
+    
+    # 4. Calculate projected annual cost if we have projection
+    projected_annual_cost = None
+    message = None
+    
+    if (
+        projection_data["projected_annual_consumption"] is not None
+        and projection_data["basis"] != "insufficient_data"
+    ):
+        # Determine which tariff to use based on year status
+        year_status = ProjectionService.analyze_year_status(year, as_of_date)
+        
+        if year_status == "completed":
+            # For completed years, calculate cost for the full year
+            # using tariffs covering the year, not tariff active on as_of_date
+            year_start = date(year, 1, 1)
+            year_end = date(year, 12, 31)
+            
+            try:
+                # Get tariffs covering the full year
+                tariffs_year = _get_overlapping_tariffs(
+                    db, meter_id, models.TariffKind.CONSUMPTION, year_start, year_end
+                )
+                
+                # Calculate cost for the full year
+                projected_consumption = projection_data["projected_annual_consumption"]
+                _, total_cost, _ = _compute_cost_fields_multiperiod(
+                    projected_consumption, tariffs_year, year_start, year_end
+                )
+                projected_annual_cost = total_cost
+            except (HTTPException, ValueError):
+                # No tariff covering the full year
+                message = "Kein Tarif für das gesamte Jahr gefunden."
+        else:
+            # For ongoing or future years, use tariff active on as_of_date
+            if active_tariff is not None:
+                # Calculate projected cost for full year using active tariff
+                projected_consumption = projection_data["projected_annual_consumption"]
+                price_per_unit = active_tariff.price_per_unit
+                base_fee_monthly = (
+                    active_tariff.base_fee_monthly
+                    if active_tariff.base_fee_monthly is not None
+                    else Decimal(0)
+                )
+                
+                # Energy cost: projected_consumption * price_per_unit
+                energy_cost = projected_consumption * price_per_unit
+                
+                # Base fee for full year: base_fee_monthly * 12
+                # Use proper rounding at output boundary
+                base_fee_annual_raw = base_fee_monthly * Decimal(12)
+                total_cost_raw = energy_cost + base_fee_annual_raw
+                projected_annual_cost = total_cost_raw.quantize(_CENT, rounding=ROUND_HALF_UP)
+            else:
+                message = "Kein aktiver Tarif für dieses Datum gefunden."
+    elif projection_data["basis"] == "insufficient_data":
+        message = projection_data.get("message")
+    
+    # Combine projection data with cost calculations
+    return schemas.YearlyProjectionWithCostResponse(
+        meter_id=meter_id,
+        year=year,
+        unit=projection_data["unit"],
+        as_of_date=as_of_date,
+        actual_consumption_to_date=projection_data["actual_consumption_to_date"],
+        projected_annual_consumption=projection_data["projected_annual_consumption"],
+        basis=projection_data["basis"],
+        actual_cost_to_date=actual_cost_to_date,
+        projected_annual_cost=projected_annual_cost,
+        message=message,
     )
