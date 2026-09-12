@@ -53,12 +53,13 @@ uv run --extra dev pytest tests/test_meters.py
 uv run --extra dev pytest tests/test_costs.py
 uv run --extra dev pytest tests/test_meter_replacement.py
 uv run --extra dev pytest tests/test_advance_payments.py
+uv run --extra dev pytest tests/test_advance_payment_diff.py
 
 # Run with verbose output
 uv run --extra dev pytest -v
 ```
 
-**Test Coverage (150 tests, all passing):**
+**Test Coverage (158 tests, all passing):**
 - CRUD operations for meters, readings, tariff periods, and advance payments
 - Database constraint validation (foreign keys, uniqueness, EXCLUDE overlap)
 - Advance payment overlap prevention (EXCLUDE USING gist with daterange)
@@ -68,6 +69,7 @@ uv run --extra dev pytest -v
 - Wastewater cost calculation
 - Annual consumption projection
 - Yearly projection with cost
+- Advance payment diff (cost vs. Abschläge comparison)
 - Decimal serialization as strings
 
 ## Data Model
@@ -154,6 +156,18 @@ When the requested meter has a `replaces_meter_id` (or a chain of them), the end
 
 This prevents negative consumption from a counter reset on the new meter and correctly
 applies any tariff changes that happened during the period.
+
+### Advance Payment Diff
+
+**`GET /api/costs/advance-payment-diff?meter_id={id}&year={year}&as_of_date={date}`**
+
+Compares paid/planned monthly Abschläge against the estimated annual cost:
+
+1. **Annual cost** — same logic as `/api/costs/yearly-projection` (actual for completed years, projected for ongoing/future)
+2. **Total advance payments** — all `AdvancePayment` records overlapping the year, prorated by days (`monthly_amount × overlap_days / 30`, same 30-day-month convention as base fee)
+3. **Difference** — `total_advance_payments - estimated_or_actual_cost` (positive = Guthaben, negative = Nachzahlung)
+
+Returns **200** with `total_advance_payments: null` when no advance payment exists. Returns **404** when meter not found, **422** for invalid year (outside 2000–2100).
 
 ## Projection Service
 

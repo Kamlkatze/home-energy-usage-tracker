@@ -10,6 +10,7 @@ A simple, local application for tracking electricity, gas, and water consumption
 - **Tariff management**: Track price per unit and base fees for different periods
 - **Advance payment management**: Track monthly Abschläge per meter with time-range validity and overlap protection
 - **Meter replacement chain**: When a physical meter is swapped, link the new meter to its predecessor via `replaces_meter_id`. Cost calculations automatically follow the chain, summing each meter's contribution — no negative consumption from a counter reset on the new device
+- **Advance payment comparison**: Compare paid/planned monthly Abschläge against the estimated or actual annual cost to see whether you'll receive a refund (Guthaben) or owe a Nachzahlung
 - **Local deployment**: All data stays on your machine, no cloud services
 - **No authentication**: Single-user, local operation only
 
@@ -503,6 +504,47 @@ Note: Previously separate `base_fee` and `metering_fee` tariff kinds have been m
 - Does not account for seasonal consumption patterns
 - Negative consumption values (meter rollover) are calculated as-is, not validated or clamped
 
+### Advance Payment Diff (Cost vs. Abschläge)
+- `GET /api/costs/advance-payment-diff?meter_id={id}&year={year}&as_of_date={date}` - Calculate the difference between paid/planned advance payments and the estimated or actual annual cost for a meter and year. `as_of_date` is optional (defaults to server date). Returns **200** even with no advance payments or no tariff, **404** if meter not found, **422** for invalid year (outside 2000-2100 range).
+
+**Calculation Logic:**
+1. **Annual cost** — Uses the same logic as `/api/costs/yearly-projection`:
+   - Completed year: actual full-year cost from all tariffs covering the year (`cost_basis: "actual"`)
+   - Ongoing/future year: projected cost using the tariff active on `as_of_date` (`cost_basis: "projected"`)
+2. **Total advance payments** — Sums all `AdvancePayment` records for the meter that overlap the year, prorated by days (fixed 30-day month, same convention as `base_fee_monthly`). Each period contributes `monthly_amount × overlap_days / 30`.
+3. **Difference** — `total_advance_payments - estimated_or_actual_cost` (positive = Guthaben, negative = Nachzahlung)
+
+**Edge cases:**
+- No advance payment exists → `total_advance_payments: null`, `difference: null`, message: `"Kein Abschlag für dieses Jahr hinterlegt."` (still returns 200)
+- Annual cost unavailable (no tariff, insufficient data, missing gas factors) → `estimated_or_actual_cost: null`, `cost_basis: null`, `difference: null`
+- Both cost and advance payment missing → combined message
+
+#### Example GET /api/costs/advance-payment-diff?meter_id=1&year=2025&as_of_date=2025-06-01 response:
+```json
+{
+  "meter_id": 1,
+  "year": 2025,
+  "estimated_or_actual_cost": "845.30",
+  "cost_basis": "projected",
+  "total_advance_payments": "800.00",
+  "difference": "-45.30",
+  "message": null
+}
+```
+
+#### Example no advance payment response:
+```json
+{
+  "meter_id": 1,
+  "year": 2025,
+  "estimated_or_actual_cost": "845.30",
+  "cost_basis": "projected",
+  "total_advance_payments": null,
+  "difference": null,
+  "message": "Kein Abschlag für dieses Jahr hinterlegt."
+}
+```
+
 ## Database Schema
 
 ### Meter
@@ -592,7 +634,8 @@ home-energy-usage-tracker/
 │   │   ├── api/
 │   │   │   ├── __init__.py           # Router registration
 │   │   │   ├── advance_payments.py   # CRUD endpoints for advance payments
-│   │   │   ├── costs.py              # Cost calculation endpoint for a date range
+│   │   │   ├── costs.py              # Cost calculation, wastewater, yearly projection,
+│   │   │   │                         #   and advance-payment-diff endpoints
 │   │   │   ├── deps.py               # Dependency injection (database session)
 │   │   │   ├── meters.py             # CRUD endpoints for meters
 │   │   │   ├── projections.py        # Projection endpoints for annual consumption
@@ -608,7 +651,7 @@ home-energy-usage-tracker/
 │   │   ├── schemas/
 │   │   │   ├── __init__.py           # Exports all Pydantic schemas
 │   │   │   ├── advance_payment.py    # AdvancePayment schemas (Create, Update, Response)
-│   │   │   ├── cost.py               # Cost calculation response schema
+│   │   │   ├── cost.py               # Cost, wastewater, and advance-payment-diff schemas
 │   │   │   ├── meter.py              # Meter schemas (Create, Update, Response)
 │   │   │   ├── projection.py         # Projection response schema
 │   │   │   ├── reading.py            # Reading schemas

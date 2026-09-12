@@ -1,5 +1,9 @@
 from .advance_payment import AdvancePayment, AdvancePaymentCreate, AdvancePaymentUpdate
-from .cost import CostCalculationResponse, WastewaterCostCalculationResponse
+from .cost import (
+    AdvancePaymentDiffResponse,
+    CostCalculationResponse,
+    WastewaterCostCalculationResponse,
+)
 from .meter import Meter, MeterCreate, MeterTypeInfo, MeterUpdate
 from .projection import ProjectionResponse
 from .reading import Reading, ReadingCreate, ReadingUpdate
@@ -9,6 +13,7 @@ from .yearly_projection_cost import YearlyProjectionWithCostResponse
 __all__ = [
     "AdvancePayment",
     "AdvancePaymentCreate",
+    "AdvancePaymentDiffResponse",
     "AdvancePaymentUpdate",
     "CostCalculationResponse",
     "Meter",

@@ -1,5 +1,6 @@
 from datetime import UTC, date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import or_
@@ -1025,5 +1026,239 @@ def get_yearly_projection_with_cost(
         basis=projection_data["basis"],
         actual_cost_to_date=actual_cost_to_date,
         projected_annual_cost=projected_annual_cost,
+        message=message,
+    )
+
+
+def _compute_total_advance_payments(
+    db: Session, meter_id: int, year: int
+) -> tuple[Decimal, bool]:
+    """Sum the advance payments for a meter overlapping a year, prorated by days.
+
+    Each advance payment period contributes `monthly_amount * overlap_days / 30`
+    (fixed 30-day month, same proration convention as base_fee_monthly).
+    Periods use inclusive bounds on both ends ([valid_from, valid_to] with
+    NULL valid_to = open-ended). The year spans [Jan 1, Dec 31] inclusive.
+
+    Returns (total, found) where found is False when no payment overlaps
+    the year (total is then Decimal(0)).
+    """
+    year_start = date(year, 1, 1)
+    year_end = date(year, 12, 31)
+
+    payments = (
+        db.query(models.AdvancePayment)
+        .filter(
+            models.AdvancePayment.meter_id == meter_id,
+            models.AdvancePayment.valid_from <= year_end,
+            or_(
+                models.AdvancePayment.valid_to.is_(None),
+                models.AdvancePayment.valid_to >= year_start,
+            ),
+        )
+        .order_by(models.AdvancePayment.valid_from.asc())
+        .all()
+    )
+
+    if not payments:
+        return Decimal(0), False
+
+    total_raw = Decimal(0)
+    for payment in payments:
+        # Overlap between [year_start, year_end] and [valid_from, valid_to];
+        # both bounds inclusive, so the last day is counted.
+        overlap_start = max(year_start, payment.valid_from)
+        overlap_end = year_end
+        if payment.valid_to is not None:
+            overlap_end = min(year_end, payment.valid_to)
+        overlap_days = Decimal((overlap_end - overlap_start).days + 1)
+        if overlap_days <= 0:
+            continue
+        total_raw += payment.monthly_amount * overlap_days / _DAYS_PER_MONTH
+
+    total = total_raw.quantize(_CENT, rounding=ROUND_HALF_UP)
+    return total, True
+
+
+def _compute_yearly_cost_for_diff(
+    db: Session,
+    meter_id: int,
+    year: int,
+    as_of_date: date,
+    chain: list[models.Meter],
+) -> tuple[Decimal | None, Literal["actual", "projected"] | None, str | None]:
+    """Compute the estimated/actual annual cost for the advance-payment diff.
+
+    Reuses the same rules as the yearly-projection cost:
+    - Completed year: full-year cost from the tariffs covering the year
+      (basis "actual").
+    - Ongoing/future year: projected cost using the tariff active on
+      as_of_date (basis "projected").
+    - No projection possible / missing tariff / missing gas factors: the
+      cost stays None and the reason is returned in the message.
+
+    Returns (cost, cost_basis, message). Cost is already rounded and
+    returned as a Decimal; message is None on success.
+    """
+    # Validate year and meter (chain is built before, so the meter exists).
+    try:
+        ProjectionService.validate_year(year)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    try:
+        projection_data = ProjectionService.calculate_projection(
+            db=db,
+            meter_id=meter_id,
+            year=year,
+            as_of_date=as_of_date,
+            chain=chain,
+        )
+    except ValueError as e:
+        error_msg = str(e)
+        if "Meter mit ID" in error_msg:
+            raise HTTPException(status_code=404, detail=error_msg)
+        raise HTTPException(status_code=422, detail=error_msg)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(
+            status_code=500,
+            detail=f"Interner Serverfehler: {e!s}",
+        )
+
+    meter = chain[-1]
+
+    if (
+        projection_data["projected_annual_consumption"] is None
+        or projection_data["basis"] == "insufficient_data"
+    ):
+        return None, None, projection_data.get("message") or "Unzureichende Daten für die Hochrechnung."
+
+    year_status = ProjectionService.analyze_year_status(year, as_of_date)
+    projected_consumption = projection_data["projected_annual_consumption"]
+
+    if year_status == "completed":
+        # Full year cost with the tariffs covering the whole year; for a
+        # completed year the projected consumption IS the actual one.
+        year_start = date(year, 1, 1)
+        year_end = date(year, 12, 31)
+        try:
+            tariffs_year = _get_overlapping_tariffs(
+                db, meter_id, models.TariffKind.CONSUMPTION, year_start, year_end
+            )
+            _, total_cost, _ = _compute_cost_fields_multiperiod(
+                projected_consumption,
+                tariffs_year,
+                year_start,
+                year_end,
+                meter_type=meter.meter_type,
+            )
+            return total_cost, "actual", None
+        except HTTPException as e:
+            if e.status_code == 422:
+                return None, None, str(e.detail)
+            return None, None, str(e.detail)
+        except ValueError:
+            return None, None, "Kein Tarif für das gesamte Jahr gefunden."
+    else:
+        # Ongoing or future year: projected cost with the tariff active on
+        # as_of_date (same rules as the yearly-projection endpoint).
+        active_tariff = _get_active_tariff_for_date(
+            db=db,
+            meter_id=meter_id,
+            tariff_kind=models.TariffKind.CONSUMPTION,
+            target_date=as_of_date,
+        )
+        if active_tariff is None:
+            return None, None, "Kein aktiver Tarif für dieses Datum gefunden."
+
+        price_per_unit = active_tariff.price_per_unit
+        base_fee_monthly = (
+            active_tariff.base_fee_monthly
+            if active_tariff.base_fee_monthly is not None
+            else Decimal(0)
+        )
+
+        if (
+            meter.meter_type == models.MeterType.GAS
+            and (
+                active_tariff.gas_z_zahl is None
+                or active_tariff.gas_brennwert is None
+            )
+        ):
+            return None, None, _GAS_CONVERSION_FIELDS_MESSAGE
+
+        if meter.meter_type == models.MeterType.GAS:
+            projected_consumption = (
+                projected_consumption
+                * active_tariff.gas_z_zahl
+                * active_tariff.gas_brennwert
+            )
+
+        energy_cost = projected_consumption * price_per_unit
+        base_fee_annual_raw = base_fee_monthly * Decimal(12)
+        total_cost = (energy_cost + base_fee_annual_raw).quantize(
+            _CENT, rounding=ROUND_HALF_UP
+        )
+        return total_cost, "projected", None
+
+
+@router.get("/advance-payment-diff", response_model=schemas.AdvancePaymentDiffResponse)
+def get_advance_payment_diff(
+    meter_id: int = Query(...),
+    year: int = Query(...),
+    as_of_date: date | None = Query(
+        None,
+        description=(
+            "Referenzdatum 'heute' (Standard: Server-Datum). Bestimmt, ob das "
+            "Jahr als abgeschlossen ('actual') oder laufend/zukünftig "
+            "('projected') bewertet wird."
+        ),
+    ),
+    db: Session = Depends(get_database_session),
+):
+    """Calculate the difference between paid/planned advance payments and the
+    estimated/actual annual cost for a meter and a year.
+
+    difference = total_advance_payments - estimated_or_actual_cost
+    (positive = surplus/Guthaben, negative = Nachzahlung).
+    """
+    if as_of_date is None:
+        as_of_date = datetime.now(UTC).date()
+
+    # 404 when the meter does not exist; 422 for invalid years.
+    chain = _build_meter_chain(db, meter_id)
+
+    # 1. Estimated/actual annual cost (same logic as yearly-projection).
+    try:
+        estimated_or_actual_cost, cost_basis, cost_message = _compute_yearly_cost_for_diff(
+            db, meter_id, year, as_of_date, chain
+        )
+    except HTTPException as e:
+        if e.status_code == 422 and "Jahr" not in str(e.detail):
+            # Meter-chain lookups never raise on the year; re-raise as is.
+            raise
+        raise
+
+    # 2. Total advance payments overlapping the year, prorated by days.
+    total_advance_payments, found = _compute_total_advance_payments(db, meter_id, year)
+
+    # 3. Difference.
+    difference = None
+    if estimated_or_actual_cost is not None and found:
+        difference = (total_advance_payments - estimated_or_actual_cost).quantize(
+            _CENT, rounding=ROUND_HALF_UP
+        )
+
+    message = _combine_messages(cost_message, None if found else "Kein Abschlag für dieses Jahr hinterlegt.")
+
+    return schemas.AdvancePaymentDiffResponse(
+        meter_id=meter_id,
+        year=year,
+        estimated_or_actual_cost=(
+            str(estimated_or_actual_cost) if estimated_or_actual_cost is not None else None
+        ),
+        cost_basis=cost_basis,
+        total_advance_payments=str(total_advance_payments) if found else None,
+        difference=str(difference) if difference is not None else None,
         message=message,
     )
