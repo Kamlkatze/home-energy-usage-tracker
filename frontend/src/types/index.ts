@@ -23,6 +23,8 @@ export interface Meter {
   meter_number: string | null;
   unit: string;
   created_at: string;
+  // ID des Vorgänger-Zählers, den dieser Zähler ersetzt (null = kein Vorgänger)
+  replaces_meter_id: number | null;
 }
 
 export interface Reading {

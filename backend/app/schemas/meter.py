@@ -9,6 +9,8 @@ class MeterBase(BaseModel):
     meter_type: MeterType
     label: str
     meter_number: str | None = None
+    # Optional: ID of the meter this one physically replaced.
+    replaces_meter_id: int | None = None
 
 
 class MeterCreate(MeterBase):
@@ -26,6 +28,7 @@ class MeterUpdate(BaseModel):
     meter_type: MeterType | None = None
     label: str | None = None
     meter_number: str | None = None
+    replaces_meter_id: int | None = None
 
 
 class Meter(MeterBase):

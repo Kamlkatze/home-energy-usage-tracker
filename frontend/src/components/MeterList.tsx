@@ -50,6 +50,16 @@ const MeterList: React.FC = () => {
     return <div className="p-8 text-center text-destructive">{error}</div>;
   }
 
+  // Build a lookup: which meter is replaced by which successor
+  const metersById = new Map(meters.map((m) => [m.id, m]));
+  // successorOf[id] = the meter that replaces meter id
+  const successorOf = new Map<number, Meter>();
+  for (const m of meters) {
+    if (m.replaces_meter_id !== null) {
+      successorOf.set(m.replaces_meter_id, m);
+    }
+  }
+
   return (
     <div className="p-6">
       <Card>
@@ -68,42 +78,63 @@ const MeterList: React.FC = () => {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {meters.map((meter) => (
-                <Card key={meter.id}>
-                  <CardContent className="p-4">
-                    <div className="flex justify-between items-start mb-2">
-                      <div>
-                        <h3 className="font-semibold text-lg">{meter.label}</h3>
-                        <p className="text-sm text-muted-foreground">
-                          {meterTypeLabel(meterTypes, meter.meter_type)}
+              {meters.map((meter) => {
+                const predecessor = meter.replaces_meter_id !== null
+                  ? metersById.get(meter.replaces_meter_id)
+                  : undefined;
+                const successor = successorOf.get(meter.id);
+                const isReplaced = !!successor;
+
+                return (
+                  <Card key={meter.id} className={isReplaced ? 'opacity-60' : undefined}>
+                    <CardContent className="p-4">
+                      <div className="flex justify-between items-start mb-2">
+                        <div>
+                          <h3 className="font-semibold text-lg">{meter.label}</h3>
+                          <p className="text-sm text-muted-foreground">
+                            {meterTypeLabel(meterTypes, meter.meter_type)}
+                          </p>
+                        </div>
+                        <span className="text-sm font-medium bg-primary/10 text-primary px-2 py-1 rounded">
+                          {meter.unit}
+                        </span>
+                      </div>
+
+                      {/* Zählerwechsel-Kette anzeigen */}
+                      {predecessor && (
+                        <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                          Ersetzt Zähler #{predecessor.id} „{predecessor.label}"
                         </p>
-                      </div>
-                      <span className="text-sm font-medium bg-primary/10 text-primary px-2 py-1 rounded">
-                        {meter.unit}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center mt-4">
-                      <div className="text-xs text-muted-foreground">
-                        Created: {new Date(meter.created_at).toLocaleDateString()}
-                      </div>
-                      <div className="flex gap-2">
-                        <Link to={`/meters/${meter.id}`}>
-                          <Button variant="outline" size="sm">
-                            View
+                      )}
+                      {successor && (
+                        <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                          Ersetzt durch Zähler #{successor.id} „{successor.label}"
+                        </p>
+                      )}
+
+                      <div className="flex justify-between items-center mt-4">
+                        <div className="text-xs text-muted-foreground">
+                          Created: {new Date(meter.created_at).toLocaleDateString()}
+                        </div>
+                        <div className="flex gap-2">
+                          <Link to={`/meters/${meter.id}`}>
+                            <Button variant="outline" size="sm">
+                              View
+                            </Button>
+                          </Link>
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={() => handleDelete(meter.id)}
+                          >
+                            Delete
                           </Button>
-                        </Link>
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          onClick={() => handleDelete(meter.id)}
-                        >
-                          Delete
-                        </Button>
+                        </div>
                       </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+                    </CardContent>
+                  </Card>
+                );
+              })}
             </div>
           )}
         </CardContent>
