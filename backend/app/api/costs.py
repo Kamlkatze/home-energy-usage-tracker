@@ -19,6 +19,35 @@ _CENT = Decimal("0.01")
 # calendar-accurate month lengths are out of scope for this iteration).
 _DAYS_PER_MONTH = Decimal(30)
 
+# Gas meters record consumption in m³ but gas contracts bill in €/kWh;
+# the missing conversion factors are a data quality error surfaced wherever
+# a cost is computed for a gas meter.
+_GAS_CONVERSION_FIELDS_MESSAGE = (
+    "Gastarife benötigen die Felder gas_z_zahl und "
+    "gas_brennwert zur Umrechnung von m³ in kWh."
+)
+
+
+def _combine_messages(*messages: str | None) -> str | None:
+    """Combine non-empty messages into a single one, deduplicating identical entries.
+
+    The yearly-projection response has one `message` field, but the
+    actual-cost and projected-cost paths can fail independently with
+    different reasons. Messages are joined with a single space; each keeps
+    its own trailing period. Identical messages (e.g. both paths failing on
+    missing gas conversion factors) are shown only once.
+    """
+    seen: set[str] = set()
+    parts: list[str] = []
+    for message in messages:
+        if message is None or not message.strip():
+            continue
+        if message in seen:
+            continue
+        seen.add(message)
+        parts.append(message)
+    return " ".join(parts) if parts else None
+
 
 def _raise_if_from_after_to(from_: date, to: date) -> None:
     if from_ > to:
@@ -264,44 +293,68 @@ def _compute_cost_fields(
 
 
 def _compute_cost_fields_multiperiod(
-    consumption: Decimal, tariffs: list[models.TariffPeriod], from_: date, to: date
+    consumption: Decimal,
+    tariffs: list[models.TariffPeriod],
+    from_: date,
+    to: date,
+    meter_type: models.MeterType | None = None,
 ) -> tuple[Decimal, Decimal, Decimal]:
     """Compute (base_fee_total, total_cost, first_price_per_unit) for multiple periods.
 
     Consumption is allocated proportionally by overlapping days in each period.
     Base fee proration uses a fixed 30-day month; money is rounded once
     at the output boundary (AGENTS.md).
-    
+
+    For gas meters (meter_type=MeterType.GAS) the per-period consumption
+    share (m³) is converted to kWh with that period's own conversion
+    factors BEFORE applying price_per_unit:
+        kWh = m³ * gas_z_zahl (Zustandszahl) * gas_brennwert (kWh/m³)
+    Both fields are required on every overlapping gas tariff period; a
+    missing value raises a 422. Non-gas meters pass meter_type=None and
+    are completely unaffected.
+
     Date range semantics:
     - The requested range [from_, to) is inclusive-exclusive: 'from_' counts, 'to' does not.
     - Tariff periods [valid_from, valid_to] are inclusive on both ends (DB daterange '[]').
     - Overlap calculation converts tariff periods to exclusive end: [valid_from, valid_to + 1 day).
     - Consumption is allocated proportionally by days in each overlapping subrange.
-    
+
     Returns the first period's price_per_unit for backward compatibility in API response.
     """
     total_days = Decimal((to - from_).days)
     if total_days == 0:
         # Should not happen due to _raise_if_from_after_to, but handle defensively
         total_days = Decimal("0.000001")
-    
+
     base_fee_total_raw = Decimal(0)
     energy_cost_raw = Decimal(0)
-    
+
     for tariff in tariffs:
         # Calculate overlap between [from_, to] and [tariff.valid_from, tariff.valid_to]
         period_start = max(from_, tariff.valid_from)
         period_end = to
         if tariff.valid_to is not None:
             period_end = min(to, tariff.valid_to + timedelta(days=1))  # valid_to is inclusive
-        
+
         overlap_days = Decimal((period_end - period_start).days)
         if overlap_days <= 0:
             continue
-            
+
         # Allocate consumption proportionally
         consumption_in_period = consumption * overlap_days / total_days
-        
+
+        # Gas meters record consumption in m³ but gas contracts bill in
+        # €/kWh: convert this period's share with its own factors.
+        if meter_type == models.MeterType.GAS:
+            if tariff.gas_z_zahl is None or tariff.gas_brennwert is None:
+                raise HTTPException(
+                    status_code=422,
+                    detail=_GAS_CONVERSION_FIELDS_MESSAGE,
+                )
+            consumption_in_period = (
+                consumption_in_period * tariff.gas_z_zahl * tariff.gas_brennwert
+            )
+
         # A null base_fee_monthly is treated as 0.
         base_fee_monthly = (
             tariff.base_fee_monthly if tariff.base_fee_monthly is not None else Decimal(0)
@@ -341,7 +394,7 @@ def calculate_costs(
     meter = _get_meter_or_404(db, meter_id)
 
     base_fee_total, total_cost, price_per_unit = _compute_cost_fields_multiperiod(
-        consumption, tariffs, from_, to
+        consumption, tariffs, from_, to, meter_type=meter.meter_type
     )
 
     return schemas.CostCalculationResponse(
@@ -440,6 +493,12 @@ def get_yearly_projection_with_cost(
     Edge cases:
     - No active tariff → projected_annual_cost = null with message
     - No projection possible (insufficient_data) → projected_annual_cost = null
+    - Actual cost unavailable (no tariff for the period, negative
+      consumption, gas factors missing) → actual_cost_to_date = null with
+      message; if the projected path also fails, both reasons are combined
+      into the single message field (deduplicated)
+    - Gas meter with tariff lacking gas_z_zahl/gas_brennwert → cost fields
+      null with explanatory message (200, same as "no active tariff")
     - Meter not found → 404
     - Invalid year → 422
     """
@@ -477,9 +536,15 @@ def get_yearly_projection_with_cost(
         tariff_kind=models.TariffKind.CONSUMPTION,
         target_date=as_of_date,
     )
+
+    # Meter type is needed for the gas m³→kWh conversion in the cost
+    # calculations below. The meter is guaranteed to exist because
+    # ProjectionService already validated it above.
+    meter = _get_meter_or_404(db, meter_id)
     
     # 3. Calculate actual cost to date (Jan 1 of year to as_of_date)
     actual_cost_to_date = None
+    actual_cost_message = None
     try:
         year_start = date(year, 1, 1)
         
@@ -518,16 +583,21 @@ def get_yearly_projection_with_cost(
                         
                         # Calculate cost using existing multi-period logic
                         _, total_cost, _ = _compute_cost_fields_multiperiod(
-                            prorated_consumption, tariffs_period, cost_start_date, cost_end_date
+                            prorated_consumption,
+                            tariffs_period,
+                            cost_start_date,
+                            cost_end_date,
+                            meter_type=meter.meter_type,
                         )
                         actual_cost_to_date = total_cost
-    except HTTPException:
-        # If no readings or no tariff for the period, actual_cost_to_date remains None
-        # This is acceptable - we still return projection data
-        pass
+    except HTTPException as e:
+        # The actual cost is not available (e.g. no tariff covering the
+        # period, negative consumption, or gas conversion factors missing).
+        # Surface the reason instead of silently returning null.
+        actual_cost_message = str(e.detail)
     except ValueError:
-        # Log but don't fail the whole request
-        # actual_cost_to_date remains None
+        # Unexpected non-HTTP error: log-worthy, actual_cost_to_date remains
+        # None without a user-facing message.
         pass
     
     # 4. Calculate projected annual cost if we have projection
@@ -556,16 +626,26 @@ def get_yearly_projection_with_cost(
                 # Calculate cost for the full year
                 projected_consumption = projection_data["projected_annual_consumption"]
                 _, total_cost, _ = _compute_cost_fields_multiperiod(
-                    projected_consumption, tariffs_year, year_start, year_end
+                    projected_consumption,
+                    tariffs_year,
+                    year_start,
+                    year_end,
+                    meter_type=meter.meter_type,
                 )
                 projected_annual_cost = total_cost
-            except (HTTPException, ValueError):
+            except HTTPException as e:
+                if e.status_code == 422:
+                    # Gas conversion factors missing on an applicable tariff.
+                    message = str(e.detail)
+                else:
+                    # No tariff covering the full year
+                    message = "Kein Tarif für das gesamte Jahr gefunden."
+            except ValueError:
                 # No tariff covering the full year
                 message = "Kein Tarif für das gesamte Jahr gefunden."
         else:
             # For ongoing or future years, use tariff active on as_of_date
             if active_tariff is not None:
-                # Calculate projected cost for full year using active tariff
                 projected_consumption = projection_data["projected_annual_consumption"]
                 price_per_unit = active_tariff.price_per_unit
                 base_fee_monthly = (
@@ -573,19 +653,47 @@ def get_yearly_projection_with_cost(
                     if active_tariff.base_fee_monthly is not None
                     else Decimal(0)
                 )
-                
-                # Energy cost: projected_consumption * price_per_unit
-                energy_cost = projected_consumption * price_per_unit
-                
-                # Base fee for full year: base_fee_monthly * 12
-                # Use proper rounding at output boundary
-                base_fee_annual_raw = base_fee_monthly * Decimal(12)
-                total_cost_raw = energy_cost + base_fee_annual_raw
-                projected_annual_cost = total_cost_raw.quantize(_CENT, rounding=ROUND_HALF_UP)
+
+                # Gas meters record consumption in m³ but gas contracts bill
+                # in €/kWh: convert the projected consumption with the active
+                # tariff's own conversion factors BEFORE applying
+                # price_per_unit (same rule as _compute_cost_fields_multiperiod).
+                if (
+                    meter.meter_type == models.MeterType.GAS
+                    and (
+                        active_tariff.gas_z_zahl is None
+                        or active_tariff.gas_brennwert is None
+                    )
+                ):
+                    message = _GAS_CONVERSION_FIELDS_MESSAGE
+                else:
+                    if meter.meter_type == models.MeterType.GAS:
+                        projected_consumption = (
+                            projected_consumption
+                            * active_tariff.gas_z_zahl
+                            * active_tariff.gas_brennwert
+                        )
+
+                    # Energy cost: projected_consumption * price_per_unit
+                    energy_cost = projected_consumption * price_per_unit
+
+                    # Base fee for full year: base_fee_monthly * 12
+                    # Use proper rounding at output boundary
+                    base_fee_annual_raw = base_fee_monthly * Decimal(12)
+                    total_cost_raw = energy_cost + base_fee_annual_raw
+                    projected_annual_cost = total_cost_raw.quantize(
+                        _CENT, rounding=ROUND_HALF_UP
+                    )
             else:
                 message = "Kein aktiver Tarif für dieses Datum gefunden."
     elif projection_data["basis"] == "insufficient_data":
         message = projection_data.get("message")
+
+    # Combine failures from the actual-cost path (if any) with the
+    # projected-cost/insufficient-data message (if any). Deduplication
+    # prevents e.g. the gas-factors message appearing twice when both paths
+    # fail on the same tariff.
+    message = _combine_messages(actual_cost_message, message)
     
     # Combine projection data with cost calculations
     return schemas.YearlyProjectionWithCostResponse(

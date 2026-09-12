@@ -23,8 +23,12 @@ def _create_reading(client, meter_id, value, reading_date):
     assert response.status_code == 200
 
 
-def _create_tariff(client, meter_id, valid_from, valid_to, price_per_unit, base_fee_monthly="12.50"):
-    """Create a consumption tariff period via the API."""
+def _create_tariff(client, meter_id, valid_from, valid_to, price_per_unit, base_fee_monthly="12.50", gas_z_zahl=None, gas_brennwert=None):
+    """Create a consumption tariff period via the API.
+
+    base_fee_monthly=None omits the field so the tariff has no base fee.
+    gas_z_zahl/gas_brennwert are only included when explicitly provided.
+    """
     payload = {
         "meter_id": meter_id,
         "tariff_kind": "consumption",
@@ -34,6 +38,10 @@ def _create_tariff(client, meter_id, valid_from, valid_to, price_per_unit, base_
     }
     if base_fee_monthly is not None:
         payload["base_fee_monthly"] = base_fee_monthly
+    if gas_z_zahl is not None:
+        payload["gas_z_zahl"] = gas_z_zahl
+    if gas_brennwert is not None:
+        payload["gas_brennwert"] = gas_brennwert
     response = client.post("/api/tariffs/", json=payload)
     assert response.status_code == 200
 
@@ -129,7 +137,13 @@ def test_yearly_projection_no_active_tariff(client):
     
     # But no projected cost because no active tariff
     assert data["projected_annual_cost"] is None
-    assert data["message"] == "Kein aktiver Tarif für dieses Datum gefunden."
+    # Both the actual-cost path (no tariff covering Jan 1 - Jan 15) and the
+    # projected path (no active tariff) fail; both reasons are concatenated
+    # into the single message field.
+    assert data["message"] == (
+        "Kein gültiger Tarif für diesen Zeitraum gefunden. "
+        "Kein aktiver Tarif für dieses Datum gefunden."
+    )
 
 
 def test_yearly_projection_insufficient_data(client):
@@ -285,3 +299,277 @@ def test_yearly_projection_default_as_of_date(client):
     assert response.status_code == 200
     data = response.json()
     assert data["as_of_date"] == datetime.now(UTC).date().isoformat()
+
+
+def test_yearly_projection_gas_ongoing_year(client):
+    """Gas meter (ongoing year): m³ consumption converted to kWh for actual
+    and projected costs.
+
+    Readings: 1000.000 (2023-12-31), 1100.000 (2024-01-15), 1200.000 (2024-02-15)
+    Tariff 2024-01-01..2024-12-31: price 0.10000 €/kWh, no base fee,
+      gas_z_zahl = 0.9612, gas_brennwert = 11.482
+
+    Projection: actual = 200.000 m³ over 46 days
+      projected_annual = 200/46 * 365 ≈ 1586.9565 m³ (stays in m³)
+
+    Actual cost to date [2024-01-01, 2024-02-15):
+      prorated = 200.000 * 45/46 = 195.6521... m³
+      kWh = 195.6521... * 0.9612 * 11.482 = 2159.3149... kWh
+      cost = 2159.3149... * 0.10000 = 215.9314... -> 215.93
+
+    Projected annual cost (active tariff, base fee 0):
+      kWh = 1586.9565... * 0.9612 * 11.482 = 17514.4431... kWh
+      cost = 17514.4431... * 0.10000 = 1751.4443... -> 1751.44
+    """
+    meter_id = _create_meter(client, meter_type="gas")
+
+    _create_reading(client, meter_id, "1000.000", "2023-12-31")
+    _create_reading(client, meter_id, "1100.000", "2024-01-15")
+    _create_reading(client, meter_id, "1200.000", "2024-02-15")
+
+    _create_tariff(
+        client,
+        meter_id,
+        valid_from="2024-01-01",
+        valid_to="2024-12-31",
+        price_per_unit="0.10000",
+        base_fee_monthly=None,
+        gas_z_zahl="0.9612",
+        gas_brennwert="11.482",
+    )
+
+    response = calculate_yearly_projection(client, meter_id, 2024, "2024-02-15")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["unit"] == "m³"
+    assert Decimal(data["actual_consumption_to_date"]) == Decimal("200.000")
+    assert data["basis"] == "linear_from_prev_year_end"
+    # Consumption stays in m³; only the billing amounts are converted.
+    assert Decimal(data["projected_annual_consumption"]) == Decimal(
+        (Decimal("200.000") / Decimal(46)) * Decimal(365)
+    )
+    assert Decimal(data["actual_cost_to_date"]) == Decimal("215.93")
+    assert Decimal(data["projected_annual_cost"]) == Decimal("1751.44")
+    assert data["message"] is None
+
+
+def test_yearly_projection_gas_missing_conversion_factors(client):
+    """Gas tariff without gas_z_zahl/gas_brennwert degrades gracefully:
+    200 OK, cost fields null, explanatory message (like "no active tariff")."""
+    meter_id = _create_meter(client, meter_type="gas")
+
+    _create_reading(client, meter_id, "1000.000", "2023-12-31")
+    _create_reading(client, meter_id, "1100.000", "2024-01-15")
+    _create_reading(client, meter_id, "1200.000", "2024-02-15")
+
+    _create_tariff(
+        client,
+        meter_id,
+        valid_from="2024-01-01",
+        valid_to="2024-12-31",
+        price_per_unit="0.10000",
+        base_fee_monthly=None,
+    )
+
+    response = calculate_yearly_projection(client, meter_id, 2024, "2024-02-15")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["basis"] == "linear_from_prev_year_end"
+    assert data["actual_cost_to_date"] is None
+    assert data["projected_annual_cost"] is None
+    # Both the actual-cost and the projected-cost path fail on the same
+    # missing fields; the combined message shows the reason only once.
+    assert data["message"] == (
+        "Gastarife benötigen die Felder gas_z_zahl und "
+        "gas_brennwert zur Umrechnung von m³ in kWh."
+    )
+
+
+def test_yearly_projection_gas_completed_year(client):
+    """Gas meter (completed year): both cost paths convert m³ to kWh.
+
+    Readings: 1000.000 (2022-12-31), 1500.000 (2023-06-30), 2000.000 (2023-12-31)
+    Tariff 2023-01-01..2023-12-31: price 0.10000 €/kWh, no base fee,
+      gas_z_zahl = 0.9612, gas_brennwert = 11.482
+
+    Projection: actual_full_year, 1000.000 m³ (stays in m³).
+
+    Actual cost path [2023-01-01, 2023-12-31):
+      prorated = 1000.000 * 364/365 = 997.2602... m³
+      kWh = 997.2602... * 0.9612 * 11.482 = 11006.2614... kWh
+      cost = 11006.2614... * 0.10000 = 1100.6261... -> 1100.63
+
+    Projected cost (full year):
+      kWh = 1000.000 * 0.9612 * 11.482 = 11036.4984 kWh
+      cost = 11036.4984 * 0.10000 = 1103.6498... -> 1103.65
+    """
+    meter_id = _create_meter(client, meter_type="gas")
+
+    _create_reading(client, meter_id, "1000.000", "2022-12-31")
+    _create_reading(client, meter_id, "1500.000", "2023-06-30")
+    _create_reading(client, meter_id, "2000.000", "2023-12-31")
+
+    _create_tariff(
+        client,
+        meter_id,
+        valid_from="2023-01-01",
+        valid_to="2023-12-31",
+        price_per_unit="0.10000",
+        base_fee_monthly=None,
+        gas_z_zahl="0.9612",
+        gas_brennwert="11.482",
+    )
+
+    response = calculate_yearly_projection(client, meter_id, 2023, "2024-01-15")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["unit"] == "m³"
+    assert data["basis"] == "actual_full_year"
+    assert Decimal(data["actual_consumption_to_date"]) == Decimal("1000.000")
+    assert Decimal(data["projected_annual_consumption"]) == Decimal("1000.000")
+    assert Decimal(data["actual_cost_to_date"]) == Decimal("1100.63")
+    assert Decimal(data["projected_annual_cost"]) == Decimal("1103.65")
+    assert data["message"] is None
+
+
+def test_yearly_projection_non_gas_unaffected_by_gas_fields(client):
+    """Regression: gas conversion must NOT apply to non-gas meters.
+
+    Same setup as the basic electricity test, but the tariff carries gas
+    conversion fields. The expected costs must equal the basic case
+    (raw kWh * price_per_unit), proving the conversion is skipped.
+    """
+    meter_id = _create_meter(client)  # electricity_import -> unit kWh
+
+    _create_reading(client, meter_id, "1000.000", "2023-12-31")
+    _create_reading(client, meter_id, "1100.000", "2024-01-15")
+    _create_reading(client, meter_id, "1200.000", "2024-02-15")
+
+    _create_tariff(
+        client,
+        meter_id,
+        valid_from="2024-01-01",
+        valid_to="2024-12-31",
+        price_per_unit="0.30000",
+        base_fee_monthly="10.00",
+        gas_z_zahl="0.9612",
+        gas_brennwert="11.482",
+    )
+
+    response = calculate_yearly_projection(client, meter_id, 2024, "2024-02-15")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["unit"] == "kWh"
+    # Identical to test_yearly_projection_with_cost_basic_case:
+    # no conversion applied despite gas fields on the tariff.
+    assert Decimal(data["actual_cost_to_date"]) == Decimal("73.70")
+    assert Decimal(data["projected_annual_cost"]) == Decimal("596.09")
+
+
+def test_yearly_projection_actual_cost_missing_gas_factors(client):
+    """Actual-cost path fails on missing gas factors, projected path succeeds.
+
+    Gas meter with two tariff periods: the tariff covering January lacks
+    gas_z_zahl/gas_brennwert (actual-cost path -> 422), while the open-ended
+    tariff active on as_of_date (Feb 15) has them (projected path -> 1751.44).
+    """
+    meter_id = _create_meter(client, meter_type="gas")
+
+    _create_reading(client, meter_id, "1000.000", "2023-12-31")
+    _create_reading(client, meter_id, "1100.000", "2024-01-15")
+    _create_reading(client, meter_id, "1200.000", "2024-02-15")
+
+    _create_tariff(
+        client,
+        meter_id,
+        valid_from="2024-01-01",
+        valid_to="2024-01-31",
+        price_per_unit="0.10000",
+        base_fee_monthly=None,
+    )
+    _create_tariff(
+        client,
+        meter_id,
+        valid_from="2024-02-01",
+        valid_to=None,
+        price_per_unit="0.10000",
+        base_fee_monthly=None,
+        gas_z_zahl="0.9612",
+        gas_brennwert="11.482",
+    )
+
+    response = calculate_yearly_projection(client, meter_id, 2024, "2024-02-15")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["actual_cost_to_date"] is None
+    # Projected path uses the active tariff (Feb 1, open-ended) with factors:
+    # kWh = 1586.9565... m³ * 0.9612 * 11.482 = 17514.4431...
+    # cost = 17514.4431... * 0.10000 = 1751.44
+    assert Decimal(data["projected_annual_cost"]) == Decimal("1751.44")
+    assert data["message"] == (
+        "Gastarife benötigen die Felder gas_z_zahl und "
+        "gas_brennwert zur Umrechnung von m³ in kWh."
+    )
+
+
+def test_yearly_projection_actual_cost_missing_tariff(client):
+    """Actual-cost path fails on a tariff gap, projected path succeeds.
+
+    The consumption tariff only starts on Jan 15, leaving Jan 1 - Jan 14
+    uncovered: the actual-cost path raises 404 ("Kein gültiger Tarif...")
+    while the projected path uses the active tariff at as_of_date and
+    computes a cost (596.09, identical to the basic electricity case).
+    """
+    meter_id = _create_meter(client)
+
+    _create_reading(client, meter_id, "1000.000", "2023-12-31")
+    _create_reading(client, meter_id, "1100.000", "2024-01-15")
+    _create_reading(client, meter_id, "1200.000", "2024-02-15")
+
+    _create_tariff(
+        client,
+        meter_id,
+        valid_from="2024-01-15",
+        valid_to=None,
+        price_per_unit="0.30000",
+        base_fee_monthly="10.00",
+    )
+
+    response = calculate_yearly_projection(client, meter_id, 2024, "2024-02-15")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["actual_cost_to_date"] is None
+    assert Decimal(data["projected_annual_cost"]) == Decimal("596.09")
+    assert data["message"] == "Kein gültiger Tarif für diesen Zeitraum gefunden."
+
+
+def test_yearly_projection_both_paths_fail_different_reasons(client):
+    """Both cost paths fail with different reasons: messages concatenated.
+
+    Electricity meter with no tariff at all: the actual-cost path cannot
+    find a tariff for Jan 1 - Feb 15 ("...für diesen Zeitraum...") and the
+    projected path has no active tariff at as_of_date ("...für dieses
+    Datum..."). Both reasons are shown, space-separated.
+    """
+    meter_id = _create_meter(client)
+
+    _create_reading(client, meter_id, "1000.000", "2023-12-31")
+    _create_reading(client, meter_id, "1100.000", "2024-01-15")
+    _create_reading(client, meter_id, "1200.000", "2024-02-15")
+
+    response = calculate_yearly_projection(client, meter_id, 2024, "2024-02-15")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["actual_cost_to_date"] is None
+    assert data["projected_annual_cost"] is None
+    assert data["message"] == (
+        "Kein gültiger Tarif für diesen Zeitraum gefunden. "
+        "Kein aktiver Tarif für dieses Datum gefunden."
+    )

@@ -22,10 +22,20 @@ def _create_reading(client, meter_id, value, reading_date):
     assert response.status_code == 200
 
 
-def _create_tariff(client, meter_id, valid_from, valid_to, price_per_unit, base_fee_monthly="12.50"):
+def _create_tariff(
+    client,
+    meter_id,
+    valid_from,
+    valid_to,
+    price_per_unit,
+    base_fee_monthly="12.50",
+    gas_z_zahl=None,
+    gas_brennwert=None,
+):
     """Create a consumption tariff period via the API.
 
     base_fee_monthly=None omits the field so the tariff has no base fee.
+    gas_z_zahl/gas_brennwert are only included when explicitly provided.
     """
     payload = {
         "meter_id": meter_id,
@@ -36,6 +46,10 @@ def _create_tariff(client, meter_id, valid_from, valid_to, price_per_unit, base_
     }
     if base_fee_monthly is not None:
         payload["base_fee_monthly"] = base_fee_monthly
+    if gas_z_zahl is not None:
+        payload["gas_z_zahl"] = gas_z_zahl
+    if gas_brennwert is not None:
+        payload["gas_brennwert"] = gas_brennwert
     response = client.post("/api/tariffs/", json=payload)
     assert response.status_code == 200
 
@@ -708,3 +722,200 @@ def test_calculate_costs_open_ended_period(client):
     # Expected values from earlier similar test
     assert Decimal(data["base_fee_total"]) == Decimal("23.83")
     assert Decimal(data["total_cost"]) == Decimal("74.75")
+
+
+def test_calculate_costs_gas_conversion_applied(client):
+    """Gas meter consumption (m³) is converted to kWh before billing.
+
+    Range: 2024-01-10 to 2024-02-10 (31 days)
+    Readings: 1000.000 (2024-01-10), 1100.000 (2024-02-10) -> consumption = 100.000 m³
+
+    Tariff: price_per_unit = 0.10000 €/kWh, no base fee
+      gas_z_zahl   = 0.9612
+      gas_brennwert = 11.482 kWh/m³
+
+    Calculation:
+      kWh = 100.000 m³ * 0.9612 * 11.482 = 1103.649840 kWh
+      energy cost = 1103.649840 * 0.10000 = 110.364984 -> 110.36
+      base_fee_total = 0.00
+      total_cost = 110.36
+
+    The raw consumption reported stays in the meter's unit (m³).
+    """
+    meter_id = _create_meter(client, meter_type="gas")
+    _create_reading(client, meter_id, "1000.000", "2024-01-10")
+    _create_reading(client, meter_id, "1100.000", "2024-02-10")
+    _create_tariff(
+        client,
+        meter_id,
+        valid_from="2024-01-01",
+        valid_to="2024-12-31",
+        price_per_unit="0.10000",
+        base_fee_monthly=None,
+        gas_z_zahl="0.9612",
+        gas_brennwert="11.482",
+    )
+
+    response = _calculate(client, meter_id, "2024-01-10", "2024-02-10")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["unit"] == "m³"
+    # Raw consumption stays in m³; only the billing amount is converted.
+    assert Decimal(data["consumption"]) == Decimal("100.000")
+    assert Decimal(data["price_per_unit"]) == Decimal("0.10000")
+    assert Decimal(data["base_fee_total"]) == Decimal("0.00")
+    assert Decimal(data["total_cost"]) == Decimal("110.36")
+
+
+def test_calculate_costs_gas_missing_z_zahl(client):
+    """422 when a gas tariff period lacks gas_z_zahl."""
+    meter_id = _create_meter(client, meter_type="gas")
+    _create_reading(client, meter_id, "1000.000", "2024-01-10")
+    _create_reading(client, meter_id, "1100.000", "2024-02-10")
+    _create_tariff(
+        client,
+        meter_id,
+        valid_from="2024-01-01",
+        valid_to="2024-12-31",
+        price_per_unit="0.10000",
+        base_fee_monthly=None,
+        gas_brennwert="11.482",
+    )
+
+    response = _calculate(client, meter_id, "2024-01-10", "2024-02-10")
+
+    assert response.status_code == 422
+    assert "gas_z_zahl" in response.json()["detail"]
+    assert "gas_brennwert" in response.json()["detail"]
+
+
+def test_calculate_costs_gas_missing_brennwert(client):
+    """422 when a gas tariff period lacks gas_brennwert."""
+    meter_id = _create_meter(client, meter_type="gas")
+    _create_reading(client, meter_id, "1000.000", "2024-01-10")
+    _create_reading(client, meter_id, "1100.000", "2024-02-10")
+    _create_tariff(
+        client,
+        meter_id,
+        valid_from="2024-01-01",
+        valid_to="2024-12-31",
+        price_per_unit="0.10000",
+        base_fee_monthly=None,
+        gas_z_zahl="0.9612",
+    )
+
+    response = _calculate(client, meter_id, "2024-01-10", "2024-02-10")
+
+    assert response.status_code == 422
+    assert "gas_z_zahl" in response.json()["detail"]
+    assert "gas_brennwert" in response.json()["detail"]
+
+
+def test_calculate_costs_gas_missing_both_fields(client):
+    """422 when a gas tariff period has neither conversion factor."""
+    meter_id = _create_meter(client, meter_type="gas")
+    _create_reading(client, meter_id, "1000.000", "2024-01-10")
+    _create_reading(client, meter_id, "1100.000", "2024-02-10")
+    _create_tariff(
+        client,
+        meter_id,
+        valid_from="2024-01-01",
+        valid_to="2024-12-31",
+        price_per_unit="0.10000",
+        base_fee_monthly=None,
+    )
+
+    response = _calculate(client, meter_id, "2024-01-10", "2024-02-10")
+
+    assert response.status_code == 422
+    assert "gas_z_zahl" in response.json()["detail"]
+    assert "gas_brennwert" in response.json()["detail"]
+
+
+def test_calculate_costs_non_gas_unaffected_by_gas_fields(client):
+    """Gas conversion must NOT apply to non-gas meters.
+
+    An electricity meter's tariff carries gas conversion factors; the cost
+    must still be raw kWh * price_per_unit (no m³->kWh conversion).
+    """
+    meter_id = _create_meter(client)  # electricity_import -> unit kWh
+    _create_reading(client, meter_id, "1000.000", "2024-01-10")
+    _create_reading(client, meter_id, "1100.000", "2024-02-10")
+    _create_tariff(
+        client,
+        meter_id,
+        valid_from="2024-01-01",
+        valid_to="2024-12-31",
+        price_per_unit="0.35490",
+        base_fee_monthly=None,
+        gas_z_zahl="0.9612",
+        gas_brennwert="11.482",
+    )
+
+    response = _calculate(client, meter_id, "2024-01-10", "2024-02-10")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["unit"] == "kWh"
+    assert Decimal(data["consumption"]) == Decimal("100.000")
+    assert Decimal(data["base_fee_total"]) == Decimal("0.00")
+    # 100 kWh * 0.35490 = 35.49 (if conversion wrongly applied: 391.69)
+    assert Decimal(data["total_cost"]) == Decimal("35.49")
+
+
+def test_calculate_costs_gas_split_across_periods(client):
+    """Gas consumption split across two tariff periods with different factors.
+
+    Range: 2024-01-10 to 2024-03-10 (60 days)
+    Readings: 1000.000 (2024-01-10), 1150.000 (2024-03-10) -> consumption = 150.000 m³
+
+    Period 1: 2024-01-01 to 2024-02-15 (37 days overlap)
+      price_per_unit = 0.10000, base_fee_monthly = None
+      gas_z_zahl = 0.9612, gas_brennwert = 11.482
+    Period 2: 2024-02-16 to 2024-12-31 (23 days overlap)
+      price_per_unit = 0.15000, base_fee_monthly = None
+      gas_z_zahl = 0.9520, gas_brennwert = 11.250
+
+    Calculation (each period's share converted with its OWN factors):
+      Share 1: 150.000 * 37/60 = 92.500 m³
+        -> 92.500 * 0.9612 * 11.482 = 1020.876102 kWh
+        energy = 1020.876102 * 0.10000 = 102.087610
+      Share 2: 150.000 * 23/60 = 57.500 m³
+        -> 57.500 * 0.9520 * 11.250 = 615.825000 kWh
+        energy = 615.825000 * 0.15000 = 92.373750
+      Total energy = 194.461360 -> 194.46
+      base_fee_total = 0.00
+      total_cost = 194.46
+    """
+    meter_id = _create_meter(client, meter_type="gas")
+    _create_reading(client, meter_id, "1000.000", "2024-01-10")
+    _create_reading(client, meter_id, "1150.000", "2024-03-10")
+    _create_tariff(
+        client,
+        meter_id,
+        valid_from="2024-01-01",
+        valid_to="2024-02-15",
+        price_per_unit="0.10000",
+        base_fee_monthly=None,
+        gas_z_zahl="0.9612",
+        gas_brennwert="11.482",
+    )
+    _create_tariff(
+        client,
+        meter_id,
+        valid_from="2024-02-16",
+        valid_to="2024-12-31",
+        price_per_unit="0.15000",
+        base_fee_monthly=None,
+        gas_z_zahl="0.9520",
+        gas_brennwert="11.250",
+    )
+
+    response = _calculate(client, meter_id, "2024-01-10", "2024-03-10")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert Decimal(data["consumption"]) == Decimal("150.000")
+    assert Decimal(data["base_fee_total"]) == Decimal("0.00")
+    assert Decimal(data["total_cost"]) == Decimal("194.46")

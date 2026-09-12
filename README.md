@@ -352,6 +352,8 @@ Note: Previously separate `base_fee` and `metering_fee` tariff kinds have been m
 - No active tariff → `projected_annual_cost = null` with explanatory message
 - Insufficient data for projection → `projected_annual_cost = null` (projection basis will be "insufficient_data")
 - Multiple tariff periods historically → correctly picks the one active on `as_of_date`
+- Gas meter: consumption (m³) is converted to kWh via `gas_z_zahl` × `gas_brennwert` before cost calculation, for both actual and projected costs; a tariff lacking these fields → cost fields `null` with explanatory message (200)
+- Actual cost unavailable (no tariff covering the period, negative consumption, missing gas factors) → `actual_cost_to_date = null` with explanatory message. If the projected path fails too, both reasons are combined into the single `message` field (deduplicated, space-separated)
 
 #### Example GET /api/costs/yearly-projection?meter_id=1&year=2025&as_of_date=2025-06-01 response:
 ```json
@@ -381,9 +383,10 @@ Note: Previously separate `base_fee` and `metering_fee` tariff kinds have been m
   "basis": "linear_from_prev_year_end",
   "actual_cost_to_date": null,
   "projected_annual_cost": null,
-  "message": "Kein aktiver Tarif für dieses Datum gefunden."
+  "message": "Kein gültiger Tarif für diesen Zeitraum gefunden. Kein aktiver Tarif für dieses Datum gefunden."
 }
 ```
+> The `message` combines the actual-cost failure (no tariff for Jan 1 – as_of_date) and the projected-cost failure (no active tariff) into one deduplicated, space-separated string.
 
 #### Example insufficient data response:
 ```json
