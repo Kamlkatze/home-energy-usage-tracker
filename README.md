@@ -8,6 +8,7 @@ A simple, local application for tracking electricity, gas, and water consumption
 - **Record readings**: Simple form to add meter readings with dates and optional notes
 - **Visualize consumption**: Line charts showing usage trends over time
 - **Tariff management**: Track price per unit and base fees for different periods
+- **Meter replacement chain**: When a physical meter is swapped, link the new meter to its predecessor via `replaces_meter_id`. Cost calculations automatically follow the chain, summing each meter's contribution — no negative consumption from a counter reset on the new device
 - **Local deployment**: All data stays on your machine, no cloud services
 - **No authentication**: Single-user, local operation only
 
@@ -238,9 +239,9 @@ For troubleshooting and advanced shutdown options, see the complete documentatio
   ]
   ```
 - `GET /api/meters/` - List all meters
-- `POST /api/meters/` - Create a new meter
+- `POST /api/meters/` - Create a new meter (optional field: `replaces_meter_id` — must reference an existing meter of the same type, self-references return **422**)
 - `GET /api/meters/{id}` - Get meter details
-- `PUT /api/meters/{id}` - Update meter
+- `PUT /api/meters/{id}` - Update meter (same validation for `replaces_meter_id` applies)
 - `DELETE /api/meters/{id}` - Delete meter
 - `GET /api/meters/{id}/readings` - Get readings for a meter
 
@@ -300,6 +301,8 @@ Note: Previously separate `base_fee` and `metering_fee` tariff kinds have been m
 - `GET /api/costs/?meter_id={id}&from={date}&to={date}` - Calculate the consumption cost for one meter between two dates (query parameters: `meter_id`, `from`, `to`). Returns **404** when no reading or no covering tariff period is found, **422** when `from > to` or the computed consumption is negative.
 
 **Multi-period support:** If the date range spans multiple tariff periods, consumption is allocated proportionally by days in each overlapping period. The `price_per_unit` field in the response shows the first period's price for backward compatibility; the total cost correctly accounts for all periods.
+
+**Meter replacement chain support:** If the requested meter has a `replaces_meter_id` (directly or transitively), the endpoint automatically follows the chain. Consumption is computed as the sum of each meter's contribution over its active segment (determined by the first reading date of the successor). Tariffs are looked up per meter in the chain so a tariff change at the predecessor is fully reflected. Rounding happens only once at the final output boundary — never per segment — to avoid accumulated cent errors.
 
 #### Example GET /api/costs/?meter_id=1&from=2024-01-10&to=2024-03-10 response:
 ```json
@@ -474,7 +477,13 @@ Note: Previously separate `base_fee` and `metering_fee` tariff kinds have been m
 - `label` (string, e.g., "Main Electricity Meter")
 - `meter_number` (string, optional, e.g., "1EMH0012345678")
 - `unit` (string, e.g., "kWh", "m³") - **server-derived** from `meter_type`, not client-settable: a `unit` field in a POST/PUT request body is rejected with **422 Unprocessable Entity**
+- `replaces_meter_id` (integer, optional, FK → Meter.id) - links to the predecessor meter this one physically replaced; `null` for standalone meters
 - `created_at` (datetime)
+
+**Meter replacement chain:** A meter with `replaces_meter_id` set forms a 1:1 replacement chain (e.g. old meter P → new meter M). The cost and projection endpoints follow the chain automatically. Validation rules:
+- `replaces_meter_id` must reference an existing meter of the **same** `meter_type` (422 otherwise)
+- A meter cannot reference itself (422)
+- No hard DB constraint prevents multiple successors (application logic only)
 
 ### Reading
 - `id` (integer, primary key)
