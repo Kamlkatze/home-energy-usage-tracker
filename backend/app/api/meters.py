@@ -9,6 +9,41 @@ from .deps import get_database_session
 router = APIRouter()
 
 
+def _validate_replaces_meter(
+    db: Session,
+    replaces_meter_id: int,
+    meter_type: MeterType,
+    current_meter_id: int | None = None,
+) -> None:
+    """Validate that replaces_meter_id points to an existing meter of the same type.
+
+    Raises 422 when:
+    - replaces_meter_id references the meter itself (self-reference)
+    - the referenced meter does not exist
+    - the referenced meter has a different meter_type
+    """
+    if replaces_meter_id == current_meter_id:
+        raise HTTPException(
+            status_code=422,
+            detail="Ein Zähler kann nicht sich selbst als Vorgänger referenzieren.",
+        )
+    predecessor = db.query(models.Meter).filter(models.Meter.id == replaces_meter_id).first()
+    if predecessor is None:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Vorgänger-Zähler mit ID {replaces_meter_id} nicht gefunden.",
+        )
+    if predecessor.meter_type != meter_type:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Zählertyp-Konflikt: Vorgänger-Zähler hat Typ '{predecessor.meter_type.value}', "
+                f"der neue Zähler hat Typ '{meter_type.value}'. "
+                "Ein Zähler kann nur durch einen Zähler desselben Typs ersetzt werden."
+            ),
+        )
+
+
 @router.get("/", response_model=list[schemas.Meter])
 def read_meters(
     skip: int = 0,
@@ -52,6 +87,9 @@ def create_meter(
 ):
     # The unit is always derived from meter_type and never taken from
     # client input (MeterCreate rejects a "unit" field with 422).
+    if meter.replaces_meter_id is not None:
+        _validate_replaces_meter(db, meter.replaces_meter_id, meter.meter_type)
+
     db_meter = models.Meter(
         **meter.model_dump(),
         unit=METER_TYPE_UNITS[meter.meter_type],
@@ -71,15 +109,28 @@ def update_meter(
     db_meter = db.query(models.Meter).filter(models.Meter.id == meter_id).first()
     if db_meter is None:
         raise HTTPException(status_code=404, detail="Meter not found")
-    
+
     update_data = meter_update.model_dump(exclude_unset=True)
     # The unit is derived from meter_type (never client-settable), so it must
     # be re-derived whenever the meter type changes in an update.
     if "meter_type" in update_data:
         update_data["unit"] = METER_TYPE_UNITS[update_data["meter_type"]]
+
+    # Determine effective meter_type and replaces_meter_id after update
+    effective_meter_type: MeterType = update_data.get("meter_type", db_meter.meter_type)
+    effective_replaces_id: int | None = update_data.get(
+        "replaces_meter_id",
+        db_meter.replaces_meter_id,
+    )
+
+    if effective_replaces_id is not None:
+        _validate_replaces_meter(
+            db, effective_replaces_id, effective_meter_type, current_meter_id=meter_id
+        )
+
     for field, value in update_data.items():
         setattr(db_meter, field, value)
-    
+
     db.commit()
     db.refresh(db_meter)
     return db_meter
@@ -93,7 +144,7 @@ def delete_meter(
     db_meter = db.query(models.Meter).filter(models.Meter.id == meter_id).first()
     if db_meter is None:
         raise HTTPException(status_code=404, detail="Meter not found")
-    
+
     db.delete(db_meter)
     db.commit()
     return {"message": "Meter deleted successfully"}
@@ -107,7 +158,7 @@ def read_meter_readings(
     meter = db.query(models.Meter).filter(models.Meter.id == meter_id).first()
     if meter is None:
         raise HTTPException(status_code=404, detail="Meter not found")
-    
+
     readings = (
         db.query(models.Reading)
         .filter(models.Reading.meter_id == meter_id)

@@ -1,7 +1,7 @@
 """Add 'wastewater' to the TariffKind enum
 
-Revision ID: extend_tariff_kind_enum
-Revises: cd75ae9d539a
+Revision ID: e6a6932b4c88
+Revises: 504b78afc834
 Create Date: 2026-09-09 00:00:00.000000
 
 A PostgreSQL enum type cannot have values removed via ALTER TYPE, so the
@@ -15,8 +15,8 @@ corrupting data.
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision = 'extend_tariff_kind_enum'
-down_revision = 'cd75ae9d539a'
+revision = 'e6a6932b4c88'
+down_revision = '504b78afc834'
 branch_labels = None
 depends_on = None
 

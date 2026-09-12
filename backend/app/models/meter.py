@@ -1,7 +1,7 @@
 import enum
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Enum, String
+from sqlalchemy import Enum, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, TimestampMixin
@@ -54,10 +54,20 @@ class Meter(Base, TimestampMixin):
     label: Mapped[str] = mapped_column(String(100), nullable=False)
     meter_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
     unit: Mapped[str] = mapped_column(String(20), nullable=False)
-    
+    # Self-referencing FK: the predecessor meter this one replaces (if any).
+    # ON DELETE SET NULL: deleting the predecessor does not cascade to the
+    # successor. Enforcing "replaced at most once" is done in app logic.
+    replaces_meter_id: Mapped[int | None] = mapped_column(
+        ForeignKey("meters.id", ondelete="SET NULL"), nullable=True
+    )
+
     readings: Mapped[list["Reading"]] = relationship(
         back_populates="meter", cascade="all, delete-orphan"
     )
     tariff_periods: Mapped[list["TariffPeriod"]] = relationship(
         back_populates="meter", cascade="all, delete-orphan"
+    )
+    # ORM relationship to the predecessor meter (many-to-one, nullable).
+    replaces_meter: Mapped["Meter | None"] = relationship(
+        "Meter", foreign_keys=[replaces_meter_id], remote_side="Meter.id"
     )

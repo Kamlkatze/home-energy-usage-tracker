@@ -1,7 +1,7 @@
 """Add tariff_kind and prevent overlapping tariff periods
 
-Revision ID: tariff_kind_no_overlap
-Revises: initial
+Revision ID: 1f8d3205b439
+Revises: 7fb51c659cf1
 Create Date: 2026-09-09 00:00:00.000000
 
 About dropping UNIQUE(meter_id, valid_from) (uq_meter_valid_from):
@@ -25,8 +25,8 @@ from sqlalchemy.dialects import postgresql
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision = 'tariff_kind_no_overlap'
-down_revision = 'initial'
+revision = '1f8d3205b439'
+down_revision = '7fb51c659cf1'
 branch_labels = None
 depends_on = None
 

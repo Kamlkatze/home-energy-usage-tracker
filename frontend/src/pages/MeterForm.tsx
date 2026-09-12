@@ -7,18 +7,20 @@ import { Label } from '../components/ui/label';
 import { Select, SelectItem } from '../components/ui/select';
 import { metersApi } from '../api/client';
 import { useMeterTypes } from '../hooks/useMeterTypes';
-import { MeterType } from '../types';
+import { Meter, MeterType } from '../types';
 import { ArrowLeft, CheckCircle } from 'lucide-react';
 
 const MeterForm: React.FC = () => {
   const navigate = useNavigate();
   const meterTypes = useMeterTypes();
+  const [allMeters, setAllMeters] = useState<Meter[]>([]);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [formData, setFormData] = useState({
     meter_type: '' as MeterType | '',
     label: '',
     meter_number: '',
+    replaces_meter_id: '' as string, // empty string = keine Auswahl
   });
 
   // Select the first meter type once the types have loaded
@@ -32,8 +34,25 @@ const MeterForm: React.FC = () => {
     }
   }, [meterTypes]);
 
+  // Load all meters for the "Ersetzt Zähler" dropdown
+  useEffect(() => {
+    metersApi.getAll().then(setAllMeters).catch(() => {});
+  }, []);
+
   const selectedType = meterTypes.find(
     (type) => type.value === formData.meter_type
+  );
+
+  // Meters eligible as predecessors:
+  // - same type as currently selected type
+  // - not already replaced by another meter (no meter in allMeters has replaces_meter_id pointing to it)
+  const replacedMeterIds = new Set(
+    allMeters
+      .filter((m) => m.replaces_meter_id !== null)
+      .map((m) => m.replaces_meter_id as number)
+  );
+  const eligiblePredecessors = allMeters.filter(
+    (m) => m.meter_type === formData.meter_type && !replacedMeterIds.has(m.id)
   );
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -42,7 +61,15 @@ const MeterForm: React.FC = () => {
   };
 
   const handleTypeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setFormData(prev => ({ ...prev, meter_type: e.target.value as MeterType }));
+    setFormData(prev => ({
+      ...prev,
+      meter_type: e.target.value as MeterType,
+      replaces_meter_id: '', // reset predecessor when type changes
+    }));
+  };
+
+  const handlePredecessorChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    setFormData(prev => ({ ...prev, replaces_meter_id: e.target.value }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -56,11 +83,15 @@ const MeterForm: React.FC = () => {
     try {
       setLoading(true);
       // No "unit" field: the unit is derived server-side from meter_type
-      const payload = {
+      const payload: Record<string, unknown> = {
         meter_type: formData.meter_type,
         label: formData.label.trim(),
         meter_number: formData.meter_number.trim() || null,
       };
+
+      if (formData.replaces_meter_id !== '') {
+        payload.replaces_meter_id = parseInt(formData.replaces_meter_id, 10);
+      }
 
       await metersApi.create(payload);
       setSuccess(true);
@@ -102,38 +133,38 @@ const MeterForm: React.FC = () => {
             </CardHeader>
             <CardContent>
               <form onSubmit={handleSubmit} className="space-y-6">
-<div className="space-y-2">
-                   <Label htmlFor="label">Name *</Label>
-                   <Input
-                     id="label"
-                     name="label"
-                     type="text"
-                     required
-                     value={formData.label}
-                     onChange={handleChange}
-                     placeholder="z. B. Hauptzähler Strom, Kaltwasser, Gasherdkreis"
-                     maxLength={100}
-                   />
-                   <p className="text-sm text-muted-foreground">
-                     Beschreibender Name für den Zähler (max. 100 Zeichen)
-                   </p>
-                 </div>
+                <div className="space-y-2">
+                  <Label htmlFor="label">Name *</Label>
+                  <Input
+                    id="label"
+                    name="label"
+                    type="text"
+                    required
+                    value={formData.label}
+                    onChange={handleChange}
+                    placeholder="z. B. Hauptzähler Strom, Kaltwasser, Gasherdkreis"
+                    maxLength={100}
+                  />
+                  <p className="text-sm text-muted-foreground">
+                    Beschreibender Name für den Zähler (max. 100 Zeichen)
+                  </p>
+                </div>
 
-                 <div className="space-y-2">
-                   <Label htmlFor="meter_number">Zählernummer</Label>
-                   <Input
-                     id="meter_number"
-                     name="meter_number"
-                     type="text"
-                     value={formData.meter_number}
-                     onChange={handleChange}
-                     placeholder="z. B. 1EMH0012345678"
-                     maxLength={100}
-                   />
-                   <p className="text-sm text-muted-foreground">
-                     Optionale eindeutige Zählernummer des Herstellers
-                   </p>
-                 </div>
+                <div className="space-y-2">
+                  <Label htmlFor="meter_number">Zählernummer</Label>
+                  <Input
+                    id="meter_number"
+                    name="meter_number"
+                    type="text"
+                    value={formData.meter_number}
+                    onChange={handleChange}
+                    placeholder="z. B. 1EMH0012345678"
+                    maxLength={100}
+                  />
+                  <p className="text-sm text-muted-foreground">
+                    Optionale eindeutige Zählernummer des Herstellers
+                  </p>
+                </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
@@ -165,6 +196,32 @@ const MeterForm: React.FC = () => {
                       Wird automatisch durch den Zählertyp bestimmt
                     </p>
                   </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="replaces_meter_id">Ersetzt Zähler</Label>
+                  <Select
+                    id="replaces_meter_id"
+                    value={formData.replaces_meter_id}
+                    onChange={handlePredecessorChange}
+                  >
+                    <SelectItem value="">— Kein Vorgänger —</SelectItem>
+                    {eligiblePredecessors.map((m) => (
+                      <SelectItem key={m.id} value={m.id.toString()}>
+                        #{m.id} {m.label}
+                        {m.meter_number ? ` (${m.meter_number})` : ''}
+                      </SelectItem>
+                    ))}
+                  </Select>
+                  <p className="text-sm text-muted-foreground">
+                    Optional: der Vorgänger-Zähler, den dieser neue Zähler physisch ersetzt.
+                    Die Verbrauchshistorie bleibt dann erhalten.
+                  </p>
+                  {eligiblePredecessors.length === 0 && formData.meter_type !== '' && (
+                    <p className="text-sm text-muted-foreground italic">
+                      Keine austauschbaren Zähler dieses Typs gefunden.
+                    </p>
+                  )}
                 </div>
 
                 <div className="flex justify-end gap-4 pt-4">

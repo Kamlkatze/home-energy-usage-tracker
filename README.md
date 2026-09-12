@@ -259,12 +259,12 @@ For troubleshooting and advanced shutdown options, see the complete documentatio
 - `DELETE /api/tariffs/{id}` - Delete tariff period
 
 #### TariffKind Values
-- `consumption` - Price per unit for consumption
-- `base_fee` - Monthly base fee (optional for consumption periods)
+- `consumption` - Price per unit for consumption (may include optional `base_fee_monthly` and `metering_fee_monthly`)
 - `feed_in` - Feed-in tariff 
 - `self_consumption` - Self-consumption rate
-- `metering_fee` - Metering/grid fee
 - `wastewater` - Price per unit for wastewater (billed on the cold-water meter)
+
+Note: Previously separate `base_fee` and `metering_fee` tariff kinds have been merged into the `consumption` tariff kind as optional monthly fee fields.
 
 #### Example POST /api/tariffs/ request:
 ```json
@@ -274,7 +274,8 @@ For troubleshooting and advanced shutdown options, see the complete documentatio
   "valid_from": "2024-01-01",
   "valid_to": "2024-12-31",
   "price_per_unit": "0.3567",
-  "base_fee_monthly": "15.50"
+  "base_fee_monthly": "15.50",
+  "metering_fee_monthly": "5.80"
 }
 ```
 
@@ -289,6 +290,7 @@ For troubleshooting and advanced shutdown options, see the complete documentatio
     "valid_to": "2024-12-31",
     "price_per_unit": "0.3567",
     "base_fee_monthly": "15.50",
+    "metering_fee_monthly": "5.80",
     "created_at": "2024-01-01T12:00:00Z"
   }
 ]
@@ -296,6 +298,8 @@ For troubleshooting and advanced shutdown options, see the complete documentatio
 
 ### Costs
 - `GET /api/costs/?meter_id={id}&from={date}&to={date}` - Calculate the consumption cost for one meter between two dates (query parameters: `meter_id`, `from`, `to`). Returns **404** when no reading or no covering tariff period is found, **422** when `from > to` or the computed consumption is negative.
+
+**Multi-period support:** If the date range spans multiple tariff periods, consumption is allocated proportionally by days in each overlapping period. The `price_per_unit` field in the response shows the first period's price for backward compatibility; the total cost correctly accounts for all periods.
 
 #### Example GET /api/costs/?meter_id=1&from=2024-01-10&to=2024-03-10 response:
 ```json
@@ -311,7 +315,7 @@ For troubleshooting and advanced shutdown options, see the complete documentatio
 }
 ```
 
-- `GET /api/costs/wastewater/?water_cold_meter_id={id}&water_garden_meter_id={id}&from={date}&to={date}` - Calculate the wastewater cost between two dates. Wastewater is a derived value, not a real meter: `wastewater_consumption = max(0, cold-water consumption - garden-water consumption)`, billed against a `wastewater` tariff period attached to the **cold-water meter's** id (query parameters: `water_cold_meter_id`, `water_garden_meter_id` (optional), `from`, `to`). Returns **404** when no reading or no covering wastewater tariff period is found, **422** when `from > to` or the cold-water consumption is negative.
+- `GET /api/costs/wastewater/?water_cold_meter_id={id}&water_garden_meter_id={id}&from={date}&to={date}` - Calculate the wastewater cost between two dates. Wastewater is a derived value, not a real meter: `wastewater_consumption = max(0, cold-water consumption - garden-water consumption)`, billed against a `wastewater` tariff period attached to the **cold-water meter's** id (query parameters: `water_cold_meter_id`, `water_garden_meter_id` (optional), `from`, `to`). Returns **404** when no reading or no covering wastewater tariff period is found, **422** when `from > to` or the cold-water consumption is negative. Supports multiple tariff periods like the main cost endpoint.
 
 #### Garden meter omitted vs. garden meter without readings (important distinction)
 - **`water_garden_meter_id` omitted entirely**: treated as "no garden meter installed". `garden_consumption = 0` and the entire cold-water consumption counts as wastewater. No garden readings are required. `water_garden_meter_id` is `null` in the response.
@@ -335,8 +339,70 @@ For troubleshooting and advanced shutdown options, see the complete documentatio
 }
 ```
 
-### Projections
-- `GET /api/meters/{id}/projection?year={year}&as_of_date={date}` - Calculate annual consumption projection for a meter. The `as_of_date` parameter is optional, defaults to server date (date.today()). Returns **200 OK** even with insufficient data (projection = null), **404** if meter not found, **422** for invalid year (outside 2000-2100 range).
+### Yearly Projection with Cost
+- `GET /api/costs/yearly-projection?meter_id={id}&year={year}&as_of_date={date}` - Combine annual consumption projection with cost calculation. The `as_of_date` parameter is optional, defaults to server date (datetime.now(UTC).date()). Returns **200 OK** even with insufficient data or missing tariff, **404** if meter not found, **422** for invalid year (outside 2000-2100 range).
+
+**Calculation Logic:**
+1. **Projection**: Uses the same logic as `/api/meters/{id}/projection` to get projected annual consumption
+2. **Active tariff**: Finds the consumption tariff active on `as_of_date` for the meter
+3. **Actual cost**: Calculates cost from Jan 1 of `year` to `as_of_date` using existing cost calculation logic
+4. **Projected cost**: Estimates annual cost using projected consumption and active tariff's rates
+
+**Edge cases:**
+- No active tariff → `projected_annual_cost = null` with explanatory message
+- Insufficient data for projection → `projected_annual_cost = null` (projection basis will be "insufficient_data")
+- Multiple tariff periods historically → correctly picks the one active on `as_of_date`
+- Gas meter: consumption (m³) is converted to kWh via `gas_z_zahl` × `gas_brennwert` before cost calculation, for both actual and projected costs; a tariff lacking these fields → cost fields `null` with explanatory message (200)
+- Actual cost unavailable (no tariff covering the period, negative consumption, missing gas factors) → `actual_cost_to_date = null` with explanatory message. If the projected path fails too, both reasons are combined into the single `message` field (deduplicated, space-separated)
+
+#### Example GET /api/costs/yearly-projection?meter_id=1&year=2025&as_of_date=2025-06-01 response:
+```json
+{
+  "meter_id": 1,
+  "year": 2025,
+  "unit": "kWh",
+  "as_of_date": "2025-06-01",
+  "actual_consumption_to_date": "250.500",
+  "projected_annual_consumption": "601.447",
+  "basis": "linear_from_prev_year_end",
+  "actual_cost_to_date": "92.35",
+  "projected_annual_cost": "221.89",
+  "message": null
+}
+```
+
+#### Example no active tariff response:
+```json
+{
+  "meter_id": 1,
+  "year": 2025,
+  "unit": "kWh",
+  "as_of_date": "2025-06-01",
+  "actual_consumption_to_date": "250.500",
+  "projected_annual_consumption": "601.447",
+  "basis": "linear_from_prev_year_end",
+  "actual_cost_to_date": null,
+  "projected_annual_cost": null,
+  "message": "Kein gültiger Tarif für diesen Zeitraum gefunden. Kein aktiver Tarif für dieses Datum gefunden."
+}
+```
+> The `message` combines the actual-cost failure (no tariff for Jan 1 – as_of_date) and the projected-cost failure (no active tariff) into one deduplicated, space-separated string.
+
+#### Example insufficient data response:
+```json
+{
+  "meter_id": 1,
+  "year": 2025,
+  "unit": "kWh",
+  "as_of_date": "2025-06-01",
+  "actual_consumption_to_date": null,
+  "projected_annual_consumption": null,
+  "basis": "insufficient_data",
+  "actual_cost_to_date": null,
+  "projected_annual_cost": null,
+  "message": "Nicht genügend Zählerstände im Jahr 2025 vorhanden, um eine Hochrechnung zu erstellen."
+}
+```
 
 **Calculation Logic:**
 - **Year completed** (year < as_of_date.year): Actual consumption = end.value - start.value (real yearly consumption)
@@ -422,11 +488,12 @@ For troubleshooting and advanced shutdown options, see the complete documentatio
 ### TariffPeriod
 - `id` (integer, primary key)
 - `meter_id` (foreign key to Meter)
-- `tariff_kind` (enum: consumption, base_fee, feed_in, self_consumption, metering_fee, wastewater)
+- `tariff_kind` (enum: consumption, feed_in, self_consumption, wastewater)
 - `valid_from` (date)
 - `valid_to` (date, optional, null means "open-ended - valid until today")
 - `price_per_unit` (numeric)
-- `base_fee_monthly` (numeric, optional)
+- `base_fee_monthly` (numeric, optional, only for consumption tariff kind)
+- `metering_fee_monthly` (numeric, optional, only for consumption tariff kind)
 - `created_at` (datetime)
 - **Constraint**: EXCLUDE USING gist (meter_id WITH =, tariff_kind WITH =, daterange(valid_from, valid_to, '[]') WITH &&)
   - Prevents overlapping periods within same (meter_id, tariff_kind)
@@ -488,7 +555,8 @@ home-energy-usage-tracker/
 │   │   │   ├── meter.py              # Meter schemas (Create, Update, Response)
 │   │   │   ├── projection.py         # Projection response schema
 │   │   │   ├── reading.py            # Reading schemas
-│   │   │   └── tariff_period.py      # TariffPeriod schemas with TariffKind
+│   │   │   ├── tariff_period.py      # TariffPeriod schemas with TariffKind
+│   │   │   └── yearly_projection_cost.py # Yearly projection with cost response schema
 │   │   ├── services/
 │   │   │   └── projection.py         # Business logic for projection calculations
 │   │   ├── __init__.py

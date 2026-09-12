@@ -13,6 +13,12 @@ class TariffPeriodBase(BaseModel):
     valid_to: date | None = None
     price_per_unit: Decimal
     base_fee_monthly: Decimal | None = None
+    metering_fee_monthly: Decimal | None = None
+    # Gas conversion factors, only meaningful for tariff_kind="consumption"
+    # on gas meters (meter_type="gas"). Optional; enforced at cost
+    # calculation time for gas meters (missing values -> 422).
+    gas_z_zahl: Decimal | None = None
+    gas_brennwert: Decimal | None = None
 
 
 class TariffPeriodCreate(TariffPeriodBase):
@@ -26,6 +32,9 @@ class TariffPeriodUpdate(BaseModel):
     valid_to: date | None = None
     price_per_unit: Decimal | None = None
     base_fee_monthly: Decimal | None = None
+    metering_fee_monthly: Decimal | None = None
+    gas_z_zahl: Decimal | None = None
+    gas_brennwert: Decimal | None = None
 
 
 class TariffPeriod(TariffPeriodBase):

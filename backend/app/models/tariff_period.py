@@ -14,10 +14,8 @@ if TYPE_CHECKING:
 
 class TariffKind(enum.Enum):
     CONSUMPTION = "consumption"
-    BASE_FEE = "base_fee"
     FEED_IN = "feed_in"
     SELF_CONSUMPTION = "self_consumption"
-    METERING_FEE = "metering_fee"
     WASTEWATER = "wastewater"
 
 
@@ -49,5 +47,17 @@ class TariffPeriod(Base, TimestampMixin):
     valid_to: Mapped[date | None] = mapped_column(Date)
     price_per_unit: Mapped[Decimal] = mapped_column(Numeric(10, 5), nullable=False)
     base_fee_monthly: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    metering_fee_monthly: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    # Gas conversion factors (only meaningful for tariff_kind="consumption"
+    # on meters with meter_type="gas"). Gas meters record consumption in m³,
+    # but gas contracts bill in €/kWh:
+    #   kWh = m³ * gas_z_zahl (Zustandszahl) * gas_brennwert (Brennwert, kWh/m³)
+    # Both are optional/nullable. NOT enforced at the DB level (no CHECK
+    # constraint) - enforced at the cost-calculation boundary instead, where
+    # a missing value on a gas tariff raises a 422. They can change between
+    # billing periods, so they are stored per TariffPeriod like the other
+    # optional fee fields.
+    gas_z_zahl: Mapped[Decimal | None] = mapped_column(Numeric(10, 5))
+    gas_brennwert: Mapped[Decimal | None] = mapped_column(Numeric(10, 5))
     
     meter: Mapped["Meter"] = relationship(back_populates="tariff_periods")

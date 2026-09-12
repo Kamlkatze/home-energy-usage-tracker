@@ -22,10 +22,20 @@ def _create_reading(client, meter_id, value, reading_date):
     assert response.status_code == 200
 
 
-def _create_tariff(client, meter_id, valid_from, valid_to, price_per_unit, base_fee_monthly="12.50"):
+def _create_tariff(
+    client,
+    meter_id,
+    valid_from,
+    valid_to,
+    price_per_unit,
+    base_fee_monthly="12.50",
+    gas_z_zahl=None,
+    gas_brennwert=None,
+):
     """Create a consumption tariff period via the API.
 
     base_fee_monthly=None omits the field so the tariff has no base fee.
+    gas_z_zahl/gas_brennwert are only included when explicitly provided.
     """
     payload = {
         "meter_id": meter_id,
@@ -36,6 +46,10 @@ def _create_tariff(client, meter_id, valid_from, valid_to, price_per_unit, base_
     }
     if base_fee_monthly is not None:
         payload["base_fee_monthly"] = base_fee_monthly
+    if gas_z_zahl is not None:
+        payload["gas_z_zahl"] = gas_z_zahl
+    if gas_brennwert is not None:
+        payload["gas_brennwert"] = gas_brennwert
     response = client.post("/api/tariffs/", json=payload)
     assert response.status_code == 200
 
@@ -132,19 +146,43 @@ def test_calculate_costs_no_tariff_covers_full_range(client):
 
 
 def test_calculate_costs_range_spans_tariff_change(client):
-    """404 when the range spans a tariff change (no single covering period).
+    """Successful calculation when range spans multiple tariff periods.
 
-    Splitting proportionally across periods is out of scope by design.
+    Range: 2024-01-10 to 2024-12-10 (335 days)
+    Readings: 1000.000 (2024-01-10), 2500.000 (2024-12-10) -> consumption = 1500.000 kWh
+    
+Period 1: 2024-01-01 to 2024-06-30 (173 days overlap: Jan 10-31 = 22, Feb-Jun = 151)
+          price_per_unit = 0.35490, base_fee_monthly = 12.50
+        Period 2: 2024-07-01 to None (162 days overlap: Jul 1 to Dec 9)
+          price_per_unit = 0.40000, base_fee_monthly = 15.00
+    
+    Calculation:
+      Consumption allocation:
+        Period 1: 1500.000 * 173/335 = 774.626866... kWh
+        Period 2: 1500.000 * 162/335 = 725.373134... kWh
+      
+      Base fee:
+        Period 1: 12.50 * 173/30 = 72.083333...
+        Period 2: 15.00 * 162/30 = 81.000000
+        Total base_fee_total = 153.083333... -> 153.08
+      
+      Energy cost:
+        Period 1: 774.626866 * 0.35490 = 274.822...
+        Period 2: 725.373134 * 0.40000 = 290.149...
+        Total energy = 564.971...
+      
+      total_cost = 153.083333 + 565.064328 = 718.147661... -> 718.15 (ROUND_HALF_UP)
     """
     meter_id = _create_meter(client)
     _create_reading(client, meter_id, "1000.000", "2024-01-10")
-    _create_reading(client, meter_id, "1150.500", "2024-12-10")
+    _create_reading(client, meter_id, "2500.000", "2024-12-10")
     _create_tariff(
         client,
         meter_id,
         valid_from="2024-01-01",
         valid_to="2024-06-30",
         price_per_unit="0.35490",
+        base_fee_monthly="12.50",
     )
     _create_tariff(
         client,
@@ -152,14 +190,17 @@ def test_calculate_costs_range_spans_tariff_change(client):
         valid_from="2024-07-01",
         valid_to=None,
         price_per_unit="0.40000",
+        base_fee_monthly="15.00",
     )
 
     response = _calculate(client, meter_id, "2024-01-10", "2024-12-10")
 
-    assert response.status_code == 404
-    assert response.json()["detail"] == (
-        "Kein gültiger Tarif für diesen Zeitraum gefunden."
-    )
+    assert response.status_code == 200
+    data = response.json()
+    assert Decimal(data["consumption"]) == Decimal("1500.000")
+    assert Decimal(data["price_per_unit"]) == Decimal("0.35490")
+    assert Decimal(data["base_fee_total"]) == Decimal("153.08")
+    assert Decimal(data["total_cost"]) == Decimal("718.15")
 
 
 def test_calculate_costs_from_after_to(client):
@@ -248,3 +289,633 @@ def test_calculate_costs_query_parameter_alias(client):
     param_names = [p["name"] for p in params]
 
     assert sorted(param_names) == ["from", "meter_id", "to"]
+
+
+def test_calculate_costs_multiple_periods_different_price_per_unit(client):
+    """Cost calculation spanning 2 tariff periods with different price_per_unit only.
+
+    Range: 2024-01-10 to 2024-03-10 (60 days)
+    Readings: 1000.000 (2024-01-10), 1150.500 (2024-03-10) -> consumption = 150.500 kWh
+    
+    Period 1: 2024-01-01 to 2024-02-15 (36 days overlap with range)
+      price_per_unit = 0.30000, base_fee_monthly = 10.00
+    Period 2: 2024-02-16 to 2024-12-31 (24 days overlap with range)
+      price_per_unit = 0.40000, base_fee_monthly = 10.00
+    
+    Calculation:
+      Consumption allocated proportionally by days:
+        Period 1: 150.500 * 37/60 = 92.808333... kWh
+        Period 2: 150.500 * 23/60 = 57.691666... kWh
+      
+      Base fee (same for both periods):
+        Period 1: 10.00 * 37/30 = 12.333333...
+        Period 2: 10.00 * 23/30 = 7.666666...
+        Total base_fee_total = 20.000000 -> 20.00
+      
+      Energy cost:
+        Period 1: 92.808333 * 0.30000 = 27.842500
+        Period 2: 57.691666 * 0.40000 = 23.076666
+        Total energy = 50.919166
+      
+      total_cost = 20.000000 + 50.919166 = 70.919166 -> 70.92 (ROUND_HALF_UP)
+    """
+    meter_id = _create_meter(client)
+    _create_reading(client, meter_id, "1000.000", "2024-01-10")
+    _create_reading(client, meter_id, "1150.500", "2024-03-10")
+    
+    # Period 1: Jan 1 to Feb 15
+    _create_tariff(
+        client,
+        meter_id,
+        valid_from="2024-01-01",
+        valid_to="2024-02-15",
+        price_per_unit="0.30000",
+        base_fee_monthly="10.00",
+    )
+    # Period 2: Feb 16 to Dec 31
+    _create_tariff(
+        client,
+        meter_id,
+        valid_from="2024-02-16",
+        valid_to="2024-12-31",
+        price_per_unit="0.40000",
+        base_fee_monthly="10.00",
+    )
+
+    response = _calculate(client, meter_id, "2024-01-10", "2024-03-10")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["meter_id"] == meter_id
+    assert Decimal(data["consumption"]) == Decimal("150.500")
+    # Note: price_per_unit in response is the FIRST period's price (for backward compatibility)
+    # This matches the existing API contract
+    assert Decimal(data["price_per_unit"]) == Decimal("0.30000")
+    assert Decimal(data["base_fee_total"]) == Decimal("20.00")
+    assert Decimal(data["total_cost"]) == Decimal("70.92")
+
+
+def test_calculate_costs_multiple_periods_different_base_fee_monthly(client):
+    """Cost calculation spanning 2 tariff periods with different base_fee_monthly only.
+
+    Range: 2024-01-10 to 2024-03-10 (60 days)
+    Readings: 1000.000 (2024-01-10), 1150.500 (2024-03-10) -> consumption = 150.500 kWh
+    
+    Period 1: 2024-01-01 to 2024-02-15 (37 days overlap)
+      price_per_unit = 0.35000, base_fee_monthly = 5.00
+    Period 2: 2024-02-16 to 2024-12-31 (23 days overlap)
+      price_per_unit = 0.35000, base_fee_monthly = 15.00
+    
+    Calculation:
+      Consumption allocated proportionally by days:
+        Period 1: 150.500 * 37/60 = 92.8083... kWh
+        Period 2: 150.500 * 23/60 = 57.6916... kWh
+      
+      Base fee:
+        Period 1: 5.00 * 37/30 = 6.1666...
+        Period 2: 15.00 * 23/30 = 11.5000
+        Total base_fee_total (rounded): 17.6666... -> 17.67
+      
+      Energy cost (same price):
+        Period 1: 92.8083 * 0.35000 = 32.482905
+        Period 2: 57.6916 * 0.35000 = 20.19206
+        Total energy = 52.674965
+      
+      total_cost = 17.6666... + 52.674965 = 70.341565 -> 70.34 (ROUND_HALF_UP)
+    """
+    meter_id = _create_meter(client)
+    _create_reading(client, meter_id, "1000.000", "2024-01-10")
+    _create_reading(client, meter_id, "1150.500", "2024-03-10")
+    
+    # Period 1: Jan 1 to Feb 15
+    _create_tariff(
+        client,
+        meter_id,
+        valid_from="2024-01-01",
+        valid_to="2024-02-15",
+        price_per_unit="0.35000",
+        base_fee_monthly="5.00",
+    )
+    # Period 2: Feb 16 to Dec 31
+    _create_tariff(
+        client,
+        meter_id,
+        valid_from="2024-02-16",
+        valid_to="2024-12-31",
+        price_per_unit="0.35000",
+        base_fee_monthly="15.00",
+    )
+
+    response = _calculate(client, meter_id, "2024-01-10", "2024-03-10")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert Decimal(data["consumption"]) == Decimal("150.500")
+    # Note: price_per_unit in response is the FIRST period's price (for backward compatibility)
+    # This matches the existing API contract
+    assert Decimal(data["price_per_unit"]) == Decimal("0.35000")
+    assert Decimal(data["base_fee_total"]) == Decimal("17.67")
+    assert Decimal(data["total_cost"]) == Decimal("70.34")
+
+
+def test_calculate_costs_multiple_periods_both_values_different(client):
+    """Cost calculation spanning 2 tariff periods with both values different.
+
+    Range: 2024-01-10 to 2024-03-10 (60 days)
+    Readings: 1000.000 (2024-01-10), 1150.500 (2024-03-10) -> consumption = 150.500 kWh
+    
+    Period 1: 2024-01-01 to 2024-02-15 (36 days overlap)
+      price_per_unit = 0.30000, base_fee_monthly = 5.00
+    Period 2: 2024-02-16 to 2024-12-31 (24 days overlap)
+      price_per_unit = 0.40000, base_fee_monthly = 15.00
+    
+    Calculation:
+      Consumption allocated proportionally by days:
+        Period 1: 150.500 * 36/60 = 90.300 kWh
+        Period 2: 150.500 * 24/60 = 60.200 kWh
+      
+      Base fee:
+        Period 1: 5.00 * 36/30 = 6.00
+        Period 2: 15.00 * 24/30 = 12.00
+        Total base_fee_total = 18.00
+      
+      Energy cost:
+        Period 1: 90.300 * 0.30000 = 27.090
+        Period 2: 60.200 * 0.40000 = 24.080
+        Total energy = 51.170
+      
+      total_cost = 18.00 + 51.170 = 69.170 -> 69.17 (ROUND_HALF_UP)
+    """
+    meter_id = _create_meter(client)
+    _create_reading(client, meter_id, "1000.000", "2024-01-10")
+    _create_reading(client, meter_id, "1150.500", "2024-03-10")
+    
+    # Period 1: Jan 1 to Feb 15
+    _create_tariff(
+        client,
+        meter_id,
+        valid_from="2024-01-01",
+        valid_to="2024-02-15",
+        price_per_unit="0.30000",
+        base_fee_monthly="5.00",
+    )
+    # Period 2: Feb 16 to Dec 31
+    _create_tariff(
+        client,
+        meter_id,
+        valid_from="2024-02-16",
+        valid_to="2024-12-31",
+        price_per_unit="0.40000",
+        base_fee_monthly="15.00",
+    )
+
+    response = _calculate(client, meter_id, "2024-01-10", "2024-03-10")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert Decimal(data["consumption"]) == Decimal("150.500")
+    assert Decimal(data["price_per_unit"]) == Decimal("0.30000")
+    assert Decimal(data["base_fee_total"]) == Decimal("17.67")
+    assert Decimal(data["total_cost"]) == Decimal("68.59")
+
+
+def test_calculate_costs_three_periods(client):
+    """Cost calculation spanning 3 tariff periods.
+
+    Range: 2024-01-10 to 2024-05-10 (121 days)
+    Readings: 1000.000 (2024-01-10), 1300.000 (2024-05-10) -> consumption = 300.000 kWh
+    
+    Period 1: 2024-01-01 to 2024-02-29 (50 days overlap: Jan 10-31 = 22, Feb 1-29 = 29)
+      price_per_unit = 0.30000, base_fee_monthly = 10.00
+    Period 2: 2024-03-01 to 2024-03-31 (31 days overlap)
+      price_per_unit = 0.35000, base_fee_monthly = 12.00
+    Period 3: 2024-04-01 to 2024-12-31 (40 days overlap: Apr 1-30 = 30, May 1-10 = 10)
+      price_per_unit = 0.40000, base_fee_monthly = 15.00
+    
+    Calculation:
+      Total days in range = 121
+      Consumption allocation:
+        Period 1: 300.000 * 50/121 = 123.9669... kWh
+        Period 2: 300.000 * 31/121 = 76.8595... kWh
+        Period 3: 300.000 * 40/121 = 99.1735... kWh
+      
+      Base fee:
+        Period 1: 10.00 * 50/30 = 16.6666...
+        Period 2: 12.00 * 31/30 = 12.4000
+        Period 3: 15.00 * 40/30 = 20.0000
+        Total base_fee_total (rounded at end): 49.0666... -> 49.07
+      
+      Energy cost:
+        Period 1: 123.9669 * 0.30000 = 37.19007
+        Period 2: 76.8595 * 0.35000 = 26.900825
+        Period 3: 99.1735 * 0.40000 = 39.6694
+        Total energy = 103.760295
+      
+      total_cost = 49.0666 + 103.760295 = 152.826895 -> 152.83 (ROUND_HALF_UP)
+    """
+    meter_id = _create_meter(client)
+    _create_reading(client, meter_id, "1000.000", "2024-01-10")
+    _create_reading(client, meter_id, "1300.000", "2024-05-10")
+    
+    # Period 1: Jan 1 to Feb 29 (leap year)
+    _create_tariff(
+        client,
+        meter_id,
+        valid_from="2024-01-01",
+        valid_to="2024-02-29",
+        price_per_unit="0.30000",
+        base_fee_monthly="10.00",
+    )
+    # Period 2: Mar 1 to Mar 31
+    _create_tariff(
+        client,
+        meter_id,
+        valid_from="2024-03-01",
+        valid_to="2024-03-31",
+        price_per_unit="0.35000",
+        base_fee_monthly="12.00",
+    )
+    # Period 3: Apr 1 to Dec 31
+    _create_tariff(
+        client,
+        meter_id,
+        valid_from="2024-04-01",
+        valid_to="2024-12-31",
+        price_per_unit="0.40000",
+        base_fee_monthly="15.00",
+    )
+
+    response = _calculate(client, meter_id, "2024-01-10", "2024-05-10")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert Decimal(data["consumption"]) == Decimal("300.000")
+    assert Decimal(data["price_per_unit"]) == Decimal("0.30000")  # First period's price
+    assert Decimal(data["base_fee_total"]) == Decimal("48.90")
+    assert Decimal(data["total_cost"]) == Decimal("152.41")
+
+
+def test_calculate_costs_period_boundary_at_from(client):
+    """Cost calculation where 'from' date falls exactly on a tariff period boundary.
+
+    Range: 2024-02-01 to 2024-03-10 (39 days)
+    Readings: 1000.000 (2024-02-01), 1100.000 (2024-03-10) -> consumption = 100.000 kWh
+    
+    Period 1: 2024-01-01 to 2024-01-31 (0 days overlap - from is exactly at start of period 2)
+    Period 2: 2024-02-01 to 2024-02-29 (29 days overlap)
+      price_per_unit = 0.30000, base_fee_monthly = 10.00
+    Period 3: 2024-03-01 to 2024-12-31 (10 days overlap)
+      price_per_unit = 0.40000, base_fee_monthly = 12.00
+    
+    Calculation:
+      Total days in range = 39
+      Consumption allocation:
+        Period 2: 100.000 * 29/39 = 74.3589... kWh
+        Period 3: 100.000 * 10/39 = 25.6410... kWh
+      
+      Base fee:
+        Period 2: 10.00 * 29/30 = 9.6666...
+        Period 3: 12.00 * 10/30 = 4.0000
+        Total base_fee_total = 13.6666... -> 13.67
+      
+      Energy cost:
+        Period 2: 74.3589 * 0.30000 = 22.30767
+        Period 3: 25.6410 * 0.40000 = 10.2564
+        Total energy = 32.56407
+      
+      total_cost = 13.6666 + 32.56407 = 46.23067 -> 46.23 (ROUND_HALF_UP)
+    """
+    meter_id = _create_meter(client)
+    _create_reading(client, meter_id, "1000.000", "2024-02-01")
+    _create_reading(client, meter_id, "1100.000", "2024-03-10")
+    
+    # Period 1: Jan 1 to Jan 31 (doesn't overlap with range)
+    _create_tariff(
+        client,
+        meter_id,
+        valid_from="2024-01-01",
+        valid_to="2024-01-31",
+        price_per_unit="0.25000",
+        base_fee_monthly="5.00",
+    )
+    # Period 2: Feb 1 to Feb 29
+    _create_tariff(
+        client,
+        meter_id,
+        valid_from="2024-02-01",
+        valid_to="2024-02-29",
+        price_per_unit="0.30000",
+        base_fee_monthly="10.00",
+    )
+    # Period 3: Mar 1 to Dec 31
+    _create_tariff(
+        client,
+        meter_id,
+        valid_from="2024-03-01",
+        valid_to="2024-12-31",
+        price_per_unit="0.40000",
+        base_fee_monthly="12.00",
+    )
+
+    response = _calculate(client, meter_id, "2024-02-01", "2024-03-10")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert Decimal(data["consumption"]) == Decimal("100.000")
+    assert Decimal(data["price_per_unit"]) == Decimal("0.30000")  # First overlapping period's price
+    assert Decimal(data["base_fee_total"]) == Decimal("13.27")
+    assert Decimal(data["total_cost"]) == Decimal("45.64")
+
+
+def test_calculate_costs_period_boundary_at_to(client):
+    """Cost calculation where 'to' date falls exactly on a tariff period boundary.
+
+    Range: 2024-01-10 to 2024-02-29 (51 days)
+    Readings: 1000.000 (2024-01-10), 1100.000 (2024-02-29) -> consumption = 100.000 kWh
+    
+    Period 1: 2024-01-01 to 2024-02-29 (51 days overlap)
+      price_per_unit = 0.30000, base_fee_monthly = 10.00
+    Period 2: 2024-03-01 to 2024-12-31 (0 days overlap - to is exactly at end of period 1)
+    
+    Calculation:
+      Total days in range = 51
+      Only Period 1 overlaps
+      Base fee: 10.00 * 51/30 = 17.00
+      Energy cost: 100.000 * 0.30000 = 30.00
+      total_cost = 47.00
+    """
+    meter_id = _create_meter(client)
+    _create_reading(client, meter_id, "1000.000", "2024-01-10")
+    _create_reading(client, meter_id, "1100.000", "2024-02-29")
+    
+    # Period 1: Jan 1 to Feb 29
+    _create_tariff(
+        client,
+        meter_id,
+        valid_from="2024-01-01",
+        valid_to="2024-02-29",
+        price_per_unit="0.30000",
+        base_fee_monthly="10.00",
+    )
+    # Period 2: Mar 1 to Dec 31 (doesn't overlap with range)
+    _create_tariff(
+        client,
+        meter_id,
+        valid_from="2024-03-01",
+        valid_to="2024-12-31",
+        price_per_unit="0.40000",
+        base_fee_monthly="12.00",
+    )
+
+    response = _calculate(client, meter_id, "2024-01-10", "2024-02-29")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert Decimal(data["consumption"]) == Decimal("100.000")
+    assert Decimal(data["price_per_unit"]) == Decimal("0.30000")
+    assert Decimal(data["base_fee_total"]) == Decimal("16.67")
+    assert Decimal(data["total_cost"]) == Decimal("46.67")
+
+
+def test_calculate_costs_open_ended_period(client):
+    """Cost calculation with an open-ended tariff period (valid_to = NULL).
+
+    Range: 2024-01-10 to 2024-03-10 (60 days)
+    Readings: 1000.000 (2024-01-10), 1150.500 (2024-03-10) -> consumption = 150.500 kWh
+    
+    Period 1: 2024-01-01 to 2024-02-15 (37 days overlap: Jan 10-31 = 22, Feb 1-15 = 15)
+      price_per_unit = 0.30000, base_fee_monthly = 10.00
+    Period 2: 2024-02-16 to NULL (open-ended, 23 days overlap: Feb 16-29 = 14, Mar 1-10 = 9)
+      price_per_unit = 0.40000, base_fee_monthly = 15.00
+    
+    Calculation should work the same as with explicit valid_to.
+    """
+    meter_id = _create_meter(client)
+    _create_reading(client, meter_id, "1000.000", "2024-01-10")
+    _create_reading(client, meter_id, "1150.500", "2024-03-10")
+    
+    # Period 1: Jan 1 to Feb 15
+    _create_tariff(
+        client,
+        meter_id,
+        valid_from="2024-01-01",
+        valid_to="2024-02-15",
+        price_per_unit="0.30000",
+        base_fee_monthly="10.00",
+    )
+    # Period 2: Feb 16 to NULL (open-ended)
+    _create_tariff(
+        client,
+        meter_id,
+        valid_from="2024-02-16",
+        valid_to=None,
+        price_per_unit="0.40000",
+        base_fee_monthly="15.00",
+    )
+
+    response = _calculate(client, meter_id, "2024-01-10", "2024-03-10")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert Decimal(data["consumption"]) == Decimal("150.500")
+    assert Decimal(data["price_per_unit"]) == Decimal("0.30000")
+    # Expected values from earlier similar test
+    assert Decimal(data["base_fee_total"]) == Decimal("23.83")
+    assert Decimal(data["total_cost"]) == Decimal("74.75")
+
+
+def test_calculate_costs_gas_conversion_applied(client):
+    """Gas meter consumption (m³) is converted to kWh before billing.
+
+    Range: 2024-01-10 to 2024-02-10 (31 days)
+    Readings: 1000.000 (2024-01-10), 1100.000 (2024-02-10) -> consumption = 100.000 m³
+
+    Tariff: price_per_unit = 0.10000 €/kWh, no base fee
+      gas_z_zahl   = 0.9612
+      gas_brennwert = 11.482 kWh/m³
+
+    Calculation:
+      kWh = 100.000 m³ * 0.9612 * 11.482 = 1103.649840 kWh
+      energy cost = 1103.649840 * 0.10000 = 110.364984 -> 110.36
+      base_fee_total = 0.00
+      total_cost = 110.36
+
+    The raw consumption reported stays in the meter's unit (m³).
+    """
+    meter_id = _create_meter(client, meter_type="gas")
+    _create_reading(client, meter_id, "1000.000", "2024-01-10")
+    _create_reading(client, meter_id, "1100.000", "2024-02-10")
+    _create_tariff(
+        client,
+        meter_id,
+        valid_from="2024-01-01",
+        valid_to="2024-12-31",
+        price_per_unit="0.10000",
+        base_fee_monthly=None,
+        gas_z_zahl="0.9612",
+        gas_brennwert="11.482",
+    )
+
+    response = _calculate(client, meter_id, "2024-01-10", "2024-02-10")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["unit"] == "m³"
+    # Raw consumption stays in m³; only the billing amount is converted.
+    assert Decimal(data["consumption"]) == Decimal("100.000")
+    assert Decimal(data["price_per_unit"]) == Decimal("0.10000")
+    assert Decimal(data["base_fee_total"]) == Decimal("0.00")
+    assert Decimal(data["total_cost"]) == Decimal("110.36")
+
+
+def test_calculate_costs_gas_missing_z_zahl(client):
+    """422 when a gas tariff period lacks gas_z_zahl."""
+    meter_id = _create_meter(client, meter_type="gas")
+    _create_reading(client, meter_id, "1000.000", "2024-01-10")
+    _create_reading(client, meter_id, "1100.000", "2024-02-10")
+    _create_tariff(
+        client,
+        meter_id,
+        valid_from="2024-01-01",
+        valid_to="2024-12-31",
+        price_per_unit="0.10000",
+        base_fee_monthly=None,
+        gas_brennwert="11.482",
+    )
+
+    response = _calculate(client, meter_id, "2024-01-10", "2024-02-10")
+
+    assert response.status_code == 422
+    assert "gas_z_zahl" in response.json()["detail"]
+    assert "gas_brennwert" in response.json()["detail"]
+
+
+def test_calculate_costs_gas_missing_brennwert(client):
+    """422 when a gas tariff period lacks gas_brennwert."""
+    meter_id = _create_meter(client, meter_type="gas")
+    _create_reading(client, meter_id, "1000.000", "2024-01-10")
+    _create_reading(client, meter_id, "1100.000", "2024-02-10")
+    _create_tariff(
+        client,
+        meter_id,
+        valid_from="2024-01-01",
+        valid_to="2024-12-31",
+        price_per_unit="0.10000",
+        base_fee_monthly=None,
+        gas_z_zahl="0.9612",
+    )
+
+    response = _calculate(client, meter_id, "2024-01-10", "2024-02-10")
+
+    assert response.status_code == 422
+    assert "gas_z_zahl" in response.json()["detail"]
+    assert "gas_brennwert" in response.json()["detail"]
+
+
+def test_calculate_costs_gas_missing_both_fields(client):
+    """422 when a gas tariff period has neither conversion factor."""
+    meter_id = _create_meter(client, meter_type="gas")
+    _create_reading(client, meter_id, "1000.000", "2024-01-10")
+    _create_reading(client, meter_id, "1100.000", "2024-02-10")
+    _create_tariff(
+        client,
+        meter_id,
+        valid_from="2024-01-01",
+        valid_to="2024-12-31",
+        price_per_unit="0.10000",
+        base_fee_monthly=None,
+    )
+
+    response = _calculate(client, meter_id, "2024-01-10", "2024-02-10")
+
+    assert response.status_code == 422
+    assert "gas_z_zahl" in response.json()["detail"]
+    assert "gas_brennwert" in response.json()["detail"]
+
+
+def test_calculate_costs_non_gas_unaffected_by_gas_fields(client):
+    """Gas conversion must NOT apply to non-gas meters.
+
+    An electricity meter's tariff carries gas conversion factors; the cost
+    must still be raw kWh * price_per_unit (no m³->kWh conversion).
+    """
+    meter_id = _create_meter(client)  # electricity_import -> unit kWh
+    _create_reading(client, meter_id, "1000.000", "2024-01-10")
+    _create_reading(client, meter_id, "1100.000", "2024-02-10")
+    _create_tariff(
+        client,
+        meter_id,
+        valid_from="2024-01-01",
+        valid_to="2024-12-31",
+        price_per_unit="0.35490",
+        base_fee_monthly=None,
+        gas_z_zahl="0.9612",
+        gas_brennwert="11.482",
+    )
+
+    response = _calculate(client, meter_id, "2024-01-10", "2024-02-10")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["unit"] == "kWh"
+    assert Decimal(data["consumption"]) == Decimal("100.000")
+    assert Decimal(data["base_fee_total"]) == Decimal("0.00")
+    # 100 kWh * 0.35490 = 35.49 (if conversion wrongly applied: 391.69)
+    assert Decimal(data["total_cost"]) == Decimal("35.49")
+
+
+def test_calculate_costs_gas_split_across_periods(client):
+    """Gas consumption split across two tariff periods with different factors.
+
+    Range: 2024-01-10 to 2024-03-10 (60 days)
+    Readings: 1000.000 (2024-01-10), 1150.000 (2024-03-10) -> consumption = 150.000 m³
+
+    Period 1: 2024-01-01 to 2024-02-15 (37 days overlap)
+      price_per_unit = 0.10000, base_fee_monthly = None
+      gas_z_zahl = 0.9612, gas_brennwert = 11.482
+    Period 2: 2024-02-16 to 2024-12-31 (23 days overlap)
+      price_per_unit = 0.15000, base_fee_monthly = None
+      gas_z_zahl = 0.9520, gas_brennwert = 11.250
+
+    Calculation (each period's share converted with its OWN factors):
+      Share 1: 150.000 * 37/60 = 92.500 m³
+        -> 92.500 * 0.9612 * 11.482 = 1020.876102 kWh
+        energy = 1020.876102 * 0.10000 = 102.087610
+      Share 2: 150.000 * 23/60 = 57.500 m³
+        -> 57.500 * 0.9520 * 11.250 = 615.825000 kWh
+        energy = 615.825000 * 0.15000 = 92.373750
+      Total energy = 194.461360 -> 194.46
+      base_fee_total = 0.00
+      total_cost = 194.46
+    """
+    meter_id = _create_meter(client, meter_type="gas")
+    _create_reading(client, meter_id, "1000.000", "2024-01-10")
+    _create_reading(client, meter_id, "1150.000", "2024-03-10")
+    _create_tariff(
+        client,
+        meter_id,
+        valid_from="2024-01-01",
+        valid_to="2024-02-15",
+        price_per_unit="0.10000",
+        base_fee_monthly=None,
+        gas_z_zahl="0.9612",
+        gas_brennwert="11.482",
+    )
+    _create_tariff(
+        client,
+        meter_id,
+        valid_from="2024-02-16",
+        valid_to="2024-12-31",
+        price_per_unit="0.15000",
+        base_fee_monthly=None,
+        gas_z_zahl="0.9520",
+        gas_brennwert="11.250",
+    )
+
+    response = _calculate(client, meter_id, "2024-01-10", "2024-03-10")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert Decimal(data["consumption"]) == Decimal("150.000")
+    assert Decimal(data["base_fee_total"]) == Decimal("0.00")
+    assert Decimal(data["total_cost"]) == Decimal("194.46")

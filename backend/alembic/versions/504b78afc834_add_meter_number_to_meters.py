@@ -1,7 +1,7 @@
 """add meter_number to meters
 
-Revision ID: cd75ae9d539a
-Revises: extend_meter_type_enum
+Revision ID: 504b78afc834
+Revises: b92bea1faa8f
 Create Date: 2026-09-09 16:07:54.304381
 
 """
@@ -10,8 +10,8 @@ import sqlalchemy as sa
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision = 'cd75ae9d539a'
-down_revision = 'extend_meter_type_enum'
+revision = '504b78afc834'
+down_revision = 'b92bea1faa8f'
 branch_labels = None
 depends_on = None
 

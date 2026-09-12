@@ -9,7 +9,7 @@ import { Select, SelectItem } from '../components/ui/select';
 import { readingsApi, metersApi } from '../api/client';
 import { meterTypeLabel, useMeterTypes } from '../hooks/useMeterTypes';
 import { Meter } from '../types';
-import { ArrowLeft, CheckCircle } from 'lucide-react';
+import { ArrowLeft, AlertTriangle, CheckCircle } from 'lucide-react';
 
 const AddReading: React.FC = () => {
   const navigate = useNavigate();
@@ -51,10 +51,20 @@ const AddReading: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!formData.meter_id || !formData.value || !formData.reading_date) {
       alert('Please fill in all required fields');
       return;
+    }
+
+    // Warn if the meter has been replaced; the user must confirm to proceed.
+    if (isReplaced) {
+      const proceed = window.confirm(
+        `Achtung: Dieser Zähler wurde durch Zähler #${successor!.id} „${successor!.label}" ersetzt. ` +
+        'Neue Ablesungen sollten normalerweise am Nachfolger eingetragen werden. ' +
+        'Trotzdem fortfahren?'
+      );
+      if (!proceed) return;
     }
 
     try {
@@ -64,10 +74,10 @@ const AddReading: React.FC = () => {
         meter_id: parseInt(formData.meter_id),
         value: parseFloat(formData.value),
       };
-      
+
       await readingsApi.create(payload);
       setSuccess(true);
-      
+
       setTimeout(() => {
         navigate('/meters');
       }, 2000);
@@ -80,6 +90,12 @@ const AddReading: React.FC = () => {
   };
 
   const selectedMeter = meters.find(m => m.id.toString() === formData.meter_id);
+
+  // Determine if the selected meter has been replaced by a successor
+  const successor = selectedMeter
+    ? meters.find(m => m.replaces_meter_id === selectedMeter.id)
+    : undefined;
+  const isReplaced = !!successor;
 
   return (
     <div className="p-6">
@@ -124,6 +140,17 @@ const AddReading: React.FC = () => {
                     <p className="text-sm text-muted-foreground">
                       Ausgewählter Zähler: {selectedMeter.label} ({meterTypeLabel(meterTypes, selectedMeter.meter_type)})
                     </p>
+                  )}
+
+                  {/* Warnung, wenn der Zähler bereits ersetzt wurde */}
+                  {isReplaced && successor && (
+                    <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950 dark:border-amber-700 p-3 text-sm text-amber-800 dark:text-amber-200">
+                      <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+                      <span>
+                        Dieser Zähler wurde durch Zähler #{successor.id} „{successor.label}" ersetzt.
+                        Neue Ablesungen sollten normalerweise beim Nachfolger-Zähler eingetragen werden.
+                      </span>
+                    </div>
                   )}
                 </div>
 
