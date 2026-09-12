@@ -7,6 +7,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .base import Base, TimestampMixin
 
 if TYPE_CHECKING:
+    from .advance_payment import AdvancePayment
     from .reading import Reading
     from .tariff_period import TariffPeriod
 
@@ -65,6 +66,9 @@ class Meter(Base, TimestampMixin):
         back_populates="meter", cascade="all, delete-orphan"
     )
     tariff_periods: Mapped[list["TariffPeriod"]] = relationship(
+        back_populates="meter", cascade="all, delete-orphan"
+    )
+    advance_payments: Mapped[list["AdvancePayment"]] = relationship(
         back_populates="meter", cascade="all, delete-orphan"
     )
     # ORM relationship to the predecessor meter (many-to-one, nullable).
