@@ -51,3 +51,18 @@ class FeedInCompensationResponse(BaseModel):
     tier1_kwh: Decimal
     tier2_kwh: Decimal
     total_compensation: Decimal
+
+
+class YearEntry(BaseModel):
+    year: int
+    consumption: str | None = None
+    cost: str | None = None
+    cost_basis: Literal["actual", "projected"] | None = None
+
+
+class YearsOverviewItem(BaseModel):
+    meter_id: int
+    meter_label: str
+    meter_type: str
+    unit: str
+    years: list[YearEntry]

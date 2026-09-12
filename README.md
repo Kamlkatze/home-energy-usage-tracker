@@ -536,6 +536,29 @@ The 30 % threshold is a fixed statutory value from EEG 2009 § 33 Abs. 2, not co
 - Does not account for seasonal consumption patterns
 - Negative consumption values (meter rollover) are calculated as-is, not validated or clamped
 
+### Years Overview
+- `GET /api/costs/years-overview` - Return a years-overview for every logical meter (standalone meter or newest meter in a replacement chain). Consumption, cost, and cost basis are computed per year using the same projection and cost logic as the yearly-projection endpoint. Returns **200 OK** even when some meter/year combinations have missing tariffs or insufficient data.
+
+**Chain resolution:** Only meters that are NOT referenced by any other meter's `replaces_meter_id` appear as top-level entries. Their consumption/cost history includes the full replacement chain.
+
+**Response structure:** Each entry contains a list of `years` where at least one reading exists in the meter's chain. Years without readings are omitted. Cost fields are `null` when no tariff or insufficient data is available.
+
+#### Example GET /api/costs/years-overview response:
+```json
+[
+  {
+    "meter_id": 1,
+    "meter_label": "Gas Zähler",
+    "meter_type": "gas",
+    "unit": "m³",
+    "years": [
+      { "year": 2023, "consumption": "1200.500", "cost": "450.20", "cost_basis": "actual" },
+      { "year": 2024, "consumption": "980.000", "cost": "410.00", "cost_basis": "projected" }
+    ]
+  }
+]
+```
+
 ### Advance Payment Diff (Cost vs. Abschläge)
 - `GET /api/costs/advance-payment-diff?meter_id={id}&year={year}&as_of_date={date}` - Calculate the difference between paid/planned advance payments and the estimated or actual annual cost for a meter and year. `as_of_date` is optional (defaults to server date). Returns **200** even with no advance payments or no tariff, **404** if meter not found, **422** for invalid year (outside 2000-2100 range).
 

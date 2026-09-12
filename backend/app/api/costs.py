@@ -3,7 +3,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from .. import models, schemas
@@ -1262,3 +1262,159 @@ def get_advance_payment_diff(
         difference=str(difference) if difference is not None else None,
         message=message,
     )
+
+
+def _compute_yearly_cost_for_chain(
+    db: Session,
+    meter_id: int,
+    year: int,
+    as_of_date: date,
+    chain: list[models.Meter],
+) -> tuple[Decimal | None, Decimal | None, Literal["actual", "projected"] | None, str | None]:
+    """Compute consumption, cost, and cost_basis for a chain + year.
+
+    Returns (consumption, cost, cost_basis, message).
+    Calls ProjectionService and cost logic, catching failures so the caller
+    can handle per-year errors without crashing the whole response.
+    """
+    try:
+        ProjectionService.validate_year(year)
+    except ValueError:
+        return None, None, None, None
+
+    try:
+        projection_data = ProjectionService.calculate_projection(
+            db=db, meter_id=meter_id, year=year, as_of_date=as_of_date, chain=chain,
+        )
+    except Exception:  # noqa: BLE001
+        return None, None, None, None
+
+    meter = chain[-1]
+
+    if (
+        projection_data["projected_annual_consumption"] is None
+        or projection_data["basis"] == "insufficient_data"
+    ):
+        return None, None, None, projection_data.get("message")
+
+    projected_consumption = projection_data["projected_annual_consumption"]
+    year_status = ProjectionService.analyze_year_status(year, as_of_date)
+
+    if year_status == "completed":
+        cost_basis: Literal["actual", "projected"] = "actual"
+        year_start = date(year, 1, 1)
+        year_end = date(year, 12, 31)
+        try:
+            tariffs_year = _get_overlapping_tariffs(
+                db, meter_id, models.TariffKind.CONSUMPTION, year_start, year_end
+            )
+            _, total_cost, _ = _compute_cost_fields_multiperiod(
+                projected_consumption, tariffs_year, year_start, year_end,
+                meter_type=meter.meter_type,
+            )
+            return projected_consumption, total_cost, cost_basis, None
+        except HTTPException:
+            return projected_consumption, None, cost_basis, None
+        except ValueError:
+            return projected_consumption, None, cost_basis, None
+    else:
+        cost_basis = "projected"
+        active_tariff = _get_active_tariff_for_date(
+            db=db, meter_id=meter_id, tariff_kind=models.TariffKind.CONSUMPTION,
+            target_date=as_of_date,
+        )
+        if active_tariff is None:
+            return projected_consumption, None, cost_basis, "Kein aktiver Tarif für dieses Datum gefunden."
+
+        price_per_unit = active_tariff.price_per_unit
+        base_fee_monthly = (
+            active_tariff.base_fee_monthly if active_tariff.base_fee_monthly is not None else Decimal(0)
+        )
+
+        if (
+            meter.meter_type == models.MeterType.GAS
+            and (active_tariff.gas_z_zahl is None or active_tariff.gas_brennwert is None)
+        ):
+            return projected_consumption, None, cost_basis, _GAS_CONVERSION_FIELDS_MESSAGE
+
+        cons_for_cost = projected_consumption
+        if meter.meter_type == models.MeterType.GAS:
+            cons_for_cost = (
+                cons_for_cost * active_tariff.gas_z_zahl * active_tariff.gas_brennwert
+            )
+
+        energy_cost = cons_for_cost * price_per_unit
+        base_fee_annual_raw = base_fee_monthly * Decimal(12)
+        total_cost = (energy_cost + base_fee_annual_raw).quantize(
+            _CENT, rounding=ROUND_HALF_UP
+        )
+        return projected_consumption, total_cost, cost_basis, None
+
+
+def _get_all_reading_years_for_chain(db: Session, chain: list[models.Meter]) -> list[int]:
+    """Return distinct years with at least one reading anywhere in the chain, sorted."""
+    chain_ids = [m.id for m in chain]
+    results = (
+        db.query(func.extract("year", models.Reading.reading_date).label("year"))
+        .filter(models.Reading.meter_id.in_(chain_ids))
+        .distinct()
+        .order_by("year")
+        .all()
+    )
+    return [int(r.year) for r in results]
+
+
+@router.get("/years-overview", response_model=list[schemas.YearsOverviewItem])
+def get_years_overview(
+    db: Session = Depends(get_database_session),
+):
+    """Return a years-overview for every logical meter.
+
+    A logical meter is the newest meter in a replacement chain (or a standalone
+    meter). Its consumption/cost history includes all predecessor meters'
+    readings.
+    """
+    as_of_date = datetime.now(UTC).date()
+
+    # Identify all "logical meters": meters that are NOT referenced by any
+    # other meter's replaces_meter_id (i.e. they are the last in their chain).
+    referenced_ids = (
+        db.query(models.Meter.replaces_meter_id)
+        .filter(models.Meter.replaces_meter_id.isnot(None))
+        .distinct()
+        .subquery()
+    )
+    logical_meters = (
+        db.query(models.Meter)
+        .outerjoin(referenced_ids, models.Meter.id == referenced_ids.c.replaces_meter_id)
+        .filter(referenced_ids.c.replaces_meter_id.is_(None))
+        .order_by(models.Meter.id.asc())
+        .all()
+    )
+
+    results: list[schemas.YearsOverviewItem] = []
+    for meter in logical_meters:
+        chain = _build_meter_chain(db, meter.id)
+        years = _get_all_reading_years_for_chain(db, chain)
+
+        year_entries: list[schemas.YearEntry] = []
+        for year in years:
+            consumption, cost, cost_basis, _message = _compute_yearly_cost_for_chain(
+                db, meter.id, year, as_of_date, chain,
+            )
+            year_entries.append(schemas.YearEntry(
+                year=year,
+                consumption=str(consumption) if consumption is not None else None,
+                cost=str(cost) if cost is not None else None,
+                cost_basis=cost_basis,
+            ))
+
+        results.append(schemas.YearsOverviewItem(
+            meter_id=meter.id,
+            meter_label=meter.label,
+            meter_type=meter.meter_type.value,
+            unit=meter.unit,
+            years=year_entries,
+        ))
+
+    return results

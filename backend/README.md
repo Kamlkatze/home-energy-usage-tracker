@@ -59,7 +59,7 @@ uv run --extra dev pytest tests/test_advance_payment_diff.py
 uv run --extra dev pytest -v
 ```
 
-**Test Coverage (167 tests, all passing):**
+**Test Coverage (175 tests, all passing):**
 - CRUD operations for meters, readings, tariff periods, and advance payments
 - Database constraint validation (foreign keys, uniqueness, EXCLUDE overlap)
 - Advance payment overlap prevention (EXCLUDE USING gist with daterange)
@@ -69,6 +69,7 @@ uv run --extra dev pytest -v
 - Wastewater cost calculation
 - Annual consumption projection
 - Yearly projection with cost
+- Years overview (logical meter resolution, chain-aware yearly consumption/cost across all years with readings)
 - Advance payment diff (cost vs. Abschläge comparison)
 - EEG 2009 feed-in compensation calculation
 - Decimal serialization as strings
@@ -172,6 +173,20 @@ Compares paid/planned monthly Abschläge against the estimated annual cost:
 3. **Difference** — `total_advance_payments - estimated_or_actual_cost` (positive = Guthaben, negative = Nachzahlung)
 
 Returns **200** with `total_advance_payments: null` when no advance payment exists. Returns **404** when meter not found, **422** for invalid year (outside 2000–2100).
+
+### Years Overview
+
+**`GET /api/costs/years-overview`**
+
+Returns yearly consumption, cost, and cost basis for every logical meter (standalone meters and newest meters in replacement chains). Built as a dashboard endpoint for the home page.
+
+**Chain resolution:** Only meters that are NOT referenced by any other meter's `replaces_meter_id` appear as top-level entries. Predecessor meters' readings count toward the logical meter's history.
+
+**Year selection:** For each logical meter, all years with at least one reading anywhere in the chain are included. Years without readings are omitted.
+
+**Per-year calculation:** Reuses the same projection-with-cost logic as `/api/costs/yearly-projection`. Completed years get `cost_basis: "actual"`, ongoing/future years get `cost_basis: "projected"`. Missing tariffs or insufficient data result in `null` cost fields (the year entry still appears with consumption if calculable).
+
+Returns **200** always (per-year failures are surfaced as null fields, never as HTTP errors).
 
 ## Projection Service
 

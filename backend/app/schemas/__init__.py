@@ -4,6 +4,8 @@ from .cost import (
     CostCalculationResponse,
     FeedInCompensationResponse,
     WastewaterCostCalculationResponse,
+    YearEntry,
+    YearsOverviewItem,
 )
 from .meter import Meter, MeterCreate, MeterTypeInfo, MeterUpdate
 from .projection import ProjectionResponse
@@ -30,5 +32,7 @@ __all__ = [
     "TariffPeriodCreate",
     "TariffPeriodUpdate",
     "WastewaterCostCalculationResponse",
+    "YearEntry",
     "YearlyProjectionWithCostResponse",
+    "YearsOverviewItem",
 ]
