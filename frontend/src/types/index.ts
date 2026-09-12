@@ -6,7 +6,7 @@ export type MeterType =
   | 'electricity_export'
   | 'electricity_production';
 
-export type TariffKind = 'consumption' | 'base_fee' | 'feed_in' | 'self_consumption' | 'metering_fee';
+export type TariffKind = 'consumption' | 'feed_in' | 'self_consumption' | 'wastewater';
 
 // One entry of GET /api/meters/types: the unit is server-derived from
 // the meter type and not configurable by the client.
@@ -42,5 +42,6 @@ export interface TariffPeriod {
   valid_to: string | null;
   price_per_unit: string;
   base_fee_monthly: string | null;
+  metering_fee_monthly: string | null;
   created_at: string;
 }

@@ -8,14 +8,13 @@ import { Select, SelectItem } from '../components/ui/select';
 import { tariffsApi, metersApi } from '../api/client';
 import { meterTypeLabel, useMeterTypes } from '../hooks/useMeterTypes';
 import { Meter, TariffKind } from '../types';
-import { ArrowLeft, CheckCircle } from 'lucide-react';
+import { ArrowLeft, CheckCircle, Loader2 } from 'lucide-react';
 
 const TARIFF_KIND_LABELS: Record<TariffKind, string> = {
-  consumption: 'Arbeitspreis',
-  base_fee: 'Grundpreis',
+  consumption: 'Arbeitspreis (mit optionalen Grund- und Messentgelten)',
   feed_in: 'Einspeisevergütung',
   self_consumption: 'Selbstverbrauchsvergütung',
-  metering_fee: 'Messstellenbetrieb',
+  wastewater: 'Abwasserkosten',
 };
 
 const TARIFF_KINDS = Object.keys(TARIFF_KIND_LABELS) as TariffKind[];
@@ -23,6 +22,8 @@ const TARIFF_KINDS = Object.keys(TARIFF_KIND_LABELS) as TariffKind[];
 const TariffForm: React.FC = () => {
   const navigate = useNavigate();
   const [meters, setMeters] = useState<Meter[]>([]);
+  const [metersLoading, setMetersLoading] = useState(true);
+  const [metersError, setMetersError] = useState<string | null>(null);
   const meterTypes = useMeterTypes();
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -33,6 +34,7 @@ const TariffForm: React.FC = () => {
     valid_to: '',
     price_per_unit: '',
     base_fee_monthly: '',
+    metering_fee_monthly: '',
   });
 
   useEffect(() => {
@@ -41,6 +43,8 @@ const TariffForm: React.FC = () => {
 
   const fetchMeters = async () => {
     try {
+      setMetersLoading(true);
+      setMetersError(null);
       const data = await metersApi.getAll();
       setMeters(data);
       if (data.length > 0 && !formData.meter_id) {
@@ -48,6 +52,9 @@ const TariffForm: React.FC = () => {
       }
     } catch (err) {
       console.error('Error fetching meters:', err);
+      setMetersError('Fehler beim Laden der Zähler');
+    } finally {
+      setMetersLoading(false);
     }
   };
 
@@ -86,6 +93,9 @@ const TariffForm: React.FC = () => {
       }
       if (formData.base_fee_monthly) {
         payload.base_fee_monthly = formData.base_fee_monthly;
+      }
+      if (formData.metering_fee_monthly) {
+        payload.metering_fee_monthly = formData.metering_fee_monthly;
       }
 
       await tariffsApi.create(payload);
@@ -134,21 +144,38 @@ const TariffForm: React.FC = () => {
               <form onSubmit={handleSubmit} className="space-y-6">
                 <div className="space-y-2">
                   <Label htmlFor="meter_id">Zähler *</Label>
-                  <Select
-                    id="meter_id"
-                    value={formData.meter_id}
-                    onChange={handleMeterChange}
-                  >
-                    {meters.map((meter) => (
-                      <SelectItem key={meter.id} value={meter.id.toString()}>
-                        {meter.label} ({meterTypeLabel(meterTypes, meter.meter_type)} • {meter.unit})
-                      </SelectItem>
-                    ))}
-                  </Select>
-                  {selectedMeter && (
-                    <p className="text-sm text-muted-foreground">
-                      Ausgewählter Zähler: {selectedMeter.label} ({meterTypeLabel(meterTypes, selectedMeter.meter_type)})
-                    </p>
+                  {metersLoading ? (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Lade Zähler...
+                    </div>
+                  ) : metersError ? (
+                    <div className="text-sm text-destructive">
+                      {metersError}
+                    </div>
+                  ) : meters.length === 0 ? (
+                    <div className="text-sm text-muted-foreground">
+                      Keine Zähler vorhanden. Bitte zuerst einen Zähler anlegen.
+                    </div>
+                  ) : (
+                    <>
+                      <Select
+                        id="meter_id"
+                        value={formData.meter_id}
+                        onChange={handleMeterChange}
+                      >
+                        {meters.map((meter) => (
+                          <SelectItem key={meter.id} value={meter.id.toString()}>
+                            {meter.label} ({meterTypeLabel(meterTypes, meter.meter_type)} • {meter.unit})
+                          </SelectItem>
+                        ))}
+                      </Select>
+                      {selectedMeter && (
+                        <p className="text-sm text-muted-foreground">
+                          Ausgewählter Zähler: {selectedMeter.label} ({meterTypeLabel(meterTypes, selectedMeter.meter_type)})
+                        </p>
+                      )}
+                    </>
                   )}
                 </div>
 
@@ -230,6 +257,24 @@ const TariffForm: React.FC = () => {
                   </div>
                 </div>
 
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <Label htmlFor="metering_fee_monthly">Messentgelt monatlich (optional)</Label>
+                    <Input
+                      id="metering_fee_monthly"
+                      name="metering_fee_monthly"
+                      type="number"
+                      step="0.01"
+                      value={formData.metering_fee_monthly}
+                      onChange={handleChange}
+                      placeholder="z. B. 5.80"
+                    />
+                    <p className="text-sm text-muted-foreground">
+                      Nur bei Tarifart "Arbeitspreis" relevant
+                    </p>
+                  </div>
+                </div>
+
                 <div className="flex justify-end gap-4 pt-4">
                   <Button
                     type="button"
@@ -239,7 +284,10 @@ const TariffForm: React.FC = () => {
                   >
                     Abbrechen
                   </Button>
-                  <Button type="submit" disabled={loading}>
+                  <Button 
+                    type="submit" 
+                    disabled={loading || metersLoading || meters.length === 0}
+                  >
                     {loading ? 'Speichern...' : 'Tarifzeitraum hinzufügen'}
                   </Button>
                 </div>

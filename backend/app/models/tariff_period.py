@@ -14,10 +14,8 @@ if TYPE_CHECKING:
 
 class TariffKind(enum.Enum):
     CONSUMPTION = "consumption"
-    BASE_FEE = "base_fee"
     FEED_IN = "feed_in"
     SELF_CONSUMPTION = "self_consumption"
-    METERING_FEE = "metering_fee"
     WASTEWATER = "wastewater"
 
 
@@ -49,5 +47,6 @@ class TariffPeriod(Base, TimestampMixin):
     valid_to: Mapped[date | None] = mapped_column(Date)
     price_per_unit: Mapped[Decimal] = mapped_column(Numeric(10, 5), nullable=False)
     base_fee_monthly: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    metering_fee_monthly: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
     
     meter: Mapped["Meter"] = relationship(back_populates="tariff_periods")

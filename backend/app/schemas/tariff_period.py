@@ -13,6 +13,7 @@ class TariffPeriodBase(BaseModel):
     valid_to: date | None = None
     price_per_unit: Decimal
     base_fee_monthly: Decimal | None = None
+    metering_fee_monthly: Decimal | None = None
 
 
 class TariffPeriodCreate(TariffPeriodBase):
@@ -26,6 +27,7 @@ class TariffPeriodUpdate(BaseModel):
     valid_to: date | None = None
     price_per_unit: Decimal | None = None
     base_fee_monthly: Decimal | None = None
+    metering_fee_monthly: Decimal | None = None
 
 
 class TariffPeriod(TariffPeriodBase):

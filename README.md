@@ -259,12 +259,12 @@ For troubleshooting and advanced shutdown options, see the complete documentatio
 - `DELETE /api/tariffs/{id}` - Delete tariff period
 
 #### TariffKind Values
-- `consumption` - Price per unit for consumption
-- `base_fee` - Monthly base fee (optional for consumption periods)
+- `consumption` - Price per unit for consumption (may include optional `base_fee_monthly` and `metering_fee_monthly`)
 - `feed_in` - Feed-in tariff 
 - `self_consumption` - Self-consumption rate
-- `metering_fee` - Metering/grid fee
 - `wastewater` - Price per unit for wastewater (billed on the cold-water meter)
+
+Note: Previously separate `base_fee` and `metering_fee` tariff kinds have been merged into the `consumption` tariff kind as optional monthly fee fields.
 
 #### Example POST /api/tariffs/ request:
 ```json
@@ -274,7 +274,8 @@ For troubleshooting and advanced shutdown options, see the complete documentatio
   "valid_from": "2024-01-01",
   "valid_to": "2024-12-31",
   "price_per_unit": "0.3567",
-  "base_fee_monthly": "15.50"
+  "base_fee_monthly": "15.50",
+  "metering_fee_monthly": "5.80"
 }
 ```
 
@@ -289,6 +290,7 @@ For troubleshooting and advanced shutdown options, see the complete documentatio
     "valid_to": "2024-12-31",
     "price_per_unit": "0.3567",
     "base_fee_monthly": "15.50",
+    "metering_fee_monthly": "5.80",
     "created_at": "2024-01-01T12:00:00Z"
   }
 ]
@@ -483,11 +485,12 @@ For troubleshooting and advanced shutdown options, see the complete documentatio
 ### TariffPeriod
 - `id` (integer, primary key)
 - `meter_id` (foreign key to Meter)
-- `tariff_kind` (enum: consumption, base_fee, feed_in, self_consumption, metering_fee, wastewater)
+- `tariff_kind` (enum: consumption, feed_in, self_consumption, wastewater)
 - `valid_from` (date)
 - `valid_to` (date, optional, null means "open-ended - valid until today")
 - `price_per_unit` (numeric)
-- `base_fee_monthly` (numeric, optional)
+- `base_fee_monthly` (numeric, optional, only for consumption tariff kind)
+- `metering_fee_monthly` (numeric, optional, only for consumption tariff kind)
 - `created_at` (datetime)
 - **Constraint**: EXCLUDE USING gist (meter_id WITH =, tariff_kind WITH =, daterange(valid_from, valid_to, '[]') WITH &&)
   - Prevents overlapping periods within same (meter_id, tariff_kind)
