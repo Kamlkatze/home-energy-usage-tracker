@@ -8,6 +8,7 @@ A simple, local application for tracking electricity, gas, and water consumption
 - **Record readings**: Simple form to add meter readings with dates and optional notes
 - **Visualize consumption**: Line charts showing usage trends over time
 - **Tariff management**: Track price per unit and base fees for different periods
+- **Advance payment management**: Track monthly Abschläge per meter with time-range validity and overlap protection
 - **Meter replacement chain**: When a physical meter is swapped, link the new meter to its predecessor via `replaces_meter_id`. Cost calculations automatically follow the chain, summing each meter's contribution — no negative consumption from a counter reset on the new device
 - **Local deployment**: All data stays on your machine, no cloud services
 - **No authentication**: Single-user, local operation only
@@ -297,6 +298,39 @@ Note: Previously separate `base_fee` and `metering_fee` tariff kinds have been m
 ]
 ```
 
+### Advance Payments
+- `GET /api/advance-payments/` - List all advance payments (optional query parameter: `meter_id`)
+- `POST /api/advance-payments/` - Create a new advance payment
+- `GET /api/advance-payments/{id}` - Get advance payment details
+- `PUT /api/advance-payments/{id}` - Update advance payment
+- `DELETE /api/advance-payments/{id}` - Delete advance payment
+
+#### Example POST /api/advance-payments/ request:
+```json
+{
+  "meter_id": 1,
+  "valid_from": "2024-01-01",
+  "valid_to": "2024-12-31",
+  "monthly_amount": "120.00"
+}
+```
+
+#### Example GET /api/advance-payments/ response:
+```json
+[
+  {
+    "id": 1,
+    "meter_id": 1,
+    "valid_from": "2024-01-01",
+    "valid_to": "2024-12-31",
+    "monthly_amount": "120.00",
+    "created_at": "2024-01-01T12:00:00Z"
+  }
+]
+```
+
+**Constraint:** Overlapping advance payment periods for the same meter are rejected (EXCLUDE USING gist with daterange).
+
 ### Costs
 - `GET /api/costs/?meter_id={id}&from={date}&to={date}` - Calculate the consumption cost for one meter between two dates (query parameters: `meter_id`, `from`, `to`). Returns **404** when no reading or no covering tariff period is found, **422** when `from > to` or the computed consumption is negative.
 
@@ -509,6 +543,17 @@ Note: Previously separate `base_fee` and `metering_fee` tariff kinds have been m
   - Different tariff_kind values may overlap in time (e.g., consumption price and feed-in tariff can be valid simultaneously)
   - Both bounds inclusive: adjacent periods must use valid_to = day before next valid_from
 
+### AdvancePayment
+- `id` (integer, primary key)
+- `meter_id` (foreign key to Meter, CASCADE delete)
+- `valid_from` (date)
+- `valid_to` (date, optional, null means "open-ended")
+- `monthly_amount` (numeric(10,2))
+- `created_at` (datetime)
+- **Constraint**: EXCLUDE USING gist (meter_id WITH =, daterange(valid_from, valid_to, '[]') WITH &&)
+  - Prevents overlapping advance payment periods for the same meter
+  - Both bounds inclusive
+
 ## Development Commands
 
 ### Backend
@@ -546,6 +591,7 @@ home-energy-usage-tracker/
 │   ├── app/
 │   │   ├── api/
 │   │   │   ├── __init__.py           # Router registration
+│   │   │   ├── advance_payments.py   # CRUD endpoints for advance payments
 │   │   │   ├── costs.py              # Cost calculation endpoint for a date range
 │   │   │   ├── deps.py               # Dependency injection (database session)
 │   │   │   ├── meters.py             # CRUD endpoints for meters
@@ -554,12 +600,14 @@ home-energy-usage-tracker/
 │   │   │   └── tariff_periods.py     # CRUD endpoints for tariff periods
 │   │   ├── models/
 │   │   │   ├── __init__.py           # Exports all SQLAlchemy ORM models
+│   │   │   ├── advance_payment.py    # AdvancePayment ORM model
 │   │   │   ├── base.py               # Base model with id and timestamp mixin
 │   │   │   ├── meter.py              # Meter ORM model with MeterType enum
 │   │   │   ├── reading.py            # Reading ORM model
 │   │   │   └── tariff_period.py      # TariffPeriod ORM model with TariffKind enum
 │   │   ├── schemas/
 │   │   │   ├── __init__.py           # Exports all Pydantic schemas
+│   │   │   ├── advance_payment.py    # AdvancePayment schemas (Create, Update, Response)
 │   │   │   ├── cost.py               # Cost calculation response schema
 │   │   │   ├── meter.py              # Meter schemas (Create, Update, Response)
 │   │   │   ├── projection.py         # Projection response schema

@@ -137,6 +137,17 @@ def sample_reading_data():
     }
 
 @pytest.fixture
+def sample_advance_payment_data():
+    """Sample advance payment data for testing."""
+    return {
+        "meter_id": 1,
+        "valid_from": "2024-01-01",
+        "valid_to": "2024-12-31",
+        "monthly_amount": "120.00"
+    }
+
+
+@pytest.fixture
 def sample_tariff_period_data():
     """Sample tariff period data for testing."""
     return {

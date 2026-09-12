@@ -52,14 +52,16 @@ uv run --extra dev pytest
 uv run --extra dev pytest tests/test_meters.py
 uv run --extra dev pytest tests/test_costs.py
 uv run --extra dev pytest tests/test_meter_replacement.py
+uv run --extra dev pytest tests/test_advance_payments.py
 
 # Run with verbose output
 uv run --extra dev pytest -v
 ```
 
-**Test Coverage (134 tests, all passing):**
-- CRUD operations for meters, readings, and tariff periods
+**Test Coverage (150 tests, all passing):**
+- CRUD operations for meters, readings, tariff periods, and advance payments
 - Database constraint validation (foreign keys, uniqueness, EXCLUDE overlap)
+- Advance payment overlap prevention (EXCLUDE USING gist with daterange)
 - Cost calculation: single tariff period, multiple tariff periods, gas m³→kWh conversion
 - Cost calculation: meter replacement chain (chained consumption, tariff change within chain, negative-consumption prevention)
 - Meter replacement validation: `replaces_meter_id` self-reference rejection, type mismatch rejection
@@ -119,6 +121,19 @@ Validation (enforced at API level, not DB level):
 
 **Constraint:** `EXCLUDE USING gist (meter_id WITH =, tariff_kind WITH =, daterange(valid_from, valid_to, '[]') WITH &&)` — overlapping periods within the same `(meter_id, tariff_kind)` are rejected. Different `tariff_kind` values may overlap.
 
+### AdvancePayment (`app/models/advance_payment.py`)
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | integer PK | |
+| `meter_id` | integer FK → meters.id | CASCADE delete |
+| `valid_from` | date | inclusive lower bound |
+| `valid_to` | date nullable | inclusive upper bound; `null` = open-ended |
+| `monthly_amount` | numeric(10,2) | vereinbarter monatlicher Abschlag |
+| `created_at` | datetime | |
+
+**Constraint:** `EXCLUDE USING gist (meter_id WITH =, daterange(valid_from, valid_to, '[]') WITH &&)` — overlapping advance payment periods for the same meter are rejected. Both bounds inclusive.
+
 ## Cost Calculation
 
 **`app/api/costs.py`**
@@ -163,3 +178,4 @@ All migrations live in `alembic/versions/`. IDs are 12-character MD5 hashes.
 | `f470c15c6414` | Simplify TariffKind enum; add metering_fee_monthly column |
 | `c1940f40123e` | Add gas conversion fields to tariff periods |
 | `12182ced0bb9` | Add replaces_meter_id to meters (self-referencing FK, ON DELETE SET NULL) |
+| `d7b063605e01` | Add advance_payments table (EXCLUDE USING gist for overlap prevention) |

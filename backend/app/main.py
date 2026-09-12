@@ -50,11 +50,17 @@ async def integrity_error_handler(request: Request, exc: IntegrityError):
     # Map constraint names to German messages
     if constraint_name == "uq_meter_reading_date":
         message = "Für diesen Zähler existiert bereits ein Zählerstand an diesem Datum."
-    elif constraint_name == "excl_tariff_period_no_overlap":
-        message = (
-            "Für diesen Zähler und diese Tarifart überschneidet sich der "
-            "Zeitraum mit einem bestehenden Eintrag."
-        )
+    elif constraint_name in ("excl_tariff_period_no_overlap", "excl_advance_payment_no_overlap"):
+        if constraint_name == "excl_advance_payment_no_overlap":
+            message = (
+                "Für diesen Zähler überschneidet sich der Abschlagszeitraum "
+                "mit einem bestehenden Eintrag."
+            )
+        else:
+            message = (
+                "Für diesen Zähler und diese Tarifart überschneidet sich der "
+                "Zeitraum mit einem bestehenden Eintrag."
+            )
     elif constraint_name == "uq_meter_valid_from":
         # Legacy constraint (pre-tariff_kind databases, only present after downgrade)
         message = "Für diesen Zähler existiert bereits ein Tarifzeitraum mit diesem Startdatum."
