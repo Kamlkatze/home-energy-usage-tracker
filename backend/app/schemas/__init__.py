@@ -1,6 +1,8 @@
 from .advance_payment import AdvancePayment, AdvancePaymentCreate, AdvancePaymentUpdate
 from .cost import (
     AdvancePaymentDiffResponse,
+    ConsumptionTimeseriesItem,
+    ConsumptionTimeseriesPoint,
     CostCalculationResponse,
     FeedInCompensationResponse,
     WastewaterCostCalculationResponse,
@@ -18,6 +20,8 @@ __all__ = [
     "AdvancePaymentCreate",
     "AdvancePaymentDiffResponse",
     "AdvancePaymentUpdate",
+    "ConsumptionTimeseriesItem",
+    "ConsumptionTimeseriesPoint",
     "CostCalculationResponse",
     "FeedInCompensationResponse",
     "Meter",

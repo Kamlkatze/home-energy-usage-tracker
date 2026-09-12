@@ -559,8 +559,33 @@ The 30 % threshold is a fixed statutory value from EEG 2009 § 33 Abs. 2, not co
 ]
 ```
 
+- `GET /api/costs/consumption-timeseries?from={date}&to={date}` - Return a time series of actual readings (not calendar-aggregated) for every logical meter. Each reading is enriched with consumption and cost since the chronologically previous reading (which may lie outside the requested range or in a predecessor meter of the replacement chain). Returns **200** always; **422** when `from > to`.
+
+**Chain resolution:** Same logical meter identification as `/api/costs/years-overview` — only meters NOT referenced by any other meter's `replaces_meter_id` are top-level entries. Predecessor readings count toward the logical meter's history.
+
+**Per-point calculation:** For each reading within `[from, to]`, the consumption delta is `current_value - previous_value` (previous reading is the chronologically prior reading anywhere in the chain). Cost is calculated for the sub-period `[previous_reading_date, current_reading_date)` using the same multi-period tariff logic (gas m³→kWh conversion included). Missing tariffs or negative consumption result in `null` cost/consumption fields per point.
+
+**Meter/chain omission:** Logical meters with zero readings in `[from, to]` are omitted from the response entirely (no empty `points` list).
+
+#### Example GET /api/costs/consumption-timeseries?from=2024-02-01&to=2024-12-31 response:
+```json
+[
+  {
+    "meter_id": 1,
+    "meter_label": "Strom Zähler",
+    "meter_type": "electricity_import",
+    "unit": "kWh",
+    "points": [
+      { "date": "2024-03-01", "value": "1100.000", "consumption_since_previous": "100.000", "cost_since_previous": "35.00" },
+      { "date": "2024-06-01", "value": "1250.000", "consumption_since_previous": "150.000", "cost_since_previous": "52.50" }
+    ]
+  }
+]
+```
+
 ### Advance Payment Diff (Cost vs. Abschläge)
 - `GET /api/costs/advance-payment-diff?meter_id={id}&year={year}&as_of_date={date}` - Calculate the difference between paid/planned advance payments and the estimated or actual annual cost for a meter and year. `as_of_date` is optional (defaults to server date). Returns **200** even with no advance payments or no tariff, **404** if meter not found, **422** for invalid year (outside 2000-2100 range).
+- `GET /api/costs/consumption-timeseries?from={date}&to={date}` - Return a reading-by-reading time series with per-delta consumption and cost for every logical meter. Returns **200** always; **422** when `from > to`.
 
 **Calculation Logic:**
 1. **Annual cost** — Uses the same logic as `/api/costs/yearly-projection`:
@@ -695,7 +720,7 @@ home-energy-usage-tracker/
 │   │   │   ├── __init__.py           # Router registration
 │   │   │   ├── advance_payments.py   # CRUD endpoints for advance payments
 │   │   │   ├── costs.py              # Cost calculation, wastewater, yearly projection,
-│   │   │   │                         #   and advance-payment-diff endpoints
+│   │   │   │                         #   consumption-timeseries, and advance-payment-diff endpoints
 │   │   │   ├── deps.py               # Dependency injection (database session)
 │   │   │   ├── electricity.py         # EEG 2009 feed-in compensation endpoint
 │   │   │   ├── meters.py             # CRUD endpoints for meters
@@ -712,7 +737,7 @@ home-energy-usage-tracker/
 │   │   ├── schemas/
 │   │   │   ├── __init__.py           # Exports all Pydantic schemas
 │   │   │   ├── advance_payment.py    # AdvancePayment schemas (Create, Update, Response)
-│   │   │   ├── cost.py               # Cost, wastewater, and advance-payment-diff schemas
+│   │   │   ├── cost.py               # Cost, wastewater, advance-payment-diff, and consumption-timeseries schemas
 │   │   │   ├── meter.py              # Meter schemas (Create, Update, Response)
 │   │   │   ├── projection.py         # Projection response schema
 │   │   │   ├── reading.py            # Reading schemas

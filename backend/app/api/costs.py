@@ -1418,3 +1418,123 @@ def get_years_overview(
         ))
 
     return results
+
+
+@router.get(
+    "/consumption-timeseries",
+    response_model=list[schemas.ConsumptionTimeseriesItem],
+)
+def get_consumption_timeseries(
+    from_: date = Query(..., alias="from"),
+    to: date = Query(...),
+    db: Session = Depends(get_database_session),
+):
+    """Return a time series of actual readings for every logical meter.
+
+    Each reading is enriched with consumption and cost since the
+    chronologically previous reading (which may lie outside the requested
+    range or in a predecessor meter of the replacement chain).
+    """
+    _raise_if_from_after_to(from_, to)
+
+    # Identify logical meters (same logic as years-overview).
+    referenced_ids = (
+        db.query(models.Meter.replaces_meter_id)
+        .filter(models.Meter.replaces_meter_id.isnot(None))
+        .distinct()
+        .subquery()
+    )
+    logical_meters = (
+        db.query(models.Meter)
+        .outerjoin(referenced_ids, models.Meter.id == referenced_ids.c.replaces_meter_id)
+        .filter(referenced_ids.c.replaces_meter_id.is_(None))
+        .order_by(models.Meter.id.asc())
+        .all()
+    )
+
+    results: list[schemas.ConsumptionTimeseriesItem] = []
+    for meter in logical_meters:
+        chain = _build_meter_chain(db, meter.id)
+        chain_ids = [m.id for m in chain]
+
+        # All readings in [from_, to] from any meter in the chain, chronological.
+        readings = (
+            db.query(models.Reading)
+            .filter(
+                models.Reading.meter_id.in_(chain_ids),
+                models.Reading.reading_date >= from_,
+                models.Reading.reading_date <= to,
+            )
+            .order_by(models.Reading.reading_date.asc())
+            .all()
+        )
+
+        if not readings:
+            continue  # Omit logical meters with zero readings in range.
+
+        points: list[schemas.ConsumptionTimeseriesPoint] = []
+        prev_reading: models.Reading | None = None
+
+        for idx, reading in enumerate(readings):
+            if idx == 0:
+                # Find chronologically previous reading anywhere in the chain.
+                prev_reading = (
+                    db.query(models.Reading)
+                    .filter(
+                        models.Reading.meter_id.in_(chain_ids),
+                        models.Reading.reading_date < reading.reading_date,
+                    )
+                    .order_by(models.Reading.reading_date.desc())
+                    .first()
+                )
+
+            consumption_str: str | None = None
+            cost_str: str | None = None
+
+            if prev_reading is not None:
+                consumption_delta = reading.value - prev_reading.value
+                if consumption_delta < 0:
+                    # Negative consumption (e.g. counter reset at chain
+                    # boundary); leave fields null for this point.
+                    consumption_str = None
+                    cost_str = None
+                else:
+                    consumption_str = str(consumption_delta)
+                    try:
+                        tariffs = _get_overlapping_tariffs(
+                            db,
+                            reading.meter_id,
+                            models.TariffKind.CONSUMPTION,
+                            prev_reading.reading_date,
+                            reading.reading_date,
+                        )
+                        _, total_cost, _ = _compute_cost_fields_multiperiod(
+                            consumption_delta,
+                            tariffs,
+                            prev_reading.reading_date,
+                            reading.reading_date,
+                            meter_type=meter.meter_type,
+                        )
+                        cost_str = str(total_cost)
+                    except HTTPException:
+                        # No tariff for this sub-period → cost is null.
+                        cost_str = None
+
+            points.append(schemas.ConsumptionTimeseriesPoint(
+                date=reading.reading_date,
+                value=str(reading.value),
+                consumption_since_previous=consumption_str,
+                cost_since_previous=cost_str,
+            ))
+
+            prev_reading = reading
+
+        results.append(schemas.ConsumptionTimeseriesItem(
+            meter_id=meter.id,
+            meter_label=meter.label,
+            meter_type=meter.meter_type.value,
+            unit=meter.unit,
+            points=points,
+        ))
+
+    return results
