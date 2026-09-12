@@ -59,7 +59,7 @@ uv run --extra dev pytest tests/test_advance_payment_diff.py
 uv run --extra dev pytest -v
 ```
 
-**Test Coverage (158 tests, all passing):**
+**Test Coverage (167 tests, all passing):**
 - CRUD operations for meters, readings, tariff periods, and advance payments
 - Database constraint validation (foreign keys, uniqueness, EXCLUDE overlap)
 - Advance payment overlap prevention (EXCLUDE USING gist with daterange)
@@ -70,6 +70,7 @@ uv run --extra dev pytest -v
 - Annual consumption projection
 - Yearly projection with cost
 - Advance payment diff (cost vs. Abschläge comparison)
+- EEG 2009 feed-in compensation calculation
 - Decimal serialization as strings
 
 ## Data Model
@@ -111,7 +112,7 @@ Validation (enforced at API level, not DB level):
 |---|---|---|
 | `id` | integer PK | |
 | `meter_id` | integer FK → meters.id | CASCADE delete |
-| `tariff_kind` | enum | `consumption`, `feed_in`, `self_consumption`, `wastewater` |
+| `tariff_kind` | enum | `consumption`, `feed_in`, `feed_in_eeg2009`, `self_consumption`, `wastewater` |
 | `valid_from` | date | inclusive lower bound |
 | `valid_to` | date nullable | inclusive upper bound; `null` = open-ended |
 | `price_per_unit` | numeric(10,5) | |
@@ -119,6 +120,9 @@ Validation (enforced at API level, not DB level):
 | `metering_fee_monthly` | numeric(10,2) nullable | only meaningful for `consumption` tariffs |
 | `gas_z_zahl` | numeric(10,5) nullable | Zustandszahl; required for gas cost calculation |
 | `gas_brennwert` | numeric(10,5) nullable | kWh/m³; required for gas cost calculation |
+| `eeg_tier1_rate` | numeric(10,5) nullable | only meaningful for `feed_in_eeg2009` tariffs |
+| `eeg_tier2_rate` | numeric(10,5) nullable | only meaningful for `feed_in_eeg2009` tariffs |
+| `metering_point_fee_yearly` | numeric(10,2) nullable | only meaningful for `feed_in_eeg2009` tariffs |
 | `created_at` | datetime | |
 
 **Constraint:** `EXCLUDE USING gist (meter_id WITH =, tariff_kind WITH =, daterange(valid_from, valid_to, '[]') WITH &&)` — overlapping periods within the same `(meter_id, tariff_kind)` are rejected. Different `tariff_kind` values may overlap.
@@ -193,3 +197,4 @@ All migrations live in `alembic/versions/`. IDs are 12-character MD5 hashes.
 | `c1940f40123e` | Add gas conversion fields to tariff periods |
 | `12182ced0bb9` | Add replaces_meter_id to meters (self-referencing FK, ON DELETE SET NULL) |
 | `d7b063605e01` | Add advance_payments table (EXCLUDE USING gist for overlap prevention) |
+| `b65e5e4f6fbc` | Add `feed_in_eeg2009` to TariffKind enum; add eeg_tier1_rate, eeg_tier2_rate, metering_point_fee_yearly columns |

@@ -263,7 +263,8 @@ For troubleshooting and advanced shutdown options, see the complete documentatio
 
 #### TariffKind Values
 - `consumption` - Price per unit for consumption (may include optional `base_fee_monthly` and `metering_fee_monthly`)
-- `feed_in` - Feed-in tariff 
+- `feed_in` - Simple feed-in tariff
+- `feed_in_eeg2009` - EEG 2009 feed-in tariff (includes `eeg_tier1_rate`, `eeg_tier2_rate`, `metering_point_fee_yearly`)
 - `self_consumption` - Self-consumption rate
 - `wastewater` - Price per unit for wastewater (billed on the cold-water meter)
 
@@ -374,6 +375,37 @@ Note: Previously separate `base_fee` and `metering_fee` tariff kinds have been m
   "price_per_unit": "2.10000",
   "base_fee_total": "12.00",
   "total_cost": "203.10"
+}
+```
+
+### EEG 2009 Feed-in Compensation
+- `GET /api/electricity/feed-in-compensation?production_meter_id={id}&export_meter_id={id}&import_meter_id={id}&from={date}&to={date}` - Calculate the feed-in compensation according to EEG 2009 § 33 Abs. 2. Three meter IDs are accepted as query parameters with no fixed DB relationship (analogous to the wastewater endpoint). `import_meter_id` is accepted for future extensibility but currently unused.
+
+**Calculation (EEG 2009 § 33 Abs. 2):**
+  P = production_consumption (total generation)
+  E = export_consumption (electricity fed into grid)
+  S = max(0, P − E) (self-consumption)
+  tier1_kwh = min(S, 0.3 × P)
+  tier2_kwh = max(0, S − 0.3 × P)
+  Total = P × price_per_unit − tier1_kwh × eeg_tier1_rate − tier2_kwh × eeg_tier2_rate − days × metering_point_fee_yearly / 365
+
+The 30 % threshold is a fixed statutory value from EEG 2009 § 33 Abs. 2, not configurable. The tariff is attached to the **export meter** (`tariff_kind=feed_in_eeg2009`). Returns **404** when a meter does not exist, has no readings in the range, or no active EEG 2009 feed-in tariff is found. Returns **422** when `from > to` or consumption is negative.
+
+**Known limitation:** Meter-replacement-chain support is NOT implemented for this endpoint (first iteration).
+
+#### Example GET /api/electricity/feed-in-compensation?production_meter_id=1&export_meter_id=2&from=2024-01-10&to=2024-03-10 response:
+```json
+{
+  "production_meter_id": 1,
+  "export_meter_id": 2,
+  "from_date": "2024-01-10",
+  "to_date": "2024-03-10",
+  "production_consumption": "4500.000",
+  "export_consumption": "2800.000",
+  "self_consumption": "1700.000",
+  "tier1_kwh": "1350.000",
+  "tier2_kwh": "350.000",
+  "total_compensation": "987.65"
 }
 ```
 
@@ -579,6 +611,11 @@ Note: Previously separate `base_fee` and `metering_fee` tariff kinds have been m
 - `price_per_unit` (numeric)
 - `base_fee_monthly` (numeric, optional, only for consumption tariff kind)
 - `metering_fee_monthly` (numeric, optional, only for consumption tariff kind)
+- `gas_z_zahl` (numeric(10,5), optional, gas m³→kWh conversion factor)
+- `gas_brennwert` (numeric(10,5), optional, gas m³→kWh conversion factor)
+- `eeg_tier1_rate` (numeric(10,5), optional, only for feed_in_eeg2009 tariff kind)
+- `eeg_tier2_rate` (numeric(10,5), optional, only for feed_in_eeg2009 tariff kind)
+- `metering_point_fee_yearly` (numeric(10,2), optional, only for feed_in_eeg2009 tariff kind)
 - `created_at` (datetime)
 - **Constraint**: EXCLUDE USING gist (meter_id WITH =, tariff_kind WITH =, daterange(valid_from, valid_to, '[]') WITH &&)
   - Prevents overlapping periods within same (meter_id, tariff_kind)
@@ -637,6 +674,7 @@ home-energy-usage-tracker/
 │   │   │   ├── costs.py              # Cost calculation, wastewater, yearly projection,
 │   │   │   │                         #   and advance-payment-diff endpoints
 │   │   │   ├── deps.py               # Dependency injection (database session)
+│   │   │   ├── electricity.py         # EEG 2009 feed-in compensation endpoint
 │   │   │   ├── meters.py             # CRUD endpoints for meters
 │   │   │   ├── projections.py        # Projection endpoints for annual consumption
 │   │   │   ├── readings.py           # CRUD endpoints for readings

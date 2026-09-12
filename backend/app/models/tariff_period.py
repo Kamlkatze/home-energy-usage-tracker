@@ -17,6 +17,7 @@ class TariffKind(enum.Enum):
     FEED_IN = "feed_in"
     SELF_CONSUMPTION = "self_consumption"
     WASTEWATER = "wastewater"
+    FEED_IN_EEG2009 = "feed_in_eeg2009"
 
 
 class TariffPeriod(Base, TimestampMixin):
@@ -59,5 +60,12 @@ class TariffPeriod(Base, TimestampMixin):
     # optional fee fields.
     gas_z_zahl: Mapped[Decimal | None] = mapped_column(Numeric(10, 5))
     gas_brennwert: Mapped[Decimal | None] = mapped_column(Numeric(10, 5))
+    # EEG 2009 feed-in tariff fields (only meaningful for
+    # tariff_kind="feed_in_eeg2009"). The tier rates reduce the compensation
+    # for self-consumed electricity; metering_point_fee_yearly is a fixed
+    # annual fee prorated by days (see feed-in-compensation endpoint).
+    eeg_tier1_rate: Mapped[Decimal | None] = mapped_column(Numeric(10, 5))
+    eeg_tier2_rate: Mapped[Decimal | None] = mapped_column(Numeric(10, 5))
+    metering_point_fee_yearly: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
     
     meter: Mapped["Meter"] = relationship(back_populates="tariff_periods")

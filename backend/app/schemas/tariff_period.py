@@ -19,6 +19,11 @@ class TariffPeriodBase(BaseModel):
     # calculation time for gas meters (missing values -> 422).
     gas_z_zahl: Decimal | None = None
     gas_brennwert: Decimal | None = None
+    # EEG 2009 feed-in tariff fields (only meaningful for
+    # tariff_kind="feed_in_eeg2009").
+    eeg_tier1_rate: Decimal | None = None
+    eeg_tier2_rate: Decimal | None = None
+    metering_point_fee_yearly: Decimal | None = None
 
 
 class TariffPeriodCreate(TariffPeriodBase):
@@ -35,6 +40,9 @@ class TariffPeriodUpdate(BaseModel):
     metering_fee_monthly: Decimal | None = None
     gas_z_zahl: Decimal | None = None
     gas_brennwert: Decimal | None = None
+    eeg_tier1_rate: Decimal | None = None
+    eeg_tier2_rate: Decimal | None = None
+    metering_point_fee_yearly: Decimal | None = None
 
 
 class TariffPeriod(TariffPeriodBase):

@@ -2,6 +2,7 @@ from .advance_payment import AdvancePayment, AdvancePaymentCreate, AdvancePaymen
 from .cost import (
     AdvancePaymentDiffResponse,
     CostCalculationResponse,
+    FeedInCompensationResponse,
     WastewaterCostCalculationResponse,
 )
 from .meter import Meter, MeterCreate, MeterTypeInfo, MeterUpdate
@@ -16,6 +17,7 @@ __all__ = [
     "AdvancePaymentDiffResponse",
     "AdvancePaymentUpdate",
     "CostCalculationResponse",
+    "FeedInCompensationResponse",
     "Meter",
     "MeterCreate",
     "MeterTypeInfo",
