@@ -7,6 +7,7 @@ import MeterDetail from './pages/MeterDetail';
 import MeterForm from './pages/MeterForm';
 import AddReading from './pages/AddReading';
 import TariffForm from './pages/TariffForm';
+import TariffList from './pages/TariffList';
 import { Home, BarChart2, FileText, Settings, Euro } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -39,10 +40,10 @@ const App: React.FC = () => {
                     Add Reading
                   </Button>
                 </Link>
-                <Link to="/tariffs/new">
+                <Link to="/tariffs">
                   <Button variant="ghost" size="sm" className="gap-2">
                     <Euro className="h-4 w-4" />
-                    Tarif hinzufügen
+                    Tarife
                   </Button>
                 </Link>
               </nav>
@@ -57,6 +58,7 @@ const App: React.FC = () => {
             <Route path="/meters/new" element={<MeterForm />} />
             <Route path="/meters/:id" element={<MeterDetail />} />
             <Route path="/readings/new" element={<AddReading />} />
+            <Route path="/tariffs" element={<TariffList />} />
             <Route path="/tariffs/new" element={<TariffForm />} />
           </Routes>
         </main>

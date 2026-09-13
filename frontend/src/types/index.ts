@@ -6,7 +6,7 @@ export type MeterType =
   | 'electricity_export'
   | 'electricity_production';
 
-export type TariffKind = 'consumption' | 'feed_in' | 'self_consumption' | 'wastewater';
+export type TariffKind = 'consumption' | 'feed_in' | 'self_consumption' | 'wastewater' | 'feed_in_eeg2009';
 
 // One entry of GET /api/meters/types: the unit is server-derived from
 // the meter type and not configurable by the client.
@@ -45,5 +45,19 @@ export interface TariffPeriod {
   price_per_unit: string;
   base_fee_monthly: string | null;
   metering_fee_monthly: string | null;
+  gas_z_zahl: string | null;
+  gas_brennwert: string | null;
+  eeg_tier1_rate: string | null;
+  eeg_tier2_rate: string | null;
+  metering_point_fee_yearly: string | null;
   created_at: string;
+}
+
+export interface TariffUsage {
+  tariff_id: number;
+  meter_id: number;
+  reading_count: number;
+  first_reading_date: string | null;
+  last_reading_date: string | null;
+  in_use: boolean;
 }
