@@ -280,7 +280,13 @@ const TariffList: React.FC = () => {
                             )}
                           </TableCell>
                           <TableCell>{tariff.base_fee_monthly ? `${tariff.base_fee_monthly} €` : '–'}</TableCell>
-                          <TableCell>{tariff.metering_fee_monthly ? `${tariff.metering_fee_monthly} €` : '–'}</TableCell>
+                          <TableCell>
+                            {tariff.metering_fee_monthly
+                              ? `${tariff.metering_fee_monthly} €/Monat`
+                              : tariff.metering_point_fee_yearly
+                                ? `${tariff.metering_point_fee_yearly} €/Jahr`
+                                : '–'}
+                          </TableCell>
                           <TableCell>
                             <div className="flex gap-1">
                               <Button
