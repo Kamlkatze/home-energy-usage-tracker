@@ -8,7 +8,8 @@ import MeterForm from './pages/MeterForm';
 import AddReading from './pages/AddReading';
 import TariffForm from './pages/TariffForm';
 import TariffList from './pages/TariffList';
-import { Home, BarChart2, FileText, Settings, Euro } from 'lucide-react';
+import YearsOverview from './pages/YearsOverview';
+import { Home, BarChart2, FileText, Settings, Euro, CalendarDays } from 'lucide-react';
 
 const App: React.FC = () => {
   return (
@@ -46,6 +47,12 @@ const App: React.FC = () => {
                     Tarife
                   </Button>
                 </Link>
+                <Link to="/years-overview">
+                  <Button variant="ghost" size="sm" className="gap-2">
+                    <CalendarDays className="h-4 w-4" />
+                    Jahresübersicht
+                  </Button>
+                </Link>
               </nav>
             </div>
           </div>
@@ -60,6 +67,7 @@ const App: React.FC = () => {
             <Route path="/readings/new" element={<AddReading />} />
             <Route path="/tariffs" element={<TariffList />} />
             <Route path="/tariffs/new" element={<TariffForm />} />
+            <Route path="/years-overview" element={<YearsOverview />} />
           </Routes>
         </main>
         

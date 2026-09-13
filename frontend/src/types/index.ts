@@ -61,3 +61,18 @@ export interface TariffUsage {
   last_reading_date: string | null;
   in_use: boolean;
 }
+
+export interface YearEntry {
+  year: number;
+  consumption: string | null;
+  cost: string | null;
+  cost_basis: 'actual' | 'projected' | null;
+}
+
+export interface YearsOverviewItem {
+  meter_id: number;
+  meter_label: string;
+  meter_type: string;
+  unit: string;
+  years: YearEntry[];
+}

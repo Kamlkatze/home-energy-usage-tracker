@@ -112,4 +112,11 @@ export const healthApi = {
   },
 };
 
+export const costsApi = {
+  getYearsOverview: async () => {
+    const response = await apiClient.get('/api/costs/years-overview');
+    return response.data;
+  },
+};
+
 export default apiClient;
