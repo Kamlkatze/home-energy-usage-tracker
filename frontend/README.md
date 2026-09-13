@@ -29,9 +29,9 @@
 | `/meters/:id` | `pages/MeterDetail.tsx` | Single meter detail: line chart of readings (recharts), meter info panel (type, unit, number, created date, total count), recent readings table (last 5, newest first). Fetches `GET /api/meters/:id` + `GET /api/meters/:id/readings`. |
 | `/readings/new` | `pages/AddReading.tsx` | Create reading form: meter selector, numeric value, date, optional note. Warns if the selected meter has been replaced by a successor. Submits to `POST /api/readings/`. |
 | `/tariffs` | `pages/TariffList.tsx` | Tariff overview table with all periods: kind label, meter, valid-from/until, price, base fee, metering fee (monthly or yearly), gas factors. Supports **edit** (inline modal with dynamic tariff-kind fields) and **delete** (with usage check). |
-| `/tariffs/new` | `pages/TariffForm.tsx` | Create tariff period form: meter selector, tariff kind (consuption/feed_in/self_consuption/wastewater/feed_in_eeg2009), validity range, dynamic fields per kind (price per unit, optional base + metering fees, gas Z-Zahl/Brennwert for gas meters, EEG 2009 block with tier rates + yearly metering fee). German labels/helper text throughout. EEG 2009 meter selection includes a hint to pick the feed-in meter. Handles empty meter list gracefully. |
+| `/tariffs/new` | `pages/TariffForm.tsx` | Create tariff period form: meter selector, tariff kind (consumption/feed_in/self_consumption/wastewater/feed_in_eeg2009), validity range, dynamic fields per kind (price per unit, optional base + metering fees, gas Z-Zahl/Brennwert for gas meters, EEG 2009 block with tier rates + yearly metering fee). German labels/helper text throughout. EEG 2009 meter selection includes a hint to pick the feed-in meter. Handles empty meter list gracefully. |
 | `/years-overview` | `pages/YearsOverview.tsx` | Year-over-year consumption table + line chart for all logical meters (chain-resolved via backend). Years link to `/years/:year`. |
-| `/years/:year` | `pages/YearDetail.tsx` | Year detail page: per-logical-meter readings table, line chart of readings for that year, cost projection via `GET/api/costs/yearly-projection`. Fetches logical meters from `GET/api/costs/years-overview`, all meters from `GET /api/meters/`for client-side chain resolution, readings via `GET /api/meters/:id/readings` filtered client-side by year. |
+| `/years/:year` | `pages/YearDetail.tsx` | Year detail page grouped by category (Strom, Wasser, Sonstige). Each meter shows: consumption overview (with chain-resolved readings), line chart, readings table, cost projection per meter. **Strom category** includes EEG-Einspeisevergütung card (from `GET /api/electricity/feed-in-compensation`) and hides consumption cost display for export/production meters. **Wasser category** includes Abwasserkosten (from `GET /api/costs/wastewater/`) and Gesamtwasserkosten (Frischwasser + Abwasser). Meter "Kosten" labels renamed to "Frischwasserkosten" for water meters. |
 
 ## 3. Existing Components
 
@@ -44,7 +44,7 @@ All follow the shadcn/ui pattern (Tailwind + `cn()` helper, forwardRef, displayN
 | `Card` / `CardHeader` / `CardTitle` / `CardDescription` / `CardContent` / `CardFooter` | `card.tsx` | Standard card composition. |
 | `Input` | `input.tsx` | Wraps `<input>` with base styling. |
 | `Label` | `label.tsx` | Wraps `<label>` with base styling. |
-| `Select` / `SelectItem` (and unused `SelectTrigger` / `SelectContent` / `SelectValue`) | `select.tsx` | Custom native `<select>` wrapper with chevron icon. The shadcn‑style `SelectTrigger`/`SelectContent`/`SelectValue` components are **exported but never imported** in any page – dead code. |
+| `Select` / `SelectItem` (and unused `SelectTrigger` / `SelectContent` / `SelectValue`) | `select.tsx` | Custom native `<select>` wrapper with chevron icon. |
 | `Table` / `TableHeader` / `TableBody` / `TableFooter` / `TableHead` / `TableRow` / `TableCell` / `TableCaption` | `table.tsx` | Full shadcn-style table suite. |
 | `Textarea` | `textarea.tsx` | Wraps `<textarea>` with base styling. |
 
@@ -65,7 +65,7 @@ All follow the shadcn/ui pattern (Tailwind + `cn()` helper, forwardRef, displayN
 | `lib/utils.ts` | `cn()` helper combining `clsx` and `tailwind-merge`. |
 
 ### Types (`types/index.ts`)
-Defines: `MeterType`, `TariffKind`, `MeterTypeInfo`, `Meter`, `Reading`, `TariffPeriod`, `YearEntry`, `YearsOverviewItem`, `YearlyProjection` – aligned with backend schemas.
+Defines: `MeterType`, `TariffKind`, `MeterTypeInfo`, `Meter`, `Reading`, `TariffPeriod`, `TariffUsage`, `YearEntry`, `YearsOverviewItem`, `YearlyProjection`, `FeedInCompensation`, `WastewaterCosts` — aligned with backend schemas.
 
 ## 4. API Integration
 
@@ -76,14 +76,13 @@ Defines: `MeterType`, `TariffKind`, `MeterTypeInfo`, `Meter`, `Reading`, `Tariff
 ### API objects and endpoints consumed
 
 | Object | Endpoints | Used in |
-|---|---|---|---|
-| `metersApi` | `GET /types`, `GET /`, `GET /:id`, `POST /`, `PUT /:id`, `DELETE /:id`, `GET /:id/readings` | `useMeterTypes`, `MeterList`, `MeterDetail`, `MeterForm`, `AddReading`, `TariffForm`, `YearDetail` |
+|---|---|---|
+| `metersApi` | `GET /types`, `GET /`, `GET /:id`, `POST /`, `PUT /:id`, `DELETE /:id`, `GET /:id/readings` | `useMeterTypes`, `MeterList`, `MeterDetail`, `MeterForm`, `AddReading`, `TariffForm`, `YearDetail` (chain resolution + readings fetch) |
 | `readingsApi` | `GET /`, `GET /:id`, `POST /`, `PUT /:id`, `DELETE /:id` | `AddReading` (only `POST`) |
 | `tariffsApi` | `GET /`, `GET /:id`, `POST /`, `PUT /:id`, `DELETE /:id` | `TariffForm` (POST), `TariffList` (GET, PUT, DELETE) |
-| `costsApi` | `GET /years-overview`, `GET /yearly-projection` | `YearsOverview`, `YearDetail` |
+| `costsApi` | `GET /years-overview`, `GET /yearly-projection`, `GET /wastewater/` | `YearsOverview`, `YearDetail` (projections + wastewater) |
+| `electricityApi` | `GET /feed-in-compensation` | `YearDetail` (EEG feed-in compensation) |
 | `healthApi` | `GET /health` | **Not used** anywhere in components |
-
-**Notable:** `metersApi.update` and `readingsApi.update`/`delete` are defined but never called. `healthApi` is defined but never imported.
 
 ## 5. Styling Approach
 
@@ -99,34 +98,24 @@ The following backend endpoints/features have **zero** frontend representation:
 | Area | Backend endpoints missing from frontend |
 |---|---|
 | **Advance payments** | `GET/POST/PUT/DELETE /api/advance-payments/` – no list, no create, no detail page |
-| **Cost calculations** | `GET /api/costs/`, `/costs/wastewater`, `/costs/advance-payment-diff` – no UI at all; `/costs/years-overview` and `/costs/yearly-projection` ✅ implemented in `YearsOverview` / `YearDetail` |
-| **Electricity: feed-in compensation** | `GET /api/electricity/feed-in-compensation` – no UI |
-| **Projections** | `GET /api/projections/meters/{meter_id}/projection` – no UI |
-| **Consumption timeseries** | No frontend endpoint consumer for aggregated timeseries data (backend may not even have this endpoint yet) |
+| **Cost calculations** | `GET /api/costs/` (general), `/costs/advance-payment-diff` – no UI; `/costs/years-overview` ✅, `/costs/yearly-projection` ✅, `/costs/wastewater/` ✅ (implemented in `YearDetail`) |
+| **Electricity: feed-in compensation** | `GET /api/electricity/feed-in-compensation` — ✅ implemented in `YearDetail` as part of Strom category |
+| **Projections** | `GET /api/projections/meters/{meter_id}/projection` – no UI (separate from `/costs/yearly-projection`) |
+| **Consumption timeseries** | No frontend endpoint consumer for aggregated timeseries data |
 | **Tariff list / edit / delete** | ✅ Implemented – see `/tariffs` route above |
 | **Reading list / edit / delete** | Only `POST /api/readings/` is used; no reading browse, edit, or delete |
 | **Meter edit** | `PUT /api/meters/` is defined in apiClient but no page uses it |
 
-## 7. Known Issues / TODOs
+## 7. Known Issues / TODOs (unchanged)
 
-1. **Mixed language UI:** `AddReading.tsx` uses English labels/prompts ("Meter *", "Cancel", "Adding...") while `MeterForm.tsx`, `TariffForm.tsx`, and `TariffList.tsx` use German ("Name *", "Abbrechen", "Speichern..."). The AGENTS.md mandates "UI strings in German".
-
-2. **`select.tsx` dead code:** The file exports `SelectTrigger`, `SelectContent`, `SelectValue` (shadcn-style custom dropdown components) but none are imported anywhere – only the native `<select>`-based `Select`/`SelectItem` are used. Those unused components have no corresponding Radix UI peer dependency.
-
-3. **`date-fns` not used:** Installed in package.json but zero imports across all source files.
-
-4. **`healthApi` dead code:** Defined in `client.ts` but never imported or used.
-
-5. **`MeterList` misplaced:** Lives in `components/` but used as a route-level page (`/meters`). Convention suggests it should be in `pages/`.
-
-6. **`index.html` language:** `<html lang="en">` does not match the German-majority UI.
-
-7. **Vite dev proxy target:** Hardcodes `http://localhost:8000` while `docker-compose.dev.yml` serves the backend at `http://backend:8000` inside the Docker network. The env var `VITE_PROXY_TARGET` is read but not propagated correctly – the default `localhost:8000` will not work from inside the frontend container.
-
-8. **No loading states on meter fetch in `MeterForm`:** `metersApi.getAll()` call (line 39) has no loading/error handling (unlike `TariffForm` which does).
-
-9. **No reading list/edit/delete:** Readings are only visible as the last 5 in `MeterDetail`; there is no full reading list, no edit, no delete.
-
-10. **No dark mode toggle:** CSS variables exist for both themes but there is no UI control to switch.
-
-11. **`dist/` directory present** in the repository (build artefact) – should be in `.gitignore` (verify).
+1. **Mixed language UI:** Several pages still use English labels.
+2. **`select.tsx` dead code:** Unused `SelectTrigger`, `SelectContent`, `SelectValue` exports.
+3. **`date-fns` not used:** Installed but zero imports.
+4. **`healthApi` dead code:** Defined but never imported.
+5. **`MeterList` misplaced:** Lives in `components/` but used as route page.
+6. **`index.html` language:** `<html lang="en">` doesn't match German UI.
+7. **Vite dev proxy target issue:** Default `localhost:8000` won't work from inside frontend container.
+8. **No loading states on meter fetch in `MeterForm`.**
+9. **No reading list/edit/delete.**
+10. **No dark mode toggle.**
+11. **`dist/` directory** present in repository (build artefact).
