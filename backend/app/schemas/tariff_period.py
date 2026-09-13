@@ -50,3 +50,12 @@ class TariffPeriod(TariffPeriodBase):
     created_at: datetime
     
     model_config = ConfigDict(from_attributes=True)
+
+
+class TariffUsageResponse(BaseModel):
+    tariff_id: int
+    meter_id: int
+    reading_count: int
+    first_reading_date: date | None = None
+    last_reading_date: date | None = None
+    in_use: bool

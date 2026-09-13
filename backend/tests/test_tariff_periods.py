@@ -1,6 +1,7 @@
 """
 Tests for tariff period-related API endpoints.
 """
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 
@@ -397,3 +398,165 @@ def test_health_endpoint(client):
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "healthy"
+
+def test_tariff_usage_readings_in_range(client, sample_meter_data):
+    """Readings inside the tariff range are counted correctly."""
+    meter_resp = client.post("/api/meters/", json=sample_meter_data)
+    meter_id = meter_resp.json()["id"]
+
+    tariff_resp = client.post("/api/tariffs/", json={
+        "meter_id": meter_id,
+        "valid_from": "2024-01-01",
+        "valid_to": "2024-12-31",
+        "price_per_unit": "0.35490",
+    })
+    tariff_id = tariff_resp.json()["id"]
+
+    for day, val in [("2024-01-05", "100"), ("2024-06-15", "200"), ("2024-12-28", "300")]:
+        client.post("/api/readings/", json={
+            "meter_id": meter_id, "value": val, "reading_date": day,
+        })
+
+    response = client.get(f"/api/tariffs/{tariff_id}/usage")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["tariff_id"] == tariff_id
+    assert data["meter_id"] == meter_id
+    assert data["reading_count"] == 3
+    assert data["first_reading_date"] == "2024-01-05"
+    assert data["last_reading_date"] == "2024-12-28"
+    assert data["in_use"] is True
+
+
+def test_tariff_usage_no_readings(client, sample_meter_data):
+    """No readings in range yields count 0, null dates, in_use false."""
+    meter_resp = client.post("/api/meters/", json=sample_meter_data)
+    meter_id = meter_resp.json()["id"]
+
+    tariff_resp = client.post("/api/tariffs/", json={
+        "meter_id": meter_id,
+        "valid_from": "2024-01-01",
+        "valid_to": "2024-12-31",
+        "price_per_unit": "0.35490",
+    })
+    tariff_id = tariff_resp.json()["id"]
+
+    response = client.get(f"/api/tariffs/{tariff_id}/usage")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["reading_count"] == 0
+    assert data["first_reading_date"] is None
+    assert data["last_reading_date"] is None
+    assert data["in_use"] is False
+
+
+def test_tariff_usage_outside_range_excluded(client, sample_meter_data):
+    """Readings before valid_from and after valid_to are not counted."""
+    meter_resp = client.post("/api/meters/", json=sample_meter_data)
+    meter_id = meter_resp.json()["id"]
+
+    tariff_resp = client.post("/api/tariffs/", json={
+        "meter_id": meter_id,
+        "valid_from": "2024-06-01",
+        "valid_to": "2024-09-30",
+        "price_per_unit": "0.35490",
+    })
+    tariff_id = tariff_resp.json()["id"]
+
+    # Two readings inside the range, one before, one after
+    for day, val in [("2024-05-01", "50"), ("2024-07-15", "150"), ("2024-10-30", "250")]:
+        client.post("/api/readings/", json={
+            "meter_id": meter_id, "value": val, "reading_date": day,
+        })
+
+    response = client.get(f"/api/tariffs/{tariff_id}/usage")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["reading_count"] == 1  # only 2024-07-15
+    assert data["first_reading_date"] == "2024-07-15"
+    assert data["last_reading_date"] == "2024-07-15"
+    assert data["in_use"] is True
+
+
+def test_tariff_usage_open_ended(client, sample_meter_data):
+    """Open-ended tariff (valid_to=null) includes up to today, excludes future."""
+    meter_resp = client.post("/api/meters/", json=sample_meter_data)
+    meter_id = meter_resp.json()["id"]
+
+    tariff_resp = client.post("/api/tariffs/", json={
+        "meter_id": meter_id,
+        "valid_from": "2024-01-01",
+        "valid_to": None,
+        "price_per_unit": "0.35490",
+    })
+    tariff_id = tariff_resp.json()["id"]
+
+    today = datetime.now(UTC).date()
+    yesterday = today - timedelta(days=1)
+    tomorrow = today + timedelta(days=1)
+
+    client.post("/api/readings/", json={
+        "meter_id": meter_id, "value": "100", "reading_date": yesterday.isoformat(),
+    })
+    client.post("/api/readings/", json={
+        "meter_id": meter_id, "value": "200", "reading_date": tomorrow.isoformat(),
+    })
+
+    response = client.get(f"/api/tariffs/{tariff_id}/usage")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["reading_count"] == 1
+    assert data["first_reading_date"] == yesterday.isoformat()
+    assert data["last_reading_date"] == yesterday.isoformat()
+    assert data["in_use"] is True
+
+
+def test_tariff_usage_chain(client, sample_meter_data):
+    """Readings on predecessor and successor meters are both counted."""
+    meter_a_resp = client.post("/api/meters/", json={
+        **sample_meter_data, "label": "Meter A",
+    })
+    meter_a_id = meter_a_resp.json()["id"]
+    client.post("/api/readings/", json={
+        "meter_id": meter_a_id, "value": "100", "reading_date": "2024-01-15",
+    })
+
+    meter_b_resp = client.post("/api/meters/", json={
+        **sample_meter_data, "label": "Meter B",
+        "replaces_meter_id": meter_a_id,
+    })
+    meter_b_id = meter_b_resp.json()["id"]
+    client.post("/api/readings/", json={
+        "meter_id": meter_b_id, "value": "200", "reading_date": "2024-06-15",
+    })
+
+    meter_c_resp = client.post("/api/meters/", json={
+        **sample_meter_data, "label": "Meter C",
+        "replaces_meter_id": meter_b_id,
+    })
+    meter_c_id = meter_c_resp.json()["id"]
+    client.post("/api/readings/", json={
+        "meter_id": meter_c_id, "value": "300", "reading_date": "2024-11-15",
+    })
+
+    tariff_resp = client.post("/api/tariffs/", json={
+        "meter_id": meter_b_id,
+        "valid_from": "2024-01-01",
+        "valid_to": "2024-12-31",
+        "price_per_unit": "0.35490",
+    })
+    tariff_id = tariff_resp.json()["id"]
+
+    response = client.get(f"/api/tariffs/{tariff_id}/usage")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["reading_count"] == 3
+    assert data["first_reading_date"] == "2024-01-15"
+    assert data["last_reading_date"] == "2024-11-15"
+    assert data["in_use"] is True
+
+
+def test_tariff_usage_not_found(client):
+    """Unknown tariff_id returns 404."""
+    response = client.get("/api/tariffs/99999/usage")
+    assert response.status_code == 404

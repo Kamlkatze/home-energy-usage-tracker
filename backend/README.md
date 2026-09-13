@@ -128,6 +128,28 @@ Validation (enforced at API level, not DB level):
 
 **Constraint:** `EXCLUDE USING gist (meter_id WITH =, tariff_kind WITH =, daterange(valid_from, valid_to, '[]') WITH &&)` — overlapping periods within the same `(meter_id, tariff_kind)` are rejected. Different `tariff_kind` values may overlap.
 
+### Tariff Usage
+
+**`GET /api/tariffs/{tariff_id}/usage`**
+
+Returns how many readings fall within a tariff period's validity range. Used by the frontend to warn before deleting a tariff.
+
+Response (200):
+```json
+{
+  "tariff_id": 3,
+  "meter_id": 1,
+  "reading_count": 42,
+  "first_reading_date": "2024-01-05",
+  "last_reading_date": "2024-12-28",
+  "in_use": true
+}
+```
+
+- `reading_count` counts readings with `reading_date` in `[valid_from, valid_to]` (inclusive). If `valid_to` is null, the range is open-ended up to and including today.
+- **Chain behaviour:** readings are counted across the **entire meter replacement chain** (predecessors and successors), not just the tariff's direct meter. This is consistent with the cost/projection chain resolution.
+- Returns 404 if the tariff does not exist.
+
 ### AdvancePayment (`app/models/advance_payment.py`)
 
 | Column | Type | Notes |

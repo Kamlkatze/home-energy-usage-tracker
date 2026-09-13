@@ -10,7 +10,12 @@ from .cost import (
 from .meter import Meter, MeterCreate, MeterTypeInfo, MeterUpdate
 from .projection import ProjectionResponse
 from .reading import Reading, ReadingCreate, ReadingUpdate
-from .tariff_period import TariffPeriod, TariffPeriodCreate, TariffPeriodUpdate
+from .tariff_period import (
+    TariffPeriod,
+    TariffPeriodCreate,
+    TariffPeriodUpdate,
+    TariffUsageResponse,
+)
 from .yearly_projection_cost import YearlyProjectionWithCostResponse
 
 __all__ = [
@@ -31,6 +36,7 @@ __all__ = [
     "TariffPeriod",
     "TariffPeriodCreate",
     "TariffPeriodUpdate",
+    "TariffUsageResponse",
     "WastewaterCostCalculationResponse",
     "YearEntry",
     "YearlyProjectionWithCostResponse",
