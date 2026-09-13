@@ -9,15 +9,7 @@ import { tariffsApi, metersApi } from '../api/client';
 import { meterTypeLabel, useMeterTypes } from '../hooks/useMeterTypes';
 import { Meter, TariffKind } from '../types';
 import { ArrowLeft, CheckCircle, Loader2 } from 'lucide-react';
-
-const TARIFF_KIND_LABELS: Record<TariffKind, string> = {
-  consumption: 'Arbeitspreis (mit optionalen Grund- und Messentgelten)',
-  feed_in: 'Einspeisevergütung',
-  self_consumption: 'Selbstverbrauchsvergütung',
-  wastewater: 'Abwasserkosten',
-};
-
-const TARIFF_KINDS = Object.keys(TARIFF_KIND_LABELS) as TariffKind[];
+import { getTariffFields, TARIFF_KIND_LABELS, TARIFF_KINDS } from '../lib/tariffFields';
 
 const TariffForm: React.FC = () => {
   const navigate = useNavigate();
@@ -35,6 +27,11 @@ const TariffForm: React.FC = () => {
     price_per_unit: '',
     base_fee_monthly: '',
     metering_fee_monthly: '',
+    gas_z_zahl: '',
+    gas_brennwert: '',
+    eeg_tier1_rate: '',
+    eeg_tier2_rate: '',
+    metering_point_fee_yearly: '',
   });
 
   useEffect(() => {
@@ -79,9 +76,18 @@ const TariffForm: React.FC = () => {
       return;
     }
 
+    const selectedMeter = meters.find(m => m.id.toString() === formData.meter_id);
+    const fields = getTariffFields(formData.tariff_kind, selectedMeter?.meter_type, selectedMeter?.unit);
+
+    const requiredFields = fields.filter(f => f.required);
+    const emptyRequired = requiredFields.filter(f => !formData[f.name as keyof typeof formData]);
+    if (emptyRequired.length > 0) {
+      alert('Bitte alle Pflichtfelder ausfüllen');
+      return;
+    }
+
     try {
       setLoading(true);
-      // Prices are sent as strings to preserve decimal precision
       const payload: Record<string, string | number> = {
         meter_id: parseInt(formData.meter_id),
         tariff_kind: formData.tariff_kind,
@@ -96,6 +102,21 @@ const TariffForm: React.FC = () => {
       }
       if (formData.metering_fee_monthly) {
         payload.metering_fee_monthly = formData.metering_fee_monthly;
+      }
+      if (formData.gas_z_zahl) {
+        payload.gas_z_zahl = formData.gas_z_zahl;
+      }
+      if (formData.gas_brennwert) {
+        payload.gas_brennwert = formData.gas_brennwert;
+      }
+      if (formData.eeg_tier1_rate) {
+        payload.eeg_tier1_rate = formData.eeg_tier1_rate;
+      }
+      if (formData.eeg_tier2_rate) {
+        payload.eeg_tier2_rate = formData.eeg_tier2_rate;
+      }
+      if (formData.metering_point_fee_yearly) {
+        payload.metering_point_fee_yearly = formData.metering_point_fee_yearly;
       }
 
       await tariffsApi.create(payload);
@@ -115,6 +136,13 @@ const TariffForm: React.FC = () => {
   };
 
   const selectedMeter = meters.find(m => m.id.toString() === formData.meter_id);
+  const fields = getTariffFields(
+    formData.tariff_kind,
+    selectedMeter?.meter_type,
+    selectedMeter?.unit,
+  );
+  const eegFields = fields.filter(f => f.group === 'eeg');
+  const mainFields = fields.filter(f => f.group !== 'eeg');
 
   return (
     <div className="p-6">
@@ -175,11 +203,16 @@ const TariffForm: React.FC = () => {
                           Ausgewählter Zähler: {selectedMeter.label} ({meterTypeLabel(meterTypes, selectedMeter.meter_type)})
                         </p>
                       )}
+                      {formData.tariff_kind === 'feed_in_eeg2009' && (
+                        <p className="text-sm text-muted-foreground mt-2">
+                          Dieser Tarif muss auf dem Einspeise-Zähler (Strom Einspeisung) angelegt werden, nicht auf dem Erzeugungszähler.
+                        </p>
+                      )}
                     </>
                   )}
                 </div>
 
-                <div className="space-y-2">
+                <div className="space-y-2 mt-6">
                   <Label htmlFor="tariff_kind">Tarifart *</Label>
                   <Select
                     id="tariff_kind"
@@ -198,7 +231,7 @@ const TariffForm: React.FC = () => {
                   </p>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
                   <div className="space-y-2">
                     <Label htmlFor="valid_from">Gültig ab *</Label>
                     <Input
@@ -226,56 +259,62 @@ const TariffForm: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <Label htmlFor="price_per_unit">
-                      Preis pro Einheit {selectedMeter ? `(${selectedMeter.unit})` : ''} *
-                    </Label>
-                    <Input
-                      id="price_per_unit"
-                      name="price_per_unit"
-                      type="number"
-                      step="0.00001"
-                      required
-                      value={formData.price_per_unit}
-                      onChange={handleChange}
-                      placeholder="z. B. 0.35490"
-                    />
+                {mainFields.length > 0 && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+                    {mainFields.map((field) => (
+                      <div key={field.name} className="space-y-2">
+                        <Label htmlFor={field.name}>
+                          {field.label}{field.required ? ' *' : ''}
+                        </Label>
+                        <Input
+                          id={field.name}
+                          name={field.name}
+                          type="number"
+                          step={field.step}
+                          required={field.required}
+                          value={formData[field.name as keyof typeof formData]}
+                          onChange={handleChange}
+                          placeholder={field.placeholder}
+                        />
+                        {field.helperText && (
+                          <p className="text-sm text-muted-foreground">{field.helperText}</p>
+                        )}
+                      </div>
+                    ))}
                   </div>
+                )}
 
-                  <div className="space-y-2">
-                    <Label htmlFor="base_fee_monthly">Grundpreis monatlich (optional)</Label>
-                    <Input
-                      id="base_fee_monthly"
-                      name="base_fee_monthly"
-                      type="number"
-                      step="0.01"
-                      value={formData.base_fee_monthly}
-                      onChange={handleChange}
-                      placeholder="z. B. 12.50"
-                    />
+                {eegFields.length > 0 && (
+                  <div className="mt-6 border border-blue-200 rounded-lg p-4 bg-blue-50/50">
+                    <h3 className="text-sm font-semibold text-blue-800 mb-3">
+                      EEG 2009 Vergütungssätze
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      {eegFields.map((field) => (
+                        <div key={field.name} className="space-y-2">
+                          <Label htmlFor={field.name}>
+                            {field.label} *
+                          </Label>
+                          <Input
+                            id={field.name}
+                            name={field.name}
+                            type="number"
+                            step={field.step}
+                            required
+                            value={formData[field.name as keyof typeof formData]}
+                            onChange={handleChange}
+                            placeholder={field.placeholder}
+                          />
+                          {field.helperText && (
+                            <p className="text-sm text-muted-foreground">{field.helperText}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                </div>
+                )}
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <Label htmlFor="metering_fee_monthly">Messentgelt monatlich (optional)</Label>
-                    <Input
-                      id="metering_fee_monthly"
-                      name="metering_fee_monthly"
-                      type="number"
-                      step="0.01"
-                      value={formData.metering_fee_monthly}
-                      onChange={handleChange}
-                      placeholder="z. B. 5.80"
-                    />
-                    <p className="text-sm text-muted-foreground">
-                      Nur bei Tarifart "Arbeitspreis" relevant
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex justify-end gap-4 pt-4">
+                <div className="flex justify-end gap-4 pt-6">
                   <Button
                     type="button"
                     variant="outline"
@@ -284,8 +323,8 @@ const TariffForm: React.FC = () => {
                   >
                     Abbrechen
                   </Button>
-                  <Button 
-                    type="submit" 
+                  <Button
+                    type="submit"
                     disabled={loading || metersLoading || meters.length === 0}
                   >
                     {loading ? 'Speichern...' : 'Tarifzeitraum hinzufügen'}

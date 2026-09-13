@@ -1,8 +1,12 @@
 
+from datetime import UTC, datetime
+
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from .. import models, schemas
+from ..services.meter_chain import get_full_meter_chain_ids
 from .deps import get_database_session
 
 router = APIRouter()
@@ -88,3 +92,46 @@ def delete_tariff_period(
     db.delete(db_period)
     db.commit()
     return {"message": "Tariff period deleted successfully"}
+
+
+@router.get("/{tariff_id}/usage", response_model=schemas.TariffUsageResponse)
+def read_tariff_usage(
+    tariff_id: int,
+    db: Session = Depends(get_database_session),
+):
+    tariff = db.query(models.TariffPeriod).filter(models.TariffPeriod.id == tariff_id).first()
+    if tariff is None:
+        raise HTTPException(status_code=404, detail="Tariff period not found")
+
+    chain_ids = get_full_meter_chain_ids(db, tariff.meter_id)
+
+    today = datetime.now(UTC).date()
+    range_end = tariff.valid_to if tariff.valid_to is not None else today
+
+    count_value, min_date, max_date = (
+        db.query(
+            func.count(models.Reading.id),
+            func.min(models.Reading.reading_date),
+            func.max(models.Reading.reading_date),
+        )
+        .filter(
+            models.Reading.meter_id.in_(chain_ids),
+            models.Reading.reading_date >= tariff.valid_from,
+            models.Reading.reading_date <= range_end,
+        )
+        .first()
+        or (0, None, None)
+    )
+
+    reading_count = count_value or 0
+    first_reading_date = min_date
+    last_reading_date = max_date
+
+    return schemas.TariffUsageResponse(
+        tariff_id=tariff.id,
+        meter_id=tariff.meter_id,
+        reading_count=reading_count,
+        first_reading_date=first_reading_date,
+        last_reading_date=last_reading_date,
+        in_use=reading_count > 0,
+    )

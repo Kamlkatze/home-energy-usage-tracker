@@ -78,24 +78,29 @@ export const tariffsApi = {
     const response = await apiClient.get('/api/tariffs/');
     return response.data;
   },
-  
+
   getById: async (id: number) => {
     const response = await apiClient.get(`/api/tariffs/${id}`);
     return response.data;
   },
-  
+
   create: async (tariffData: any) => {
     const response = await apiClient.post('/api/tariffs/', tariffData);
     return response.data;
   },
-  
+
   update: async (id: number, tariffData: any) => {
     const response = await apiClient.put(`/api/tariffs/${id}`, tariffData);
     return response.data;
   },
-  
+
   delete: async (id: number) => {
     const response = await apiClient.delete(`/api/tariffs/${id}`);
+    return response.data;
+  },
+
+  getUsage: async (id: number) => {
+    const response = await apiClient.get(`/api/tariffs/${id}/usage`);
     return response.data;
   },
 };

@@ -7,6 +7,7 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from .. import models, schemas
+from ..services.meter_chain import get_meter_chain
 from ..services.projection import ProjectionService
 from .deps import get_database_session
 
@@ -28,8 +29,7 @@ _GAS_CONVERSION_FIELDS_MESSAGE = (
     "gas_brennwert zur Umrechnung von m³ in kWh."
 )
 
-# Maximum chain depth to prevent infinite loops from circular references.
-_MAX_CHAIN_DEPTH = 20
+
 
 
 def _combine_messages(*messages: str | None) -> str | None:
@@ -59,40 +59,6 @@ def _raise_if_from_after_to(from_: date, to: date) -> None:
             status_code=422,
             detail="Ungültiger Zeitraum: 'from' muss kleiner oder gleich 'to' sein.",
         )
-
-
-def _build_meter_chain(db: Session, meter_id: int) -> list[models.Meter]:
-    """Return the meter chain ordered oldest-first.
-
-    Follows replaces_meter_id pointers from the requested meter back to the
-    root predecessor. For a single standalone meter, returns [meter].
-    For a replacement chain M replaces P replaces G, returns [G, P, M].
-
-    Limited to _MAX_CHAIN_DEPTH iterations to guard against circular FK data.
-    """
-    chain: list[models.Meter] = []
-    current = db.query(models.Meter).filter(models.Meter.id == meter_id).first()
-    if current is None:
-        raise HTTPException(status_code=404, detail=f"Meter mit ID {meter_id} nicht gefunden.")
-
-    visited: set[int] = set()
-    while current is not None:
-        if current.id in visited or len(chain) >= _MAX_CHAIN_DEPTH:
-            break
-        visited.add(current.id)
-        chain.append(current)
-        if current.replaces_meter_id is not None:
-            current = (
-                db.query(models.Meter)
-                .filter(models.Meter.id == current.replaces_meter_id)
-                .first()
-            )
-        else:
-            break
-
-    # chain is currently [newest, ..., oldest]; reverse to oldest-first
-    chain.reverse()
-    return chain
 
 
 def _get_boundary_readings(
@@ -642,7 +608,7 @@ def calculate_costs(
 ):
     _raise_if_from_after_to(from_, to)
 
-    chain = _build_meter_chain(db, meter_id)
+    chain = get_meter_chain(db, meter_id)
     meter = chain[-1]  # the requested (newest) meter
 
     if len(chain) == 1:
@@ -692,7 +658,7 @@ def calculate_wastewater_costs(
     _raise_if_from_after_to(from_, to)
 
     # Cold water consumption — chain-aware
-    cold_chain = _build_meter_chain(db, water_cold_meter_id)
+    cold_chain = get_meter_chain(db, water_cold_meter_id)
     cold_meter = cold_chain[-1]
 
     if len(cold_chain) == 1:
@@ -712,7 +678,7 @@ def calculate_wastewater_costs(
     # the parameter entirely triggers the "= 0" fallback.
     garden_consumption = Decimal(0)
     if water_garden_meter_id is not None:
-        garden_chain = _build_meter_chain(db, water_garden_meter_id)
+        garden_chain = get_meter_chain(db, water_garden_meter_id)
         if len(garden_chain) == 1:
             garden_start, garden_end = _get_boundary_readings(
                 db, water_garden_meter_id, from_, to
@@ -822,7 +788,7 @@ def get_yearly_projection_with_cost(
         as_of_date = datetime.now(UTC).date()
 
     # Build chain for chain-aware projection (chain[-1] is the requested meter)
-    chain = _build_meter_chain(db, meter_id)
+    chain = get_meter_chain(db, meter_id)
 
     # 1. Get projection from ProjectionService (chain-aware)
     try:
@@ -1226,7 +1192,7 @@ def get_advance_payment_diff(
         as_of_date = datetime.now(UTC).date()
 
     # 404 when the meter does not exist; 422 for invalid years.
-    chain = _build_meter_chain(db, meter_id)
+    chain = get_meter_chain(db, meter_id)
 
     # 1. Estimated/actual annual cost (same logic as yearly-projection).
     try:
@@ -1394,7 +1360,7 @@ def get_years_overview(
 
     results: list[schemas.YearsOverviewItem] = []
     for meter in logical_meters:
-        chain = _build_meter_chain(db, meter.id)
+        chain = get_meter_chain(db, meter.id)
         years = _get_all_reading_years_for_chain(db, chain)
 
         year_entries: list[schemas.YearEntry] = []
