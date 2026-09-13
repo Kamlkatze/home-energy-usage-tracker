@@ -28,7 +28,8 @@
 | `/meters/new` | `pages/MeterForm.tsx` | Create meter form: label, meter number (optional), type (select from server‑fetched types), predecessor (optional, same‑type only). Unit is read-only (server-derived). Submits to `POST /api/meters/`. |
 | `/meters/:id` | `pages/MeterDetail.tsx` | Single meter detail: line chart of readings (recharts), meter info panel (type, unit, number, created date, total count), recent readings table (last 5, newest first). Fetches `GET /api/meters/:id` + `GET /api/meters/:id/readings`. |
 | `/readings/new` | `pages/AddReading.tsx` | Create reading form: meter selector, numeric value, date, optional note. Warns if the selected meter has been replaced by a successor. Submits to `POST /api/readings/`. |
-| `/tariffs/new` | `pages/TariffForm.tsx` | Create tariff period form: meter, tariff kind (consumption/feed_in/self_consumption/wastewater), validity range, price per unit, optional base + metering fee. Submits to `POST /api/tariffs/`. Handles empty meter list gracefully. |
+| `/tariffs` | `pages/TariffList.tsx` | Tariff overview table with all periods: kind label, meter, valid-from/until, price, base fee, metering fee (monthly or yearly), gas factors. Supports **edit** (inline modal with dynamic tariff-kind fields) and **delete** (with usage check). |
+| `/tariffs/new` | `pages/TariffForm.tsx` | Create tariff period form: meter selector, tariff kind (consumption/feed_in/self_consumption/wastewater/feed_in_eeg2009), validity range, dynamic fields per kind (price per unit, optional base + metering fees, gas Z-Zahl/Brennwert for gas meters, EEG 2009 block with tier rates + yearly metering fee). German labels/helper text throughout. EEG 2009 meter selection includes a hint to pick the feed-in meter. Handles empty meter list gracefully. |
 
 ## 3. Existing Components
 
@@ -55,6 +56,12 @@ All follow the shadcn/ui pattern (Tailwind + `cn()` helper, forwardRef, displayN
 |---|---|---|
 | `useMeterTypes` | `hooks/useMeterTypes.ts` | Fetches meter types from `GET /api/meters/types` once per session (module-level cache). Returns `MeterTypeInfo[]`. Also exports `meterTypeLabel()` helper. |
 
+### Lib
+| File | Description |
+|---|---|
+| `lib/tariffFields.ts` | Shared helper for tariff field visibility/labels per `TariffKind` and meter type. Exports `getTariffFields(kind, meterType, meterUnit)`, `getPriceUnitLabel(kind, meterType, meterUnit)`, `TARIFF_KIND_LABELS`, `TARIFF_KINDS`, and the `FieldConfig` interface. Used by both `TariffForm.tsx` and `TariffList.tsx`. |
+| `lib/utils.ts` | `cn()` helper combining `clsx` and `tailwind-merge`. |
+
 ### Types (`types/index.ts`)
 Defines: `MeterType`, `TariffKind`, `MeterTypeInfo`, `Meter`, `Reading`, `TariffPeriod` – aligned with backend schemas.
 
@@ -70,7 +77,7 @@ Defines: `MeterType`, `TariffKind`, `MeterTypeInfo`, `Meter`, `Reading`, `Tariff
 |---|---|---|
 | `metersApi` | `GET /types`, `GET /`, `GET /:id`, `POST /`, `PUT /:id`, `DELETE /:id`, `GET /:id/readings` | `useMeterTypes`, `MeterList`, `MeterDetail`, `MeterForm`, `AddReading`, `TariffForm` |
 | `readingsApi` | `GET /`, `GET /:id`, `POST /`, `PUT /:id`, `DELETE /:id` | `AddReading` (only `POST`) |
-| `tariffsApi` | `GET /`, `GET /:id`, `POST /`, `PUT /:id`, `DELETE /:id` | `TariffForm` (only `POST`) |
+| `tariffsApi` | `GET /`, `GET /:id`, `POST /`, `PUT /:id`, `DELETE /:id` | `TariffForm` (POST), `TariffList` (GET, PUT, DELETE) |
 | `healthApi` | `GET /health` | **Not used** anywhere in components |
 
 **Notable:** `metersApi.update` and `readingsApi.update`/`delete` are defined but never called. `healthApi` is defined but never imported.
@@ -93,13 +100,13 @@ The following backend endpoints/features have **zero** frontend representation:
 | **Electricity: feed-in compensation** | `GET /api/electricity/feed-in-compensation` – no UI |
 | **Projections** | `GET /api/projections/meters/{meter_id}/projection` – no UI |
 | **Consumption timeseries** | No frontend endpoint consumer for aggregated timeseries data (backend may not even have this endpoint yet) |
-| **Tariff list / edit / delete** | Only `POST /api/tariffs/` is used; no page to view, edit, or delete tariffs |
+| **Tariff list / edit / delete** | ✅ Implemented – see `/tariffs` route above |
 | **Reading list / edit / delete** | Only `POST /api/readings/` is used; no reading browse, edit, or delete |
 | **Meter edit** | `PUT /api/meters/` is defined in apiClient but no page uses it |
 
 ## 7. Known Issues / TODOs
 
-1. **Mixed language UI:** `AddReading.tsx` uses English labels/prompts ("Meter *", "Cancel", "Adding...") while `MeterForm.tsx` and `TariffForm.tsx` use German ("Name *", "Abbrechen", "Speichern..."). The AGENTS.md mandates "UI strings in German".
+1. **Mixed language UI:** `AddReading.tsx` uses English labels/prompts ("Meter *", "Cancel", "Adding...") while `MeterForm.tsx`, `TariffForm.tsx`, and `TariffList.tsx` use German ("Name *", "Abbrechen", "Speichern..."). The AGENTS.md mandates "UI strings in German".
 
 2. **`select.tsx` dead code:** The file exports `SelectTrigger`, `SelectContent`, `SelectValue` (shadcn-style custom dropdown components) but none are imported anywhere – only the native `<select>`-based `Select`/`SelectItem` are used. Those unused components have no corresponding Radix UI peer dependency.
 
@@ -115,10 +122,8 @@ The following backend endpoints/features have **zero** frontend representation:
 
 8. **No loading states on meter fetch in `MeterForm`:** `metersApi.getAll()` call (line 39) has no loading/error handling (unlike `TariffForm` which does).
 
-9. **No tariff period list page:** The only tariff UI is the create form; users have no way to browse, edit, or delete existing tariffs from the frontend.
+9. **No reading list/edit/delete:** Readings are only visible as the last 5 in `MeterDetail`; there is no full reading list, no edit, no delete.
 
-10. **No reading list/edit/delete:** Readings are only visible as the last 5 in `MeterDetail`; there is no full reading list, no edit, no delete.
+10. **No dark mode toggle:** CSS variables exist for both themes but there is no UI control to switch.
 
-11. **No dark mode toggle:** CSS variables exist for both themes but there is no UI control to switch.
-
-12. **`dist/` directory present** in the repository (build artefact) – should be in `.gitignore` (verify).
+11. **`dist/` directory present** in the repository (build artefact) – should be in `.gitignore` (verify).
