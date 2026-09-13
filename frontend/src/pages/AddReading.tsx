@@ -1,227 +1,392 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Textarea } from '../components/ui/textarea';
-import { Select, SelectItem } from '../components/ui/select';
+import { Checkbox } from '../components/ui/checkbox';
 import { readingsApi, metersApi } from '../api/client';
 import { meterTypeLabel, useMeterTypes } from '../hooks/useMeterTypes';
-import { Meter } from '../types';
-import { ArrowLeft, AlertTriangle, CheckCircle } from 'lucide-react';
+import { Meter, Reading } from '../types';
+import { ArrowLeft, CheckCircle, XCircle, Loader2 } from 'lucide-react';
+
+const LS_KEY = 'reading-form-selected-meters';
+const LS_SEEN_KEY = 'reading-form-seen-meters';
+
+interface MeterEntry {
+  checked: boolean;
+  value: string;
+  note: string;
+}
+
+interface SubmitResult {
+  meterId: number;
+  meterLabel: string;
+  success: boolean;
+  error?: string;
+}
+
+const formatDate = (dateStr: string): string => {
+  const d = new Date(dateStr);
+  return d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+};
 
 const AddReading: React.FC = () => {
   const navigate = useNavigate();
   const [meters, setMeters] = useState<Meter[]>([]);
   const meterTypes = useMeterTypes();
-  const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState(false);
-  const [formData, setFormData] = useState({
-    meter_id: '',
-    value: '',
-    reading_date: new Date().toISOString().split('T')[0],
-    note: '',
-  });
+  const [readingDate, setReadingDate] = useState(new Date().toISOString().split('T')[0]);
+  const [entries, setEntries] = useState<Record<number, MeterEntry>>({});
+  const [lastReadings, setLastReadings] = useState<Record<number, Reading | null>>({});
+  const [loadingMeters, setLoadingMeters] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [results, setResults] = useState<SubmitResult[] | null>(null);
 
   useEffect(() => {
     fetchMeters();
   }, []);
 
+  const loadLastReading = useCallback(async (meterId: number) => {
+    try {
+      const reading = await metersApi.getLastReading(meterId);
+      setLastReadings(prev => ({ ...prev, [meterId]: reading }));
+    } catch {
+      // silently ignore — last reading is optional info
+    }
+  }, []);
+
   const fetchMeters = async () => {
     try {
-      const data = await metersApi.getAll();
+      setLoadingMeters(true);
+      const data = await metersApi.getCurrent();
       setMeters(data);
-      if (data.length > 0 && !formData.meter_id) {
-        setFormData(prev => ({ ...prev, meter_id: data[0].id.toString() }));
+
+      // Load localStorage: selectedIds = meters checked last time,
+      // seenIds = all meter IDs that have ever been displayed on this page.
+      let selectedIds: number[] = [];
+      let seenIds: number[] = [];
+      try {
+        const rawSelected = localStorage.getItem(LS_KEY);
+        if (rawSelected) {
+          selectedIds = JSON.parse(rawSelected);
+        }
+        const rawSeen = localStorage.getItem(LS_SEEN_KEY);
+        if (rawSeen) {
+          seenIds = JSON.parse(rawSeen);
+        }
+      } catch {
+        // ignore invalid localStorage data
       }
+
+      // Build entries:
+      // - New meters (not in seenIds) default to checked
+      // - Previously seen meters follow the saved selection
+      const initialEntries: Record<number, MeterEntry> = {};
+      data.forEach((meter: Meter) => {
+        const isNew = !seenIds.includes(meter.id);
+        initialEntries[meter.id] = {
+          checked: isNew || selectedIds.includes(meter.id),
+          value: '',
+          note: '',
+        };
+      });
+      setEntries(initialEntries);
+
+      // Persist updated seenIds
+      const currentIds = data.map((m: Meter) => m.id);
+      const mergedSeen = Array.from(new Set([...seenIds, ...currentIds]));
+      localStorage.setItem(LS_SEEN_KEY, JSON.stringify(mergedSeen));
+
+      // Fetch last reading for each meter
+      await Promise.all(data.map((meter: Meter) => loadLastReading(meter.id)));
     } catch (err) {
-      console.error('Error fetching meters:', err);
+      console.error('Error fetching current meters:', err);
+    } finally {
+      setLoadingMeters(false);
     }
   };
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+  const persistSelection = (updatedEntries: Record<number, MeterEntry>) => {
+    const selectedIds = Object.entries(updatedEntries)
+      .filter(([, entry]) => entry.checked)
+      .map(([id]) => Number(id));
+    localStorage.setItem(LS_KEY, JSON.stringify(selectedIds));
   };
 
-  const handleSelectChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setFormData(prev => ({ ...prev, meter_id: e.target.value }));
+  const handleCheckChange = (meterId: number, checked: boolean) => {
+    setEntries(prev => {
+      const updated = {
+        ...prev,
+        [meterId]: { ...prev[meterId], checked },
+      };
+      persistSelection(updated);
+      return updated;
+    });
   };
+
+  const handleValueChange = (meterId: number, value: string) => {
+    setEntries(prev => ({ ...prev, [meterId]: { ...prev[meterId], value } }));
+  };
+
+  const handleNoteChange = (meterId: number, note: string) => {
+    setEntries(prev => ({ ...prev, [meterId]: { ...prev[meterId], note } }));
+  };
+
+  const hasValidEntries = Object.values(entries).some(
+    entry => entry.checked && entry.value.trim() !== ''
+  );
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!formData.meter_id || !formData.value || !formData.reading_date) {
-      alert('Please fill in all required fields');
+    const selectedEntries = Object.entries(entries).filter(
+      ([, entry]) => entry.checked && entry.value.trim() !== ''
+    );
+
+    if (selectedEntries.length === 0) {
       return;
     }
 
-    // Warn if the meter has been replaced; the user must confirm to proceed.
-    if (isReplaced) {
-      const proceed = window.confirm(
-        `Achtung: Dieser Zähler wurde durch Zähler #${successor!.id} „${successor!.label}" ersetzt. ` +
-        'Neue Ablesungen sollten normalerweise am Nachfolger eingetragen werden. ' +
-        'Trotzdem fortfahren?'
-      );
-      if (!proceed) return;
+    setSubmitting(true);
+    setResults(null);
+
+    const results: SubmitResult[] = [];
+    const meterMap = new Map(meters.map(m => [m.id, m]));
+
+    for (const [meterIdStr, entry] of selectedEntries) {
+      const meterId = Number(meterIdStr);
+      const meter = meterMap.get(meterId);
+      try {
+        await readingsApi.create({
+          meter_id: meterId,
+          value: parseFloat(entry.value),
+          reading_date: readingDate,
+          note: entry.note || null,
+        });
+        results.push({ meterId, meterLabel: meter?.label ?? `#${meterId}`, success: true });
+      } catch (err: any) {
+        console.error(`Error creating reading for meter ${meterId}:`, err);
+        results.push({
+          meterId,
+          meterLabel: meter?.label ?? `#${meterId}`,
+          success: false,
+          error: err?.response?.data?.detail ?? err.message ?? 'Unknown error',
+        });
+      }
     }
 
-    try {
-      setLoading(true);
-      const payload = {
-        ...formData,
-        meter_id: parseInt(formData.meter_id),
-        value: parseFloat(formData.value),
-      };
-
-      await readingsApi.create(payload);
-      setSuccess(true);
-
-      setTimeout(() => {
-        navigate('/meters');
-      }, 2000);
-    } catch (err) {
-      console.error('Error creating reading:', err);
-      alert('Failed to create reading. Please try again.');
-    } finally {
-      setLoading(false);
-    }
+    setResults(results);
+    setSubmitting(false);
   };
 
-  const selectedMeter = meters.find(m => m.id.toString() === formData.meter_id);
-
-  // Determine if the selected meter has been replaced by a successor
-  const successor = selectedMeter
-    ? meters.find(m => m.replaces_meter_id === selectedMeter.id)
-    : undefined;
-  const isReplaced = !!successor;
+  const successCount = results?.filter(r => r.success).length ?? 0;
+  const failureCount = results?.filter(r => !r.success).length ?? 0;
+  const allSuccess = results && failureCount === 0;
 
   return (
     <div className="p-6">
       <Button variant="outline" className="mb-6 gap-2" onClick={() => navigate('/meters')}>
         <ArrowLeft className="h-4 w-4" />
-        Back to Meters
+        Zurück zu den Zählern
       </Button>
 
-      <div className="max-w-2xl mx-auto">
-        {success ? (
+      <div className="max-w-3xl mx-auto">
+        {results && allSuccess ? (
           <Card>
             <CardContent className="p-8 text-center">
               <CheckCircle className="h-16 w-16 text-green-500 mx-auto mb-4" />
-              <h2 className="text-2xl font-bold mb-2">Reading Added Successfully!</h2>
+              <h2 className="text-2xl font-bold mb-2">Zählerstände gespeichert</h2>
               <p className="text-muted-foreground mb-4">
-                The reading has been recorded and will appear in the meter details.
+                {successCount} Zählerstand{successCount !== 1 ? 'stände' : ''} erfolgreich gespeichert.
               </p>
-              <p className="text-sm text-muted-foreground">Redirecting to meters list...</p>
+              <div className="flex justify-center gap-4">
+                <Button onClick={() => {
+                  setResults(null);
+                  setEntries(prev => {
+                    const reset = Object.fromEntries(
+                      Object.entries(prev).map(([id, entry]) => [id, { ...entry, value: '', note: '' }])
+                    );
+                    return reset;
+                  });
+                  setReadingDate(new Date().toISOString().split('T')[0]);
+                }}>
+                  Weitere Eingaben
+                </Button>
+                <Button variant="outline" onClick={() => navigate('/meters')}>
+                  Zu den Zählern
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        ) : results && !allSuccess ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>Ergebnis der Eingabe</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="mb-4 text-muted-foreground">
+                {successCount} von {successCount + failureCount} Zählerständen erfolgreich gespeichert.
+              </p>
+              <ul className="space-y-2">
+                {results.map(r => (
+                  <li key={r.meterId} className="flex items-start gap-2">
+                    {r.success ? (
+                      <CheckCircle className="h-5 w-5 text-green-500 mt-0.5 shrink-0" />
+                    ) : (
+                      <XCircle className="h-5 w-5 text-red-500 mt-0.5 shrink-0" />
+                    )}
+                    <span>
+                      <strong>{r.meterLabel}</strong>
+                      {r.success ? ' — Erfolgreich' : ` — Fehler: ${r.error}`}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <div className="flex justify-end gap-4 pt-4">
+                <Button onClick={() => setResults(null)}>
+                  Zurück
+                </Button>
+              </div>
             </CardContent>
           </Card>
         ) : (
-          <Card>
-            <CardHeader>
-              <CardTitle>Add New Reading</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={handleSubmit} className="space-y-6">
-                <div className="space-y-2">
-                  <Label htmlFor="meter_id">Meter *</Label>
-                  <Select
-                    id="meter_id"
-                    value={formData.meter_id}
-                    onChange={handleSelectChange}
-                  >
-                    {meters.map((meter) => (
-                      <SelectItem key={meter.id} value={meter.id.toString()}>
-                        {meter.label} ({meterTypeLabel(meterTypes, meter.meter_type)} • {meter.unit})
-                      </SelectItem>
-                    ))}
-                  </Select>
-                  {selectedMeter && (
-                    <p className="text-sm text-muted-foreground">
-                      Ausgewählter Zähler: {selectedMeter.label} ({meterTypeLabel(meterTypes, selectedMeter.meter_type)})
-                    </p>
-                  )}
-
-                  {/* Warnung, wenn der Zähler bereits ersetzt wurde */}
-                  {isReplaced && successor && (
-                    <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950 dark:border-amber-700 p-3 text-sm text-amber-800 dark:text-amber-200">
-                      <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
-                      <span>
-                        Dieser Zähler wurde durch Zähler #{successor.id} „{successor.label}" ersetzt.
-                        Neue Ablesungen sollten normalerweise beim Nachfolger-Zähler eingetragen werden.
-                      </span>
+          <form onSubmit={handleSubmit}>
+            {/* Loading state */}
+            {loadingMeters ? (
+              <Card>
+                <CardContent className="p-8 text-center">
+                  <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
+                  <p className="text-muted-foreground">Lade Zähler…</p>
+                </CardContent>
+              </Card>
+            ) : (
+              <>
+                {/* Common date */}
+                <Card className="mb-6">
+                  <CardHeader>
+                    <CardTitle>Zählerstände eingeben</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      <Label htmlFor="reading_date">Datum *</Label>
+                      <Input
+                        id="reading_date"
+                        name="reading_date"
+                        type="date"
+                        required
+                        value={readingDate}
+                        onChange={(e) => setReadingDate(e.target.value)}
+                      />
                     </div>
+                  </CardContent>
+                </Card>
+
+                {/* Meter list */}
+                <div className="space-y-4">
+                  {meters.length === 0 ? (
+                    <Card>
+                      <CardContent className="p-8 text-center text-muted-foreground">
+                        Keine Zähler vorhanden. Bitte legen Sie zuerst einen Zähler an.
+                      </CardContent>
+                    </Card>
+                  ) : (
+                    meters.map(meter => {
+                      const entry = entries[meter.id];
+                      const lastReading = lastReadings[meter.id];
+                      if (!entry) return null;
+                      return (
+                        <Card key={meter.id} className={entry.checked ? '' : 'opacity-60'}>
+                          <CardContent className="p-4">
+                            <div className="flex items-start gap-3">
+                              {/* Checkbox */}
+                              <Checkbox
+                                id={`check-${meter.id}`}
+                                checked={entry.checked}
+                                onChange={(e) => handleCheckChange(meter.id, e.target.checked)}
+                                className="mt-1"
+                              />
+
+                              {/* Meter info + inputs */}
+                              <div className="flex-1 min-w-0 space-y-3">
+                                <div className="flex justify-between items-baseline gap-2">
+                                  <Label
+                                    htmlFor={`value-${meter.id}`}
+                                    className="text-base font-medium cursor-pointer"
+                                    onClick={() => handleCheckChange(meter.id, !entry.checked)}
+                                  >
+                                    {meter.label}
+                                    <span className="text-sm text-muted-foreground font-normal ml-2">
+                                      ({meterTypeLabel(meterTypes, meter.meter_type)} • {meter.unit})
+                                    </span>
+                                  </Label>
+                                </div>
+
+                                {/* Last reading reference */}
+                                {lastReading && (
+                                  <p className="text-xs text-muted-foreground">
+                                    Letzter Stand: {lastReading.value} {meter.unit} am {formatDate(lastReading.reading_date)}
+                                  </p>
+                                )}
+
+                                {/* Value input */}
+                                <div>
+                                  <Input
+                                    id={`value-${meter.id}`}
+                                    type="number"
+                                    step="0.001"
+                                    value={entry.value}
+                                    onChange={(e) => handleValueChange(meter.id, e.target.value)}
+                                    placeholder="Zählerstand"
+                                    disabled={!entry.checked}
+                                  />
+                                </div>
+
+                                {/* Note */}
+                                <div>
+                                  <Textarea
+                                    value={entry.note}
+                                    onChange={(e) => handleNoteChange(meter.id, e.target.value)}
+                                    placeholder="Notiz (optional)"
+                                    rows={1}
+                                    disabled={!entry.checked}
+                                    className="min-h-[2.5rem]"
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      );
+                    })
                   )}
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <Label htmlFor="value">Value *</Label>
-                    <Input
-                      id="value"
-                      name="value"
-                      type="number"
-                      step="0.001"
-                      required
-                      value={formData.value}
-                      onChange={handleChange}
-                      placeholder="e.g., 1234.567"
-                    />
-                    {selectedMeter && (
-                      <p className="text-sm text-muted-foreground">
-                        Unit: {selectedMeter.unit}
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="reading_date">Date *</Label>
-                    <Input
-                      id="reading_date"
-                      name="reading_date"
-                      type="date"
-                      required
-                      value={formData.reading_date}
-                      onChange={handleChange}
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="note">Note (Optional)</Label>
-                  <Textarea
-                    id="note"
-                    name="note"
-                    value={formData.note}
-                    onChange={handleChange}
-                    placeholder="Add any notes about this reading..."
-                    rows={3}
-                  />
-                </div>
-
-                <div className="flex justify-end gap-4 pt-4">
+                {/* Submit */}
+                <div className="flex justify-end gap-4 pt-6">
                   <Button
                     type="button"
                     variant="outline"
                     onClick={() => navigate('/meters')}
-                    disabled={loading}
+                    disabled={submitting}
                   >
-                    Cancel
+                    Abbrechen
                   </Button>
-                  <Button type="submit" disabled={loading}>
-                    {loading ? 'Adding...' : 'Add Reading'}
+                  <Button type="submit" disabled={submitting || !hasValidEntries}>
+                    {submitting ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                        Speichere…
+                      </>
+                    ) : (
+                      'Zählerstände speichern'
+                    )}
                   </Button>
                 </div>
-              </form>
-            </CardContent>
-          </Card>
+              </>
+            )}
+          </form>
         )}
-
-        <div className="mt-6 text-center text-sm text-muted-foreground">
-          <p>
-            * Required fields. Readings are stored locally and can be viewed in the meter details page.
-          </p>
-        </div>
       </div>
     </div>
   );

@@ -59,7 +59,7 @@ uv run --extra dev pytest tests/test_advance_payment_diff.py
 uv run --extra dev pytest -v
 ```
 
-**Test Coverage (175 tests, all passing):**
+**Test Coverage:**
 - CRUD operations for meters, readings, tariff periods, and advance payments
 - Database constraint validation (foreign keys, uniqueness, EXCLUDE overlap)
 - Advance payment overlap prevention (EXCLUDE USING gist with daterange)
@@ -73,6 +73,7 @@ uv run --extra dev pytest -v
 - Advance payment diff (cost vs. Abschläge comparison)
 - EEG 2009 feed-in compensation calculation
 - Decimal serialization as strings
+- **Current meters** (`GET /api/meters/current`): empty DB, standalone meters, replacement chain filtering, mixed chain + standalone
 
 ## Data Model
 
@@ -93,6 +94,36 @@ The cost and projection services follow this chain automatically when computing 
 Validation (enforced at API level, not DB level):
 - Must reference an existing meter of the **same** `meter_type` (422 otherwise)
 - Self-reference is rejected (422)
+
+### Current Meters
+
+**`GET /api/meters/current`**
+
+Returns only the newest meter in each replacement chain (plus standalone meters). A meter is "current" if no other meter's `replaces_meter_id` points to it. Used by the frontend multi-reading form to show only active meters. Same LEFT OUTER JOIN anti-pattern as `GET /api/costs/years-overview`.
+
+Response (200):
+```json
+[
+  {
+    "id": 3,
+    "meter_type": "gas",
+    "label": "New Gas Meter",
+    "meter_number": "GM12345",
+    "unit": "m³",
+    "replaces_meter_id": 1,
+    "created_at": "2025-01-15T10:00:00"
+  },
+  {
+    "id": 2,
+    "meter_type": "electricity_import",
+    "label": "Main Electricity Meter",
+    "meter_number": null,
+    "unit": "kWh",
+    "replaces_meter_id": null,
+    "created_at": "2024-06-01T08:00:00"
+  }
+]
+```
 
 ### Reading (`app/models/reading.py`)
 

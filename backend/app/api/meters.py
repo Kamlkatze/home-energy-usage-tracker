@@ -69,6 +69,31 @@ def read_meter_types():
     ]
 
 
+@router.get("/current", response_model=list[schemas.Meter])
+def read_current_meters(
+    db: Session = Depends(get_database_session),
+):
+    """Return only current (non-replaced) meters.
+
+    A current meter is the newest meter in a replacement chain (or a standalone
+    meter) — i.e. no other meter's replaces_meter_id points to it.
+    """
+    referenced_ids = (
+        db.query(models.Meter.replaces_meter_id)
+        .filter(models.Meter.replaces_meter_id.isnot(None))
+        .distinct()
+        .subquery()
+    )
+    meters = (
+        db.query(models.Meter)
+        .outerjoin(referenced_ids, models.Meter.id == referenced_ids.c.replaces_meter_id)
+        .filter(referenced_ids.c.replaces_meter_id.is_(None))
+        .order_by(models.Meter.id.asc())
+        .all()
+    )
+    return meters
+
+
 @router.get("/{meter_id}", response_model=schemas.Meter)
 def read_meter(
     meter_id: int,

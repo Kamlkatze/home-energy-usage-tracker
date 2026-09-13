@@ -39,7 +39,7 @@ const App: React.FC = () => {
                 <Link to="/readings/new">
                   <Button variant="ghost" size="sm" className="gap-2">
                     <FileText className="h-4 w-4" />
-                    Add Reading
+                    Zählerstände eingeben
                   </Button>
                 </Link>
                 <Link to="/tariffs">

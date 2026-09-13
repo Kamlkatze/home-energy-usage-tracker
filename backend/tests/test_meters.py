@@ -321,3 +321,62 @@ def test_update_meter_number_to_null(client):
     assert get_response.status_code == 200
     get_data = get_response.json()
     assert get_data["meter_number"] is None
+
+
+# ---------------------------------------------------------------------------
+# Current meters endpoint tests
+# ---------------------------------------------------------------------------
+
+def _create_meter(client, meter_type="electricity_import", label="Test Meter", replaces_meter_id=None):
+    payload = {"meter_type": meter_type, "label": label}
+    if replaces_meter_id is not None:
+        payload["replaces_meter_id"] = replaces_meter_id
+    response = client.post("/api/meters/", json=payload)
+    assert response.status_code == 200, response.text
+    return response.json()["id"]
+
+
+def test_read_current_meters_empty(client):
+    """GET /api/meters/current with no meters returns an empty list."""
+    response = client.get("/api/meters/current")
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_read_current_meters_all_standalone(client):
+    """GET /api/meters/current returns all standalone meters."""
+    m1 = _create_meter(client, "gas", "Gas Meter")
+    m2 = _create_meter(client, "electricity_import", "Electricity")
+
+    response = client.get("/api/meters/current")
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 2
+    ids = {m["id"] for m in data}
+    assert ids == {m1, m2}
+
+
+def test_read_current_meters_filters_replaced(client):
+    """GET /api/meters/current filters out a meter that has been replaced."""
+    old_meter = _create_meter(client, "gas", "Old Gas Meter")
+    new_meter = _create_meter(client, "gas", "New Gas Meter", replaces_meter_id=old_meter)
+
+    response = client.get("/api/meters/current")
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 1
+    assert data[0]["id"] == new_meter
+
+
+def test_read_current_meters_with_mixed_chain(client):
+    """Mix of standalone meters and a chain returns only the newest per chain."""
+    standalone = _create_meter(client, "water_cold", "Water Meter")
+    old_chain = _create_meter(client, "gas", "Old Gas")
+    new_chain = _create_meter(client, "gas", "New Gas", replaces_meter_id=old_chain)
+
+    response = client.get("/api/meters/current")
+    assert response.status_code == 200
+    data = response.json()
+    ids = {m["id"] for m in data}
+    assert ids == {standalone, new_chain}
+    assert old_chain not in ids

@@ -19,30 +19,41 @@ export const metersApi = {
     const response = await apiClient.get('/api/meters/');
     return response.data;
   },
-  
+
+  getCurrent: async () => {
+    const response = await apiClient.get('/api/meters/current');
+    return response.data;
+  },
+
   getById: async (id: number) => {
     const response = await apiClient.get(`/api/meters/${id}`);
     return response.data;
   },
-  
+
   create: async (meterData: any) => {
     const response = await apiClient.post('/api/meters/', meterData);
     return response.data;
   },
-  
+
   update: async (id: number, meterData: any) => {
     const response = await apiClient.put(`/api/meters/${id}`, meterData);
     return response.data;
   },
-  
+
   delete: async (id: number) => {
     const response = await apiClient.delete(`/api/meters/${id}`);
     return response.data;
   },
-  
+
   getReadings: async (meterId: number) => {
     const response = await apiClient.get(`/api/meters/${meterId}/readings`);
     return response.data;
+  },
+
+  getLastReading: async (meterId: number) => {
+    const response = await apiClient.get(`/api/meters/${meterId}/readings`);
+    const readings = response.data;
+    return readings.length > 0 ? readings[readings.length - 1] : null;
   },
 };
 
