@@ -5,7 +5,7 @@ import { Meter, Reading, YearsOverviewItem, YearlyProjection, FeedInCompensation
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { Button } from '../components/ui/button';
-import { Loader2, ArrowLeft, Euro } from 'lucide-react';
+import { Loader2, ArrowLeft, Euro, Zap } from 'lucide-react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer,
@@ -68,12 +68,9 @@ const YearDetail: React.FC = () => {
   const [eegData, setEegData] = useState<FeedInCompensation | null>(null);
   const [eegLoading, setEegLoading] = useState(false);
   const [eegError, setEegError] = useState<string | null>(null);
-  const [hasElectricityMeters, setHasElectricityMeters] = useState(false);
-
   const [wastewaterData, setWastewaterData] = useState<WastewaterCosts | null>(null);
   const [wastewaterLoading, setWastewaterLoading] = useState(false);
   const [wastewaterError, setWastewaterError] = useState<string | null>(null);
-  const [hasColdWaterMeter, setHasColdWaterMeter] = useState(false);
 
   const fetchData = useCallback(async () => {
     if (isNaN(year)) {
@@ -162,7 +159,6 @@ const YearDetail: React.FC = () => {
       const hasElectric = relevantItems.some((item) =>
         electricTypes.includes(item.meter_type)
       );
-      setHasElectricityMeters(hasElectric);
 
       if (hasElectric) {
         const prodItem = relevantItems.find(
@@ -195,7 +191,6 @@ const YearDetail: React.FC = () => {
             setEegLoading(false);
           }
         } else {
-          // Electricity meter present but no production/export pair — not a solar setup
           setEegData(null);
           setEegLoading(false);
           setEegError(null);
@@ -209,7 +204,6 @@ const YearDetail: React.FC = () => {
       const gardenItem = relevantItems.find(
         (item) => item.meter_type === 'water_garden'
       );
-      setHasColdWaterMeter(!!coldItem);
 
       if (coldItem) {
         setWastewaterLoading(true);
@@ -227,7 +221,6 @@ const YearDetail: React.FC = () => {
           );
           setWastewaterData(result);
         } catch (wwErr: any) {
-          // 404 = kein wastewater-Tarif → Kachel ausblenden (kein Fehler)
           if (wwErr?.response?.status === 404) {
             setWastewaterData(null);
             setWastewaterError(null);
@@ -262,7 +255,7 @@ const YearDetail: React.FC = () => {
 
   if (loading && sections.length === 0) {
     return (
-      <div className="p-6">
+      <div className="p-4">
         <Card>
           <CardContent className="p-8 text-center">
             <Loader2 className="h-8 w-8 animate-spin mx-auto mb-2" />
@@ -275,7 +268,7 @@ const YearDetail: React.FC = () => {
 
   if (error) {
     return (
-      <div className="p-6">
+      <div className="p-4">
         <div className="mb-4">
           <Link to="/years-overview">
             <Button variant="outline" className="gap-2">
@@ -295,7 +288,7 @@ const YearDetail: React.FC = () => {
 
   if (sections.length === 0) {
     return (
-      <div className="p-6">
+      <div className="p-4">
         <div className="mb-4">
           <Link to="/years-overview">
             <Button variant="outline" className="gap-2">
@@ -314,7 +307,7 @@ const YearDetail: React.FC = () => {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 space-y-4">
       <div className="flex items-center gap-4">
         <Link to="/years-overview">
           <Button variant="outline" className="gap-2">
@@ -325,240 +318,92 @@ const YearDetail: React.FC = () => {
         <h1 className="text-2xl font-bold">Jahresdetail: {year}</h1>
       </div>
 
-      {/* EEG Einspeisevergütung */}
-      {hasElectricityMeters && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Euro className="h-4 w-4" />
-              EEG-Einspeisevergütung {year}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {eegLoading ? (
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Lade EEG-Einspeisevergütung...
-              </div>
-            ) : eegError ? (
-              <Card>
-                <CardContent className="py-4 text-destructive text-sm">
-                  {eegError}
-                </CardContent>
-              </Card>
-            ) : eegData ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="bg-muted rounded-lg p-4">
-                  <p className="text-sm text-muted-foreground">Erzeugung (P)</p>
-                  <p className="text-xl font-semibold">
-                    {parseFloat(eegData.production_consumption).toFixed(1)} kWh
-                  </p>
-                </div>
-                <div className="bg-muted rounded-lg p-4">
-                  <p className="text-sm text-muted-foreground">Einspeisung (E)</p>
-                  <p className="text-xl font-semibold">
-                    {parseFloat(eegData.export_consumption).toFixed(1)} kWh
-                  </p>
-                </div>
-                <div className="bg-muted rounded-lg p-4">
-                  <p className="text-sm text-muted-foreground">Eigenverbrauch</p>
-                  <p className="text-xl font-semibold">
-                    {parseFloat(eegData.self_consumption).toFixed(1)} kWh
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Tier 1: {parseFloat(eegData.tier1_kwh).toFixed(1)} kWh
-                    &bull; Tier 2: {parseFloat(eegData.tier2_kwh).toFixed(1)} kWh
-                  </p>
-                </div>
-                <div className="bg-muted rounded-lg p-4">
-                  <p className="text-sm text-muted-foreground">Vergütung</p>
-                  <p className="text-xl font-semibold">
-                    {formatEuro(eegData.total_compensation)}
-                  </p>
-                </div>
-              </div>
-            ) : null}
-          </CardContent>
-        </Card>
-      )}
+      {(() => {
+        const electricTypes = ['electricity_import', 'electricity_export', 'electricity_production'];
+        const waterTypes = ['water_cold', 'water_garden'];
 
-      {/* Abwasserkosten */}
-      {hasColdWaterMeter && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Euro className="h-4 w-4" />
-              Abwasserkosten {year}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {wastewaterLoading ? (
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Lade Abwasserkosten...
-              </div>
-            ) : wastewaterError ? (
-              <div className="text-destructive text-sm">{wastewaterError}</div>
-            ) : wastewaterData ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-                <div className="bg-muted rounded-lg p-4">
-                  <p className="text-sm text-muted-foreground">Kaltwasserverbrauch</p>
-                  <p className="text-xl font-semibold">
-                    {parseFloat(wastewaterData.cold_consumption).toFixed(1)} m³
-                  </p>
-                </div>
-                <div className="bg-muted rounded-lg p-4">
-                  <p className="text-sm text-muted-foreground">Gartenwasserverbrauch</p>
-                  <p className="text-xl font-semibold">
-                    {parseFloat(wastewaterData.garden_consumption).toFixed(1)} m³
-                  </p>
-                </div>
-                <div className="bg-muted rounded-lg p-4">
-                  <p className="text-sm text-muted-foreground">Abwasserverbrauch</p>
-                  <p className="text-xl font-semibold">
-                    {parseFloat(wastewaterData.wastewater_consumption).toFixed(1)} m³
-                  </p>
-                </div>
-                <div className="bg-muted rounded-lg p-4">
-                  <p className="text-sm text-muted-foreground">Preis pro m³</p>
-                  <p className="text-xl font-semibold">
-                    {formatEuro(wastewaterData.price_per_unit)} /m³
-                  </p>
-                </div>
-                <div className="bg-muted rounded-lg p-4">
-                  <p className="text-sm text-muted-foreground">Abwasserkosten gesamt</p>
-                  <p className="text-xl font-semibold">
-                    {formatEuro(wastewaterData.total_cost)}
-                  </p>
-                </div>
-              </div>
-            ) : null}
-          </CardContent>
-        </Card>
-      )}
+        const electricSections = sections.filter((s) =>
+          electricTypes.includes(s.overviewItem.meter_type)
+        );
+        const waterSections = sections.filter((s) =>
+          waterTypes.includes(s.overviewItem.meter_type)
+        );
+        const otherSections = sections.filter(
+          (s) =>
+            !electricTypes.includes(s.overviewItem.meter_type) &&
+            !waterTypes.includes(s.overviewItem.meter_type)
+        );
 
-      {/* Gesamtwasserkosten = Frischwasser (Kalt + Garten) + Abwasser */}
-      {hasColdWaterMeter && wastewaterData && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Euro className="h-4 w-4" />
-              Gesamtwasserkosten {year}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {(() => {
-              const coldSection = sections.find(
-                (s) => s.overviewItem.meter_type === 'water_cold'
-              );
-              const gardenSection = sections.find(
-                (s) => s.overviewItem.meter_type === 'water_garden'
-              );
-              const coldCost = coldSection?.projection?.actual_cost_to_date ?? null;
-              const gardenCost = gardenSection?.projection?.actual_cost_to_date ?? null;
-              const total = (
-                (coldCost ? parseFloat(coldCost) : 0) +
-                (gardenCost ? parseFloat(gardenCost) : 0) +
-                parseFloat(wastewaterData.total_cost)
-              ).toFixed(2);
+        const renderMeterBlock = (section: MeterSection, meterIdx: number) => {
+          const item = section.overviewItem;
+          const unit = item.unit;
+          const chartColor = COLORS[meterIdx % COLORS.length];
 
-              return (
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <div className="bg-muted rounded-lg p-4">
-                    <p className="text-sm text-muted-foreground">Frischwasserkosten Kaltwasser</p>
-                    <p className="text-xl font-semibold">{formatEuro(coldCost)}</p>
-                  </div>
-                  {gardenCost && (
-                    <div className="bg-muted rounded-lg p-4">
-                      <p className="text-sm text-muted-foreground">Frischwasserkosten Gartenwasser</p>
-                      <p className="text-xl font-semibold">{formatEuro(gardenCost)}</p>
-                    </div>
-                  )}
-                  <div className="bg-muted rounded-lg p-4">
-                    <p className="text-sm text-muted-foreground">Abwasserkosten</p>
-                    <p className="text-xl font-semibold">{formatEuro(wastewaterData.total_cost)}</p>
-                  </div>
-                  <div className="bg-muted rounded-lg p-4">
-                    <p className="text-sm text-muted-foreground font-bold">Gesamt</p>
-                    <p className="text-xl font-semibold">{total} €</p>
-                  </div>
-                </div>
-              );
-            })()}
-          </CardContent>
-        </Card>
-      )}
+          const chartData = section.readings.map((r) => ({
+            date: new Date(r.reading_date).toLocaleDateString(),
+            value: parseFloat(r.value),
+            note: r.note,
+          }));
 
-      {sections.map((section, idx) => {
-        const item = section.overviewItem;
-        const unit = item.unit;
-        const chartColor = COLORS[idx % COLORS.length];
+          const yearEntry = item.years.find((y) => y.year === year);
+          const isExportOrProduction =
+            item.meter_type === 'electricity_export' || item.meter_type === 'electricity_production';
+          const isWater = item.meter_type === 'water_cold' || item.meter_type === 'water_garden';
+          const costLabel = isWater ? 'Frischwasserkosten' : 'Kosten';
 
-        const chartData = section.readings.map((r) => ({
-          date: new Date(r.reading_date).toLocaleDateString(),
-          value: parseFloat(r.value),
-          note: r.note,
-        }));
-
-        const yearEntry = item.years.find((y) => y.year === year);
-        const hideCostProjection =
-          item.meter_type === 'electricity_export' || item.meter_type === 'electricity_production';
-
-        return (
-          <Card key={item.meter_id}>
-            <CardHeader>
+          return (
+            <div key={item.meter_id} className="border rounded-lg p-3 space-y-3">
               <div className="flex items-center justify-between">
-                <CardTitle>{item.meter_label}</CardTitle>
-                <span className="text-sm font-medium bg-primary/10 text-primary px-3 py-1 rounded-full">
-                  {item.meter_type} &bull; {unit}
+                <h4 className="font-semibold text-sm">{item.meter_label}</h4>
+                <span className="text-xs font-medium bg-primary/10 text-primary px-2 py-0.5 rounded-full">
+                  {item.meter_type}
                 </span>
               </div>
               {section.chain.length > 1 && (
-                <p className="text-sm text-muted-foreground mt-1">
+                <p className="text-xs text-muted-foreground">
                   Ersetzungskette: {section.chain.map((m) => m.label).join(' → ')}
                 </p>
               )}
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {/* Consumption overview */}
+
               {yearEntry && (
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <div className="bg-muted rounded-lg p-4">
-                    <p className="text-sm text-muted-foreground">Verbrauch {year}</p>
-                    <p className="text-xl font-semibold">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <div className="bg-muted rounded p-2">
+                    <p className="text-xs text-muted-foreground">Verbrauch {year}</p>
+                    <p className="text-sm font-semibold">
                       {yearEntry.consumption != null
                         ? `${parseFloat(yearEntry.consumption).toFixed(1)} ${unit}`
                         : '—'}
                     </p>
                   </div>
-                  <div className="bg-muted rounded-lg p-4">
-                    <p className="text-sm text-muted-foreground">Kosten {year}</p>
-                    <p className="text-xl font-semibold">
-                      {yearEntry.cost != null ? formatEuro(yearEntry.cost) : '—'}
-                    </p>
-                    {yearEntry.cost_basis && (
-                      <p className="text-xs text-muted-foreground mt-1">
-                        ({yearEntry.cost_basis === 'projected' ? 'hochgerechnet' : 'tatsächlich'})
+                  {!isExportOrProduction && (
+                    <div className="bg-muted rounded p-2">
+                      <p className="text-xs text-muted-foreground">{costLabel} {year}</p>
+                      <p className="text-sm font-semibold">
+                        {yearEntry.cost != null ? formatEuro(yearEntry.cost) : '—'}
                       </p>
-                    )}
-                  </div>
-                  <div className="bg-muted rounded-lg p-4">
-                    <p className="text-sm text-muted-foreground">Zählerstände</p>
-                    <p className="text-xl font-semibold">{section.readings.length}</p>
+                      {yearEntry.cost_basis && (
+                        <p className="text-[10px] text-muted-foreground mt-0.5">
+                          ({yearEntry.cost_basis === 'projected' ? 'hochgerechnet' : 'tatsächlich'})
+                        </p>
+                      )}
+                    </div>
+                  )}
+                  <div className="bg-muted rounded p-2">
+                    <p className="text-xs text-muted-foreground">Zählerstände</p>
+                    <p className="text-sm font-semibold">{section.readings.length}</p>
                   </div>
                 </div>
               )}
 
-              {/* Chart */}
               <div>
-                <h3 className="text-lg font-semibold mb-2">Verbrauchsverlauf {year}</h3>
-                <div className="h-72">
+                <h5 className="text-xs font-semibold text-muted-foreground mb-1">Verbrauchsverlauf {year}</h5>
+                <div className="h-32">
                   {chartData.length > 0 ? (
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart data={chartData}>
                         <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="date" />
-                        <YAxis label={{ value: unit, angle: -90, position: 'insideLeft' }} />
+                        <XAxis dataKey="date" tick={{ fontSize: 10 }} />
+                        <YAxis label={{ value: unit, angle: -90, position: 'insideLeft' }} tick={{ fontSize: 10 }} />
                         <Tooltip
                           formatter={(value) => [`${value} ${unit}`, 'Zählerstand']}
                           labelFormatter={(label) => `Datum: ${label}`}
@@ -567,128 +412,257 @@ const YearDetail: React.FC = () => {
                           type="monotone"
                           dataKey="value"
                           stroke={chartColor}
-                          strokeWidth={2}
-                          dot={{ r: 4 }}
-                          activeDot={{ r: 6 }}
+                          strokeWidth={1.5}
+                          dot={{ r: 2 }}
+                          activeDot={{ r: 4 }}
                         />
                       </LineChart>
                     </ResponsiveContainer>
                   ) : (
-                    <div className="h-full flex items-center justify-center text-muted-foreground">
+                    <div className="h-full flex items-center justify-center text-xs text-muted-foreground">
                       Keine Zählerstände für {year} vorhanden.
                     </div>
                   )}
                 </div>
               </div>
 
-              {/* Readings table */}
               <div>
-                <h3 className="text-lg font-semibold mb-2">Zählerstände {year}</h3>
-                {section.readings.length > 0 ? (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Datum</TableHead>
-                        <TableHead>Wert ({unit})</TableHead>
-                        <TableHead>Notiz</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {section.readings.map((r) => (
-                        <TableRow key={r.id}>
-                          <TableCell>
-                            {new Date(r.reading_date).toLocaleDateString()}
-                          </TableCell>
-                          <TableCell>{r.value}</TableCell>
-                          <TableCell>{r.note || '—'}</TableCell>
+                <h5 className="text-xs font-semibold text-muted-foreground mb-1">Zählerstände {year}</h5>
+                <div className="max-h-36 overflow-y-auto">
+                  {section.readings.length > 0 ? (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="text-xs">Datum</TableHead>
+                          <TableHead className="text-xs">Wert ({unit})</TableHead>
+                          <TableHead className="text-xs">Notiz</TableHead>
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                ) : (
-                  <div className="text-center py-8 text-muted-foreground">
-                    Keine Zählerstände für {year} vorhanden.
-                  </div>
-                )}
+                      </TableHeader>
+                      <TableBody>
+                        {section.readings.map((r) => (
+                          <TableRow key={r.id}>
+                            <TableCell className="text-xs py-1">{new Date(r.reading_date).toLocaleDateString()}</TableCell>
+                            <TableCell className="text-xs py-1">{r.value}</TableCell>
+                            <TableCell className="text-xs py-1">{r.note || '—'}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  ) : (
+                    <div className="text-center py-4 text-xs text-muted-foreground">
+                      Keine Zählerstände für {year} vorhanden.
+                    </div>
+                  )}
+                </div>
               </div>
 
-              {/* Cost projection — hidden for export and production meters (no consumption costs) */}
-              {!hideCostProjection && (
-              <div>
-                <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">
-                  <Euro className="h-4 w-4" />
-                  Kostenprojektion {year}
-                </h3>
-                {section.projectionLoading ? (
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Lade Projektion...
-                  </div>
-                ) : section.projectionError ? (
-                  <Card>
-                    <CardContent className="py-4 text-destructive">
-                      {section.projectionError}
-                    </CardContent>
-                  </Card>
-                ) : section.projection ? (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                    <div className="bg-muted rounded-lg p-4">
-                      <p className="text-sm text-muted-foreground">
-                        Tatsächlicher Verbrauch
-                      </p>
-                      <p className="text-xl font-semibold">
-                        {section.projection.actual_consumption_to_date != null
-                          ? `${parseFloat(section.projection.actual_consumption_to_date).toFixed(1)} ${unit}`
-                          : '—'}
-                      </p>
+              {!isExportOrProduction && (
+                <div>
+                  <h5 className="text-xs font-semibold text-muted-foreground mb-1">
+                    {isWater ? 'Frischwasserkosten-Prognose' : 'Kostenprojektion'} {year}
+                  </h5>
+                  {section.projectionLoading ? (
+                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      Lade Projektion...
                     </div>
-                    <div className="bg-muted rounded-lg p-4">
-                      <p className="text-sm text-muted-foreground">
-                        Hochgerechneter Verbrauch
-                      </p>
-                      <p className="text-xl font-semibold">
-                        {section.projection.projected_annual_consumption != null
-                          ? `${parseFloat(section.projection.projected_annual_consumption).toFixed(1)} ${unit}`
-                          : '—'}
-                      </p>
+                  ) : section.projectionError ? (
+                    <div className="text-xs text-destructive">{section.projectionError}</div>
+                  ) : section.projection ? (
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-1">
+                      <div className="bg-muted rounded p-1.5">
+                        <p className="text-[10px] text-muted-foreground">{isWater ? 'Frischwasser-' : ''}Verbrauch (tats.)</p>
+                        <p className="text-xs font-semibold">
+                          {section.projection.actual_consumption_to_date != null
+                            ? `${parseFloat(section.projection.actual_consumption_to_date).toFixed(1)} ${unit}`
+                            : '—'}
+                        </p>
+                      </div>
+                      <div className="bg-muted rounded p-1.5">
+                        <p className="text-[10px] text-muted-foreground">{isWater ? 'Frischwasser-' : ''}Verbrauch (prog.)</p>
+                        <p className="text-xs font-semibold">
+                          {section.projection.projected_annual_consumption != null
+                            ? `${parseFloat(section.projection.projected_annual_consumption).toFixed(1)} ${unit}`
+                            : '—'}
+                        </p>
+                      </div>
+                      <div className="bg-muted rounded p-1.5">
+                        <p className="text-[10px] text-muted-foreground">{isWater ? 'Frischwasser-' : ''}kosten (tats.)</p>
+                        <p className="text-xs font-semibold">
+                          {formatEuro(section.projection.actual_cost_to_date)}
+                        </p>
+                      </div>
+                      <div className="bg-muted rounded p-1.5">
+                        <p className="text-[10px] text-muted-foreground">{isWater ? 'Frischwasser-' : ''}kosten (prog.)</p>
+                        <p className="text-xs font-semibold">
+                          {formatEuro(section.projection.projected_annual_cost)}
+                        </p>
+                      </div>
                     </div>
-                    <div className="bg-muted rounded-lg p-4">
-                      <p className="text-sm text-muted-foreground">
-                        Tatsächliche Kosten
-                      </p>
-                      <p className="text-xl font-semibold">
-                        {formatEuro(section.projection.actual_cost_to_date)}
-                      </p>
-                    </div>
-                    <div className="bg-muted rounded-lg p-4">
-                      <p className="text-sm text-muted-foreground">
-                        Hochgerechnete Kosten
-                      </p>
-                      <p className="text-xl font-semibold">
-                        {formatEuro(section.projection.projected_annual_cost)}
-                      </p>
-                    </div>
-                  </div>
-                ) : null}
+                  ) : null}
 
-                {section.projection && section.projection.message && (
-                  <p className="text-sm text-muted-foreground mt-2">
-                    {section.projection.message}
-                  </p>
-                )}
-
-                {section.projection && (
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Basis: {basisLabel(section.projection.basis)}
-                    &nbsp;|&nbsp;Stand: {new Date(section.projection.as_of_date).toLocaleDateString()}
-                  </p>
-                )}
-              </div>
+                  {section.projection && section.projection.message && (
+                    <p className="text-[10px] text-muted-foreground mt-0.5">{section.projection.message}</p>
+                  )}
+                  {section.projection && (
+                    <p className="text-[10px] text-muted-foreground mt-0.5">
+                      Basis: {basisLabel(section.projection.basis)}
+                      &nbsp;|&nbsp;Stand: {new Date(section.projection.as_of_date).toLocaleDateString()}
+                    </p>
+                  )}
+                </div>
               )}
-            </CardContent>
-          </Card>
+            </div>
+          );
+        };
+
+        return (
+          <>
+            {/* ---- STROM category ---- */}
+            {electricSections.length > 0 && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <Zap className="h-4 w-4" />
+                    Strom {year}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {eegLoading && (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      Lade EEG-Einspeisevergütung...
+                    </div>
+                  )}
+                  {eegError && (
+                    <div className="text-xs text-destructive">{eegError}</div>
+                  )}
+                  {eegData && (
+                    <div className="border rounded-lg p-3 bg-muted/20">
+                      <h4 className="text-xs font-semibold text-muted-foreground mb-2">EEG-Einspeisevergütung</h4>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        <div className="bg-muted rounded p-2">
+                          <p className="text-[10px] text-muted-foreground">Erzeugung (P)</p>
+                          <p className="text-sm font-semibold">{parseFloat(eegData.production_consumption).toFixed(1)} kWh</p>
+                        </div>
+                        <div className="bg-muted rounded p-2">
+                          <p className="text-[10px] text-muted-foreground">Einspeisung (E)</p>
+                          <p className="text-sm font-semibold">{parseFloat(eegData.export_consumption).toFixed(1)} kWh</p>
+                        </div>
+                        <div className="bg-muted rounded p-2">
+                          <p className="text-[10px] text-muted-foreground">Eigenverbrauch</p>
+                          <p className="text-sm font-semibold">{parseFloat(eegData.self_consumption).toFixed(1)} kWh</p>
+                          <p className="text-[10px] text-muted-foreground mt-0.5">
+                            Tier 1: {parseFloat(eegData.tier1_kwh).toFixed(1)} &bull; Tier 2: {parseFloat(eegData.tier2_kwh).toFixed(1)} kWh
+                          </p>
+                        </div>
+                        <div className="bg-muted rounded p-2">
+                          <p className="text-[10px] text-muted-foreground">Vergütung</p>
+                          <p className="text-sm font-semibold">{formatEuro(eegData.total_compensation)}</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  {electricSections.map((s, i) => renderMeterBlock(s, i))}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* ---- WASSER category ---- */}
+            {waterSections.length > 0 && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <Euro className="h-4 w-4" />
+                    Wasser {year}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {wastewaterLoading && (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      Lade Abwasserkosten...
+                    </div>
+                  )}
+                  {wastewaterError && (
+                    <div className="text-xs text-destructive">{wastewaterError}</div>
+                  )}
+                  {wastewaterData && (
+                    <>
+                      <div className="border rounded-lg p-3 bg-muted/20">
+                        <h4 className="text-xs font-semibold text-muted-foreground mb-2">Abwasserkosten</h4>
+                        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                          <div className="bg-muted rounded p-2">
+                            <p className="text-[10px] text-muted-foreground">Kaltwasserverbrauch</p>
+                            <p className="text-sm font-semibold">{parseFloat(wastewaterData.cold_consumption).toFixed(1)} m³</p>
+                          </div>
+                          <div className="bg-muted rounded p-2">
+                            <p className="text-[10px] text-muted-foreground">Gartenwasserverbrauch</p>
+                            <p className="text-sm font-semibold">{parseFloat(wastewaterData.garden_consumption).toFixed(1)} m³</p>
+                          </div>
+                          <div className="bg-muted rounded p-2">
+                            <p className="text-[10px] text-muted-foreground">Abwasserverbrauch</p>
+                            <p className="text-sm font-semibold">{parseFloat(wastewaterData.wastewater_consumption).toFixed(1)} m³</p>
+                          </div>
+                          <div className="bg-muted rounded p-2">
+                            <p className="text-[10px] text-muted-foreground">Preis pro m³</p>
+                            <p className="text-sm font-semibold">{formatEuro(wastewaterData.price_per_unit)} /m³</p>
+                          </div>
+                          <div className="bg-muted rounded p-2">
+                            <p className="text-[10px] text-muted-foreground">Abwasserkosten gesamt</p>
+                            <p className="text-sm font-semibold">{formatEuro(wastewaterData.total_cost)}</p>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="border rounded-lg p-3 bg-muted/20">
+                        <h4 className="text-xs font-semibold text-muted-foreground mb-2">Gesamtwasserkosten</h4>
+                        {(() => {
+                          const coldSection = sections.find((s) => s.overviewItem.meter_type === 'water_cold');
+                          const gardenSection = sections.find((s) => s.overviewItem.meter_type === 'water_garden');
+                          const coldCost = coldSection?.projection?.actual_cost_to_date ?? null;
+                          const gardenCost = gardenSection?.projection?.actual_cost_to_date ?? null;
+                          const total = (
+                            (coldCost ? parseFloat(coldCost) : 0) +
+                            (gardenCost ? parseFloat(gardenCost) : 0) +
+                            parseFloat(wastewaterData.total_cost)
+                          ).toFixed(2);
+
+                          return (
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                              <div className="bg-muted rounded p-2">
+                                <p className="text-[10px] text-muted-foreground">Frischwasser Kaltwasser</p>
+                                <p className="text-sm font-semibold">{formatEuro(coldCost)}</p>
+                              </div>
+                              {gardenCost && (
+                                <div className="bg-muted rounded p-2">
+                                  <p className="text-[10px] text-muted-foreground">Frischwasser Gartenwasser</p>
+                                  <p className="text-sm font-semibold">{formatEuro(gardenCost)}</p>
+                                </div>
+                              )}
+                              <div className="bg-muted rounded p-2">
+                                <p className="text-[10px] text-muted-foreground">Abwasserkosten</p>
+                                <p className="text-sm font-semibold">{formatEuro(wastewaterData.total_cost)}</p>
+                              </div>
+                              <div className="bg-muted rounded p-2">
+                                <p className="text-[10px] text-muted-foreground font-semibold">Gesamt</p>
+                                <p className="text-sm font-bold">{total} €</p>
+                              </div>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    </>
+                  )}
+                  {waterSections.map((s, i) => renderMeterBlock(s, i))}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* ---- OTHER meters (gas, etc.) ---- */}
+            {otherSections.map((section, idx) => renderMeterBlock(section, idx))}
+          </>
         );
-      })}
+      })()}
     </div>
   );
 };
