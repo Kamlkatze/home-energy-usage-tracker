@@ -117,6 +117,50 @@ export const costsApi = {
     const response = await apiClient.get('/api/costs/years-overview');
     return response.data;
   },
+
+  getYearlyProjection: async (meterId: number, year: number) => {
+    const response = await apiClient.get('/api/costs/yearly-projection', {
+      params: { meter_id: meterId, year },
+    });
+    return response.data;
+  },
+
+  getWastewaterCosts: async (
+    waterColdMeterId: number,
+    from: string,
+    to: string,
+    waterGardenMeterId?: number,
+  ) => {
+    const params: Record<string, string | number> = {
+      water_cold_meter_id: waterColdMeterId,
+      from,
+      to,
+    };
+    if (waterGardenMeterId !== undefined) {
+      params.water_garden_meter_id = waterGardenMeterId;
+    }
+    const response = await apiClient.get('/api/costs/wastewater/', { params });
+    return response.data;
+  },
+};
+
+export const electricityApi = {
+  getFeedInCompensation: async (
+    productionMeterId: number,
+    exportMeterId: number,
+    from: string,
+    to: string,
+  ) => {
+    const response = await apiClient.get('/api/electricity/feed-in-compensation', {
+      params: {
+        production_meter_id: productionMeterId,
+        export_meter_id: exportMeterId,
+        from,
+        to,
+      },
+    });
+    return response.data;
+  },
 };
 
 export default apiClient;

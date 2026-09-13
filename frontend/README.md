@@ -29,7 +29,9 @@
 | `/meters/:id` | `pages/MeterDetail.tsx` | Single meter detail: line chart of readings (recharts), meter info panel (type, unit, number, created date, total count), recent readings table (last 5, newest first). Fetches `GET /api/meters/:id` + `GET /api/meters/:id/readings`. |
 | `/readings/new` | `pages/AddReading.tsx` | Create reading form: meter selector, numeric value, date, optional note. Warns if the selected meter has been replaced by a successor. Submits to `POST /api/readings/`. |
 | `/tariffs` | `pages/TariffList.tsx` | Tariff overview table with all periods: kind label, meter, valid-from/until, price, base fee, metering fee (monthly or yearly), gas factors. Supports **edit** (inline modal with dynamic tariff-kind fields) and **delete** (with usage check). |
-| `/tariffs/new` | `pages/TariffForm.tsx` | Create tariff period form: meter selector, tariff kind (consumption/feed_in/self_consumption/wastewater/feed_in_eeg2009), validity range, dynamic fields per kind (price per unit, optional base + metering fees, gas Z-Zahl/Brennwert for gas meters, EEG 2009 block with tier rates + yearly metering fee). German labels/helper text throughout. EEG 2009 meter selection includes a hint to pick the feed-in meter. Handles empty meter list gracefully. |
+| `/tariffs/new` | `pages/TariffForm.tsx` | Create tariff period form: meter selector, tariff kind (consuption/feed_in/self_consuption/wastewater/feed_in_eeg2009), validity range, dynamic fields per kind (price per unit, optional base + metering fees, gas Z-Zahl/Brennwert for gas meters, EEG 2009 block with tier rates + yearly metering fee). German labels/helper text throughout. EEG 2009 meter selection includes a hint to pick the feed-in meter. Handles empty meter list gracefully. |
+| `/years-overview` | `pages/YearsOverview.tsx` | Year-over-year consumption table + line chart for all logical meters (chain-resolved via backend). Years link to `/years/:year`. |
+| `/years/:year` | `pages/YearDetail.tsx` | Year detail page: per-logical-meter readings table, line chart of readings for that year, cost projection via `GET/api/costs/yearly-projection`. Fetches logical meters from `GET/api/costs/years-overview`, all meters from `GET /api/meters/`for client-side chain resolution, readings via `GET /api/meters/:id/readings` filtered client-side by year. |
 
 ## 3. Existing Components
 
@@ -63,7 +65,7 @@ All follow the shadcn/ui pattern (Tailwind + `cn()` helper, forwardRef, displayN
 | `lib/utils.ts` | `cn()` helper combining `clsx` and `tailwind-merge`. |
 
 ### Types (`types/index.ts`)
-Defines: `MeterType`, `TariffKind`, `MeterTypeInfo`, `Meter`, `Reading`, `TariffPeriod` – aligned with backend schemas.
+Defines: `MeterType`, `TariffKind`, `MeterTypeInfo`, `Meter`, `Reading`, `TariffPeriod`, `YearEntry`, `YearsOverviewItem`, `YearlyProjection` – aligned with backend schemas.
 
 ## 4. API Integration
 
@@ -74,10 +76,11 @@ Defines: `MeterType`, `TariffKind`, `MeterTypeInfo`, `Meter`, `Reading`, `Tariff
 ### API objects and endpoints consumed
 
 | Object | Endpoints | Used in |
-|---|---|---|
-| `metersApi` | `GET /types`, `GET /`, `GET /:id`, `POST /`, `PUT /:id`, `DELETE /:id`, `GET /:id/readings` | `useMeterTypes`, `MeterList`, `MeterDetail`, `MeterForm`, `AddReading`, `TariffForm` |
+|---|---|---|---|
+| `metersApi` | `GET /types`, `GET /`, `GET /:id`, `POST /`, `PUT /:id`, `DELETE /:id`, `GET /:id/readings` | `useMeterTypes`, `MeterList`, `MeterDetail`, `MeterForm`, `AddReading`, `TariffForm`, `YearDetail` |
 | `readingsApi` | `GET /`, `GET /:id`, `POST /`, `PUT /:id`, `DELETE /:id` | `AddReading` (only `POST`) |
 | `tariffsApi` | `GET /`, `GET /:id`, `POST /`, `PUT /:id`, `DELETE /:id` | `TariffForm` (POST), `TariffList` (GET, PUT, DELETE) |
+| `costsApi` | `GET /years-overview`, `GET /yearly-projection` | `YearsOverview`, `YearDetail` |
 | `healthApi` | `GET /health` | **Not used** anywhere in components |
 
 **Notable:** `metersApi.update` and `readingsApi.update`/`delete` are defined but never called. `healthApi` is defined but never imported.
@@ -96,7 +99,7 @@ The following backend endpoints/features have **zero** frontend representation:
 | Area | Backend endpoints missing from frontend |
 |---|---|
 | **Advance payments** | `GET/POST/PUT/DELETE /api/advance-payments/` – no list, no create, no detail page |
-| **Cost calculations** | `GET /api/costs/`, `/costs/wastewater`, `/costs/yearly-projection`, `/costs/advance-payment-diff`, `/costs/years-overview` – no UI at all |
+| **Cost calculations** | `GET /api/costs/`, `/costs/wastewater`, `/costs/advance-payment-diff` – no UI at all; `/costs/years-overview` and `/costs/yearly-projection` ✅ implemented in `YearsOverview` / `YearDetail` |
 | **Electricity: feed-in compensation** | `GET /api/electricity/feed-in-compensation` – no UI |
 | **Projections** | `GET /api/projections/meters/{meter_id}/projection` – no UI |
 | **Consumption timeseries** | No frontend endpoint consumer for aggregated timeseries data (backend may not even have this endpoint yet) |

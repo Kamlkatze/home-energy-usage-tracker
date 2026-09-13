@@ -76,3 +76,43 @@ export interface YearsOverviewItem {
   unit: string;
   years: YearEntry[];
 }
+
+export interface YearlyProjection {
+  meter_id: number;
+  year: number;
+  unit: string;
+  as_of_date: string;
+  actual_consumption_to_date: string | null;
+  projected_annual_consumption: string | null;
+  basis: 'linear_from_prev_year_end' | 'linear_from_first_reading_of_year' | 'actual_full_year' | 'insufficient_data';
+  actual_cost_to_date: string | null;
+  projected_annual_cost: string | null;
+  message: string | null;
+}
+
+export interface FeedInCompensation {
+  production_meter_id: number;
+  export_meter_id: number;
+  from_date: string;
+  to_date: string;
+  production_consumption: string;
+  export_consumption: string;
+  self_consumption: string;
+  tier1_kwh: string;
+  tier2_kwh: string;
+  total_compensation: string;
+}
+
+export interface WastewaterCosts {
+  water_cold_meter_id: number;
+  water_garden_meter_id: number | null;
+  from_date: string;
+  to_date: string;
+  cold_consumption: string;
+  garden_consumption: string;
+  wastewater_consumption: string;
+  unit: string;
+  price_per_unit: string;
+  base_fee_total: string;
+  total_cost: string;
+}

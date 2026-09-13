@@ -9,6 +9,7 @@ import AddReading from './pages/AddReading';
 import TariffForm from './pages/TariffForm';
 import TariffList from './pages/TariffList';
 import YearsOverview from './pages/YearsOverview';
+import YearDetail from './pages/YearDetail';
 import { Home, BarChart2, FileText, Settings, Euro, CalendarDays } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -68,6 +69,7 @@ const App: React.FC = () => {
             <Route path="/tariffs" element={<TariffList />} />
             <Route path="/tariffs/new" element={<TariffForm />} />
             <Route path="/years-overview" element={<YearsOverview />} />
+            <Route path="/years/:year" element={<YearDetail />} />
           </Routes>
         </main>
         
