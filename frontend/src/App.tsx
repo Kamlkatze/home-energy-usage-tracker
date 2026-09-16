@@ -11,6 +11,7 @@ import TariffList from './pages/TariffList';
 import YearsOverview from './pages/YearsOverview';
 import YearDetail from './pages/YearDetail';
 import { Home, BarChart2, FileText, Settings, Euro, CalendarDays } from 'lucide-react';
+import ThemeToggle from './components/ThemeToggle';
 
 const App: React.FC = () => {
   return (
@@ -54,6 +55,7 @@ const App: React.FC = () => {
                     Zähler
                   </Button>
                 </Link>
+                <ThemeToggle />
               </nav>
             </div>
           </div>

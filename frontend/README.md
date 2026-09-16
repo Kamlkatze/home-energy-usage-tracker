@@ -90,7 +90,8 @@ Defines: `MeterType`, `TariffKind`, `MeterTypeInfo`, `Meter`, `Reading`, `Tariff
 - **Tailwind CSS** exclusively (no plain CSS files, no CSS modules, no styled-components).
 - **shadcn/ui design tokens** via CSS custom properties in `index.css` (──background, --foreground, --primary, --border, --radius, etc.) with a `.dark` variant.
 - **Component compositions:** All UI elements are `className`-styled with Tailwind utilities, composed via `cn()` from `lib/utils.ts`.
-- **Theme:** Light-by-default, dark mode supported via `.dark` class (no toggle component).
+- **Theme:** Dark-first with user-toggleable light/dark mode via `.dark` class on `<html>` (toggle stored in `localStorage.theme`). An inline script in `index.html` applies the saved theme before React mounts to prevent flash of wrong theme.
+- **Favicon:** Custom SVG (`public/favicon.svg`) — stylized house with lightning bolt on dark blue background.
 
 ## 6. Gaps vs. Backend
 
@@ -109,13 +110,13 @@ The following backend endpoints/features have **zero** frontend representation:
 
 ## 7. Known Issues / TODOs (unchanged)
 
-1. **Mixed language UI:** Several pages (e.g. Home, AddReading) still use English labels — meters pages are fully translated to German.
+1. ~~**Mixed language UI:** Several pages (e.g. Home, AddReading) still use English labels — meters pages are fully translated to German.~~ Home page is now fully German; AddReading still has some English labels.
 2. **`select.tsx` dead code:** Unused `SelectTrigger`, `SelectContent`, `SelectValue` exports.
 3. **`date-fns` not used:** Installed but zero imports.
 4. **`healthApi` dead code:** Defined but never imported.
 5. **`MeterList` misplaced:** Lives in `components/` but used as route page.
-6. **`index.html` language:** `<html lang="en">` doesn't match German UI.
+6. ~~**`index.html` language:** `<html lang="en">` doesn't match German UI.~~
 7. **Vite dev proxy target issue:** Default `localhost:8000` won't work from inside frontend container.
 8. **No reading list/edit/delete.**
-9. **No dark mode toggle.**
+9. ~~**No dark mode toggle.**~~
 10. **`dist/` directory** present in repository (build artefact).
