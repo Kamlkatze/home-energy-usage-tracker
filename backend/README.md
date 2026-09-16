@@ -250,6 +250,15 @@ Returns **200** always (per-year failures are surfaced as null fields, never as 
 entire chain, and consumption is summed segment-by-segment — consistent with the cost
 calculation chain logic.
 
+**Response field `projected_meter_reading_end_of_year`** (Decimal string | null): the
+projected absolute meter reading at the end of the target year, used by the frontend chart
+to draw the dashed projection line as an absolute reading instead of a delta.
+- `actual_full_year` basis → `end_reading.value`
+- `insufficient_data` → `null`
+- linear bases (`linear_from_prev_year_end`, `linear_from_first_reading_of_year`) → `start_reading.value + projected_annual`
+
+The field is forwarded by the `/api/costs/yearly-projection` response schema (`YearlyProjectionWithCostResponse`).
+
 ## Migrations
 
 All migrations live in `alembic/versions/`. IDs are 12-character MD5 hashes.

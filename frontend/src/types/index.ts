@@ -91,6 +91,7 @@ export interface YearlyProjection {
   as_of_date: string;
   actual_consumption_to_date: string | null;
   projected_annual_consumption: string | null;
+  projected_meter_reading_end_of_year: string | null;
   basis: 'linear_from_prev_year_end' | 'linear_from_first_reading_of_year' | 'actual_full_year' | 'insufficient_data';
   actual_cost_to_date: string | null;
   projected_annual_cost: string | null;

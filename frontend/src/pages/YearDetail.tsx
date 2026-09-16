@@ -54,6 +54,34 @@ function basisLabel(basis: YearlyProjection['basis']): string {
   }
 }
 
+const ChartTooltip: React.FC<{ active?: boolean; payload?: any[]; label?: any; unit: string }> = ({ active, payload, label, unit }) => {
+  if (!active || !payload || payload.length === 0) return null;
+  const isFuture = typeof label === 'number' ? label > Date.now() : false;
+  const filteredPayload = isFuture
+    ? payload
+    : payload.filter((p: any) => p.name !== 'Hochrechnung');
+  if (filteredPayload.length === 0) return null;
+  return (
+    <div style={{
+      backgroundColor: 'hsl(var(--popover))',
+      color: 'hsl(var(--popover-foreground))',
+      border: '1px solid hsl(var(--border))',
+      borderRadius: 'var(--radius)',
+      padding: '8px 12px',
+      fontSize: '12px',
+    }}>
+      <p style={{ marginBottom: 4, fontWeight: 600 }}>
+        Datum: {label ? new Date(label).toLocaleDateString() : '—'}
+      </p>
+      {filteredPayload.map((p: any, idx: number) => (
+        <p key={idx} style={{ color: p.color, margin: 0 }}>
+          {p.name}: {typeof p.value === 'number' ? `${p.value} ${unit}` : p.value}
+        </p>
+      ))}
+    </div>
+  );
+};
+
 const COLORS = [
   '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6',
   '#ec4899', '#14b8a6', '#f97316',
@@ -339,11 +367,86 @@ const YearDetail: React.FC = () => {
           const unit = item.unit;
           const chartColor = COLORS[meterIdx % COLORS.length];
 
-          const chartData = section.readings.map((r) => ({
+          const formatConsumption = (value: string | null): string => {
+            if (value === null) return '—';
+            const num = parseFloat(value);
+            return unit === 'kWh' ? `${Math.round(num)} ${unit}` : `${num.toFixed(1)} ${unit}`;
+          };
+
+          const formatReadingValue = (value: string): string =>
+            unit === 'kWh' ? Math.round(parseFloat(value)).toString() : value;
+
+          const startOfYear = new Date(year, 0, 1).getTime();
+          const startOfNextYear = new Date(year + 1, 0, 1).getTime();
+
+const chartData = section.readings.map((r) => ({
             date: new Date(r.reading_date).toLocaleDateString(),
+            timestamp: new Date(r.reading_date).getTime(),
             value: parseFloat(r.value),
             note: r.note,
           }));
+
+          const roundValue = (v: number): number =>
+            unit.includes('m³') ? Math.round(v * 100) / 100 : Math.round(v);
+
+          const lastPoint = chartData.length > 0 ? chartData[chartData.length - 1] : null;
+          const rawProjectionValue = section.projection?.projected_meter_reading_end_of_year;
+          const projectionData = rawProjectionValue
+            ? [
+                lastPoint
+                  ? { timestamp: lastPoint.timestamp, value: lastPoint.value }
+                  : { timestamp: startOfYear, value: 0 },
+                { timestamp: startOfNextYear, value: roundValue(parseFloat(rawProjectionValue)) },
+              ]
+            : [];
+
+          const showProjection = projectionData.length > 0
+            && section.projection
+            && section.projection.basis !== 'actual_full_year'
+            && section.projection.basis !== 'insufficient_data';
+
+          const combinedData: Array<{
+            timestamp: number;
+            date: string;
+            value: number | undefined;
+            note: string | null;
+            projectedValue: number | undefined;
+            isProjectionEnd: boolean;
+          }> = (() => {
+            const data = chartData.map(d => ({ ...d, projectedValue: undefined as number | undefined, isProjectionEnd: false }));
+            if (showProjection && projectionData.length >= 2) {
+              if (data.length > 0) {
+                data[data.length - 1].projectedValue = data[data.length - 1].value;
+              } else {
+                data.push({
+                  timestamp: startOfYear,
+                  date: '',
+                  value: 0,
+                  note: null,
+                  projectedValue: 0,
+                  isProjectionEnd: false,
+                });
+              }
+              data.push({
+                timestamp: startOfNextYear,
+                date: '',
+                value: undefined as any,
+                note: null,
+                projectedValue: projectionData[1].value,
+                isProjectionEnd: true,
+              });
+              data.sort((a, b) => a.timestamp - b.timestamp);
+            }
+            return data;
+          })();
+
+          const yValues = [
+            ...chartData.map(d => d.value),
+            ...(showProjection ? projectionData.map(d => d.value) : []),
+          ];
+          const yMin = yValues.length > 0 ? Math.min(...yValues) : 0;
+          const yMax = yValues.length > 0 ? Math.max(...yValues) : 1;
+          const yPadding = (yMax - yMin) * 0.1 || 1;
 
           const yearEntry = item.years.find((y) => y.year === year);
           const isExportOrProduction =
@@ -371,7 +474,7 @@ const YearDetail: React.FC = () => {
                     <p className="text-xs text-muted-foreground">Verbrauch {year}</p>
                     <p className="text-sm font-semibold">
                       {yearEntry.consumption != null
-                        ? `${parseFloat(yearEntry.consumption).toFixed(1)} ${unit}`
+                        ? formatConsumption(yearEntry.consumption)
                         : '—'}
                     </p>
                   </div>
@@ -397,17 +500,30 @@ const YearDetail: React.FC = () => {
 
               <div>
                 <h5 className="text-xs font-semibold text-muted-foreground mb-1">Verbrauchsverlauf {year}</h5>
-                <div className="h-32">
-                  {chartData.length > 0 ? (
+                <div className="h-48">
+                  {combinedData.length > 0 ? (
                     <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={chartData}>
+                      <LineChart data={combinedData}>
                         <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="date" tick={{ fontSize: 10 }} />
-                        <YAxis label={{ value: unit, angle: -90, position: 'insideLeft' }} tick={{ fontSize: 10 }} />
-                        <Tooltip
-                          formatter={(value) => [`${value} ${unit}`, 'Zählerstand']}
-                          labelFormatter={(label) => `Datum: ${label}`}
+                        <XAxis
+                          type="number"
+                          dataKey="timestamp"
+                          domain={[startOfYear, startOfNextYear]}
+                          tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+                          tickFormatter={(ts: number) => {
+                            const d = new Date(ts);
+                            return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.`;
+                          }}
+                          stroke="hsl(var(--muted-foreground))"
                         />
+                        <YAxis
+                          domain={[yMin - yPadding, yMax + yPadding]}
+                          label={{ value: unit, angle: -90, position: 'insideLeft', fill: 'hsl(var(--muted-foreground))' }}
+                          tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+                          tickFormatter={(v: number) => Math.round(v).toString()}
+                          stroke="hsl(var(--muted-foreground))"
+                        />
+                        <Tooltip content={<ChartTooltip unit={unit} />} />
                         <Line
                           type="monotone"
                           dataKey="value"
@@ -415,7 +531,24 @@ const YearDetail: React.FC = () => {
                           strokeWidth={1.5}
                           dot={{ r: 2 }}
                           activeDot={{ r: 4 }}
+                          name="Zählerstand"
                         />
+                        {showProjection && (
+                          <Line
+                            type="monotone"
+                            dataKey="projectedValue"
+                            stroke={chartColor}
+                            strokeWidth={1.5}
+                            strokeDasharray="5 5"
+                            dot={(props: any) =>
+                              props.payload.isProjectionEnd
+                                ? <circle cx={props.cx} cy={props.cy} r={3} fill={chartColor} />
+                                : <></>
+                            }
+                            activeDot={false}
+                            name="Hochrechnung"
+                          />
+                        )}
                       </LineChart>
                     </ResponsiveContainer>
                   ) : (
@@ -442,7 +575,7 @@ const YearDetail: React.FC = () => {
                         {section.readings.map((r) => (
                           <TableRow key={r.id}>
                             <TableCell className="text-xs py-1">{new Date(r.reading_date).toLocaleDateString()}</TableCell>
-                            <TableCell className="text-xs py-1">{r.value}</TableCell>
+                            <TableCell className="text-xs py-1">{formatReadingValue(r.value)}</TableCell>
                             <TableCell className="text-xs py-1">{r.note || '—'}</TableCell>
                           </TableRow>
                         ))}
@@ -474,7 +607,7 @@ const YearDetail: React.FC = () => {
                         <p className="text-[10px] text-muted-foreground">{isWater ? 'Frischwasser-' : ''}Verbrauch (tats.)</p>
                         <p className="text-xs font-semibold">
                           {section.projection.actual_consumption_to_date != null
-                            ? `${parseFloat(section.projection.actual_consumption_to_date).toFixed(1)} ${unit}`
+                            ? formatConsumption(section.projection.actual_consumption_to_date)
                             : '—'}
                         </p>
                       </div>
@@ -482,7 +615,7 @@ const YearDetail: React.FC = () => {
                         <p className="text-[10px] text-muted-foreground">{isWater ? 'Frischwasser-' : ''}Verbrauch (prog.)</p>
                         <p className="text-xs font-semibold">
                           {section.projection.projected_annual_consumption != null
-                            ? `${parseFloat(section.projection.projected_annual_consumption).toFixed(1)} ${unit}`
+                            ? formatConsumption(section.projection.projected_annual_consumption)
                             : '—'}
                         </p>
                       </div>
@@ -543,17 +676,17 @@ const YearDetail: React.FC = () => {
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                         <div className="bg-muted rounded p-2">
                           <p className="text-[10px] text-muted-foreground">Erzeugung (P)</p>
-                          <p className="text-sm font-semibold">{parseFloat(eegData.production_consumption).toFixed(1)} kWh</p>
+                          <p className="text-sm font-semibold">{parseFloat(eegData.production_consumption).toFixed(0)} kWh</p>
                         </div>
                         <div className="bg-muted rounded p-2">
                           <p className="text-[10px] text-muted-foreground">Einspeisung (E)</p>
-                          <p className="text-sm font-semibold">{parseFloat(eegData.export_consumption).toFixed(1)} kWh</p>
+                          <p className="text-sm font-semibold">{parseFloat(eegData.export_consumption).toFixed(0)} kWh</p>
                         </div>
                         <div className="bg-muted rounded p-2">
                           <p className="text-[10px] text-muted-foreground">Eigenverbrauch</p>
-                          <p className="text-sm font-semibold">{parseFloat(eegData.self_consumption).toFixed(1)} kWh</p>
+                          <p className="text-sm font-semibold">{parseFloat(eegData.self_consumption).toFixed(0)} kWh</p>
                           <p className="text-[10px] text-muted-foreground mt-0.5">
-                            Tier 1: {parseFloat(eegData.tier1_kwh).toFixed(1)} &bull; Tier 2: {parseFloat(eegData.tier2_kwh).toFixed(1)} kWh
+                            Tier 1: {parseFloat(eegData.tier1_kwh).toFixed(1)} &bull; Tier 2: {parseFloat(eegData.tier2_kwh).toFixed(0)} kWh
                           </p>
                         </div>
                         <div className="bg-muted rounded p-2">

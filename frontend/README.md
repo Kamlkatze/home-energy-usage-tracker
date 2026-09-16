@@ -33,6 +33,13 @@
 | `/years-overview` | `pages/YearsOverview.tsx` | Year-over-year consumption table + line chart for all logical meters (chain-resolved via backend). Years link to `/years/:year`. |
 | `/years/:year` | `pages/YearDetail.tsx` | Year detail page grouped by category (Strom, Wasser, Sonstige). Each meter shows: consumption overview (with chain-resolved readings), line chart, readings table, cost projection per meter. **Strom category** includes EEG-Einspeisevergütung card (from `GET /api/electricity/feed-in-compensation`) and hides consumption cost display for export/production meters. **Wasser category** includes Abwasserkosten (from `GET /api/costs/wastewater/`) and Gesamtwasserkosten (Frischwasser + Abwasser). Meter "Kosten" labels renamed to "Frischwasserkosten" for water meters. |
 
+**YearDetail chart implementation notes:**
+- **Projection line via `combinedData`:** The dashed projection line does NOT use a separate `<Line data={projectionData}>` – Recharts only creates tooltip hit targets at points in the primary `data` array of `<LineChart>`. Instead, all points (readings + projection) are merged into a single `combinedData` array. The main Line uses `dataKey="value"`, the projection Line uses `dataKey="projectedValue"`. The end-of-year projection point carries `value: undefined` (invisible to the main line) and `isProjectionEnd: true` (drives the final dot).
+- **Custom tooltip `ChartTooltip`** (module level, defined outside the render function so Recharts keeps its tooltip state): dark-mode compatible via `hsl(var(--popover))` / `hsl(var(--popover-foreground))`. "Hochrechnung" entries are only rendered when the hovered point lies in the future (`label > Date.now()`); for past/current points only "Zählerstand" appears.
+- **Dark-mode axes:** XAxis/YAxis use explicit `stroke="hsl(var(--muted-foreground))"` and `tick={{ fill: 'hsl(var(--muted-foreground))' }}`. YAxis tick values are rounded to whole numbers via `tickFormatter`.
+- **Y-domain:** computed from both `chartData` and `projectionData` (`yMin`/`yMax` with 10 % padding) so early low readings are not cut off by the projected end-of-year value.
+- **Unit-aware formatting:** kWh displays as integers (`Math.round`), m³ with one decimal (`toFixed(1)`). Applied via `formatConsumption(value, unit)` (consumption/projection cards) and `formatReadingValue(value, unit)` (readings table). EEG kWh values are hardcoded to `toFixed(0)`. Same kWh/m³ rule in `YearsOverview.tsx` inline.
+
 ## 3. Existing Components
 
 ### Reusable UI primitives (`components/ui/`)

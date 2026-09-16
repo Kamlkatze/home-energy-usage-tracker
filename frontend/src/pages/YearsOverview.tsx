@@ -131,7 +131,7 @@ const YearsOverview: React.FC = () => {
                     return (
                       <TableCell key={item.meter_id}>
                         {val != null
-                          ? `${parseFloat(val).toFixed(1)} ${item.unit}`
+                          ? `${item.unit === 'kWh' ? Math.round(parseFloat(val)) : parseFloat(val).toFixed(1)} ${item.unit}`
                           : '—'}
                       </TableCell>
                     );
