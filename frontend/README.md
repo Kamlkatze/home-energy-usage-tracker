@@ -24,7 +24,7 @@
 | Route | File | Description |
 |---|---|---|
 | `/` | `pages/Home.tsx` | Landing page with description cards (electricity, gas, water) and nav links. Static content only – no live data or summary queries. |
-| `/meters` | `components/MeterList.tsx` | Lists all meters in a card grid. Shows label, type, unit, predecessor/successor chain. Supports **delete** (with confirmation). "Add New Meter" link. |
+| `/meters` | `components/MeterList.tsx` | Lists all meters in a card grid. Shows label, type, unit, predecessor/successor chain. Supports **edit** (inline modal) and **delete** (Dialog with confirmation). "Neuer Zähler" link. German UI. |
 | `/meters/new` | `pages/MeterForm.tsx` | Create meter form: label, meter number (optional), type (select from server‑fetched types), predecessor (optional, same‑type only). Unit is read-only (server-derived). Submits to `POST /api/meters/`. |
 | `/meters/:id` | `pages/MeterDetail.tsx` | Single meter detail: line chart of readings (recharts), meter info panel (type, unit, number, created date, total count), recent readings table (last 5, newest first). Fetches `GET /api/meters/:id` + `GET /api/meters/:id/readings`. |
 | `/readings/new` | `pages/AddReading.tsx` | Multi-meter reading entry form: single date for all meters, per-meter checkbox + value + optional note + last-reading reference. Shows only current (non-replaced) meters via `GET /api/meters/current`. Checkbox selection persisted in localStorage. Submits `POST /api/readings/` per selected meter with value. Shows success/partial-failure results with ✅/❌ per meter. |
@@ -52,6 +52,7 @@ All follow the shadcn/ui pattern (Tailwind + `cn()` helper, forwardRef, displayN
 | Component | File | Notes |
 |---|---|---|
 | `MeterList` | `MeterList.tsx` | **Functions as a page** (used as `<Route>` element), not as an embeddable component. |
+| `EditMeterModal` | `EditMeterModal.tsx` | Dialog for editing a meter: name, number, predecessor dropdown. Meter type and unit are read-only. |
 
 ### Hooks
 | Hook | File | Notes |
@@ -77,7 +78,7 @@ Defines: `MeterType`, `TariffKind`, `MeterTypeInfo`, `Meter`, `Reading`, `Tariff
 
 | Object | Endpoints | Used in |
 |---|---|---|
-| `metersApi` | `GET /types`, `GET /`, `GET /current`, `GET /:id`, `POST /`, `PUT /:id`, `DELETE /:id`, `GET /:id/readings` | `useMeterTypes`, `MeterList`, `MeterDetail`, `MeterForm`, `AddReading` (uses `getCurrent` + `getLastReading`), `TariffForm`, `YearDetail` (chain resolution + readings fetch) |
+| `metersApi` | `GET /types`, `GET /`, `GET /current`, `GET /:id`, `POST /`, `PUT /:id`, `DELETE /:id`, `GET /:id/readings` | `useMeterTypes`, `MeterList`, `EditMeterModal`, `MeterDetail`, `MeterForm`, `AddReading` (uses `getCurrent` + `getLastReading`), `TariffForm`, `YearDetail` (chain resolution + readings fetch) |
 | `readingsApi` | `GET /`, `GET /:id`, `POST /`, `PUT /:id`, `DELETE /:id` | `AddReading` (only `POST`) |
 | `tariffsApi` | `GET /`, `GET /:id`, `POST /`, `PUT /:id`, `DELETE /:id` | `TariffForm` (POST), `TariffList` (GET, PUT, DELETE) |
 | `costsApi` | `GET /years-overview`, `GET /yearly-projection`, `GET /wastewater/` | `YearsOverview`, `YearDetail` (projections + wastewater) |
@@ -104,18 +105,17 @@ The following backend endpoints/features have **zero** frontend representation:
 | **Consumption timeseries** | No frontend endpoint consumer for aggregated timeseries data |
 | **Tariff list / edit / delete** | ✅ Implemented – see `/tariffs` route above |
 | **Reading list / edit / delete** | Only `POST /api/readings/` is used; no reading browse, edit, or delete |
-| **Meter edit** | `PUT /api/meters/` is defined in apiClient but no page uses it |
+| **Meter edit** | `PUT /api/meters/` via `EditMeterModal` in `MeterList` |
 
 ## 7. Known Issues / TODOs (unchanged)
 
-1. **Mixed language UI:** Several pages still use English labels.
+1. **Mixed language UI:** Several pages (e.g. Home, AddReading) still use English labels — meters pages are fully translated to German.
 2. **`select.tsx` dead code:** Unused `SelectTrigger`, `SelectContent`, `SelectValue` exports.
 3. **`date-fns` not used:** Installed but zero imports.
 4. **`healthApi` dead code:** Defined but never imported.
 5. **`MeterList` misplaced:** Lives in `components/` but used as route page.
 6. **`index.html` language:** `<html lang="en">` doesn't match German UI.
 7. **Vite dev proxy target issue:** Default `localhost:8000` won't work from inside frontend container.
-8. **No loading states on meter fetch in `MeterForm`.**
-9. **No reading list/edit/delete.**
-10. **No dark mode toggle.**
-11. **`dist/` directory** present in repository (build artefact).
+8. **No reading list/edit/delete.**
+9. **No dark mode toggle.**
+10. **`dist/` directory** present in repository (build artefact).

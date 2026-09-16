@@ -1,5 +1,6 @@
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import exists as sa_exists
 from sqlalchemy.orm import Session
 
 from .. import models, schemas
@@ -136,9 +137,23 @@ def update_meter(
         raise HTTPException(status_code=404, detail="Meter not found")
 
     update_data = meter_update.model_dump(exclude_unset=True)
+
     # The unit is derived from meter_type (never client-settable), so it must
     # be re-derived whenever the meter type changes in an update.
     if "meter_type" in update_data:
+        # Check if the meter_type is actually changing
+        if update_data["meter_type"] != db_meter.meter_type:
+            has_readings = db.query(
+                sa_exists().where(models.Reading.meter_id == meter_id)
+            ).scalar()
+            if has_readings:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "Der Zählertyp kann nicht geändert werden, da bereits "
+                        "Zählerstände für diesen Zähler erfasst wurden."
+                    ),
+                )
         update_data["unit"] = METER_TYPE_UNITS[update_data["meter_type"]]
 
     # Determine effective meter_type and replaces_meter_id after update

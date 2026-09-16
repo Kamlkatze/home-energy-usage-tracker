@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { Meter, MeterUpdateData } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 
@@ -30,12 +31,12 @@ export const metersApi = {
     return response.data;
   },
 
-  create: async (meterData: any) => {
+  create: async (meterData: any): Promise<Meter> => {
     const response = await apiClient.post('/api/meters/', meterData);
     return response.data;
   },
 
-  update: async (id: number, meterData: any) => {
+  update: async (id: number, meterData: MeterUpdateData): Promise<Meter> => {
     const response = await apiClient.put(`/api/meters/${id}`, meterData);
     return response.data;
   },

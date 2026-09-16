@@ -380,3 +380,74 @@ def test_read_current_meters_with_mixed_chain(client):
     ids = {m["id"] for m in data}
     assert ids == {standalone, new_chain}
     assert old_chain not in ids
+
+
+# ---------------------------------------------------------------------------
+# Meter type change validation tests (readings check)
+# ---------------------------------------------------------------------------
+
+def test_update_meter_type_without_readings_allowed(client):
+    """Changing meter_type is allowed when no readings exist."""
+    meter_id = _create_meter(client, "gas", "Gas Meter")
+
+    response = client.put(
+        f"/api/meters/{meter_id}",
+        json={"meter_type": "electricity_import"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["meter_type"] == "electricity_import"
+    assert data["unit"] == "kWh"
+
+
+def test_update_meter_type_with_readings_rejected(client):
+    """422 when changing meter_type on a meter that has readings."""
+    meter_id = _create_meter(client, "gas", "Gas Meter")
+    # Create a reading for this meter
+    client.post(
+        "/api/readings/",
+        json={"meter_id": meter_id, "value": "1000.000", "reading_date": "2024-01-15"},
+    )
+
+    response = client.put(
+        f"/api/meters/{meter_id}",
+        json={"meter_type": "electricity_import"},
+    )
+    assert response.status_code == 422
+    assert "Zählertyp kann nicht geändert werden" in response.json()["detail"]
+
+
+def test_update_meter_with_readings_other_fields_allowed(client):
+    """Updating label, meter_number, or replaces_meter_id with existing readings is allowed."""
+    # Create two meters of the same type
+    old_id = _create_meter(client, "gas", "Old Gas")
+    meter_id = _create_meter(client, "gas", "Gas Meter")
+    # Create a reading
+    client.post(
+        "/api/readings/",
+        json={"meter_id": meter_id, "value": "1000.000", "reading_date": "2024-01-15"},
+    )
+
+    # Update label
+    response = client.put(
+        f"/api/meters/{meter_id}",
+        json={"label": "Updated Label"},
+    )
+    assert response.status_code == 200
+    assert response.json()["label"] == "Updated Label"
+
+    # Update meter_number
+    response = client.put(
+        f"/api/meters/{meter_id}",
+        json={"meter_number": "NEW123"},
+    )
+    assert response.status_code == 200
+    assert response.json()["meter_number"] == "NEW123"
+
+    # Update replaces_meter_id
+    response = client.put(
+        f"/api/meters/{meter_id}",
+        json={"replaces_meter_id": old_id},
+    )
+    assert response.status_code == 200
+    assert response.json()["replaces_meter_id"] == old_id

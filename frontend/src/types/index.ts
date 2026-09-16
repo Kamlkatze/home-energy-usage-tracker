@@ -16,6 +16,13 @@ export interface MeterTypeInfo {
   unit: string;
 }
 
+export interface MeterUpdateData {
+  meter_type?: MeterType;
+  label?: string;
+  meter_number?: string | null;
+  replaces_meter_id?: number | null;
+}
+
 export interface Meter {
   id: number;
   meter_type: MeterType;

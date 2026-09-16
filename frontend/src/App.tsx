@@ -30,16 +30,16 @@ const App: React.FC = () => {
                     Home
                   </Button>
                 </Link>
-                <Link to="/meters">
+                <Link to="/years-overview">
                   <Button variant="ghost" size="sm" className="gap-2">
-                    <Settings className="h-4 w-4" />
-                    Meters
+                    <CalendarDays className="h-4 w-4" />
+                    Jahresübersicht
                   </Button>
                 </Link>
                 <Link to="/readings/new">
                   <Button variant="ghost" size="sm" className="gap-2">
                     <FileText className="h-4 w-4" />
-                    Zählerstände eingeben
+                    Zählerstände
                   </Button>
                 </Link>
                 <Link to="/tariffs">
@@ -48,10 +48,10 @@ const App: React.FC = () => {
                     Tarife
                   </Button>
                 </Link>
-                <Link to="/years-overview">
+                <Link to="/meters">
                   <Button variant="ghost" size="sm" className="gap-2">
-                    <CalendarDays className="h-4 w-4" />
-                    Jahresübersicht
+                    <Settings className="h-4 w-4" />
+                    Zähler
                   </Button>
                 </Link>
               </nav>

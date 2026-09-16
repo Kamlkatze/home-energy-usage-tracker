@@ -243,7 +243,7 @@ For troubleshooting and advanced shutdown options, see the complete documentatio
 - `GET /api/meters/` - List all meters
 - `POST /api/meters/` - Create a new meter (optional field: `replaces_meter_id` — must reference an existing meter of the same type, self-references return **422**)
 - `GET /api/meters/{id}` - Get meter details
-- `PUT /api/meters/{id}` - Update meter (same validation for `replaces_meter_id` applies)
+- `PUT /api/meters/{id}` - Update meter (same validation for `replaces_meter_id` applies; changing `meter_type` is rejected with **422** when readings exist for this meter)
 - `DELETE /api/meters/{id}` - Delete meter
 - `GET /api/meters/{id}/readings` - Get readings for a meter
 
@@ -615,6 +615,7 @@ The 30 % threshold is a fixed statutory value from EEG 2009 § 33 Abs. 2, not co
 - `replaces_meter_id` must reference an existing meter of the **same** `meter_type` (422 otherwise)
 - A meter cannot reference itself (422)
 - No hard DB constraint prevents multiple successors (application logic only)
+- **Changing `meter_type` via PUT is rejected (422) if readings exist for this meter**
 
 ### Reading
 - `id` (integer, primary key)
@@ -735,7 +736,7 @@ home-energy-usage-tracker/
 ├── frontend/
 │   ├── src/
 │   │   ├── api/                      # API client
-│   │   ├── components/               # React components
+│   │   ├── components/               # React components (MeterList, EditMeterModal)
 │   │   ├── components/ui/            # shadcn/ui components
 │   │   ├── pages/                    # Page components
 │   │   ├── types/                    # TypeScript interfaces
