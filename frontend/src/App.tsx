@@ -8,6 +8,8 @@ import MeterForm from './pages/MeterForm';
 import AddReading from './pages/AddReading';
 import TariffForm from './pages/TariffForm';
 import TariffList from './pages/TariffList';
+import AdvancePaymentList from './pages/AdvancePaymentList';
+import AdvancePaymentForm from './pages/AdvancePaymentForm';
 import YearsOverview from './pages/YearsOverview';
 import YearDetail from './pages/YearDetail';
 import { Home, BarChart2, FileText, Settings, Euro, CalendarDays } from 'lucide-react';
@@ -49,6 +51,12 @@ const App: React.FC = () => {
                     Tarife
                   </Button>
                 </Link>
+                <Link to="/advance-payments">
+                  <Button variant="ghost" size="sm" className="gap-2">
+                    <Euro className="h-4 w-4" />
+                    Abschläge
+                  </Button>
+                </Link>
                 <Link to="/meters">
                   <Button variant="ghost" size="sm" className="gap-2">
                     <Settings className="h-4 w-4" />
@@ -70,6 +78,8 @@ const App: React.FC = () => {
             <Route path="/readings/new" element={<AddReading />} />
             <Route path="/tariffs" element={<TariffList />} />
             <Route path="/tariffs/new" element={<TariffForm />} />
+            <Route path="/advance-payments" element={<AdvancePaymentList />} />
+            <Route path="/advance-payments/new" element={<AdvancePaymentForm />} />
             <Route path="/years-overview" element={<YearsOverview />} />
             <Route path="/years/:year" element={<YearDetail />} />
           </Routes>

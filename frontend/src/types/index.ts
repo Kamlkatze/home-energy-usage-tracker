@@ -111,6 +111,20 @@ export interface FeedInCompensation {
   total_compensation: string;
 }
 
+export type AdvancePaymentCategory = 'gas' | 'cold_water' | 'wastewater' | 'power_import';
+
+export interface AdvancePayment {
+  id: number;
+  category: AdvancePaymentCategory;
+  meter_id: number | null;
+  water_cold_meter_id: number | null;
+  water_garden_meter_id: number | null;
+  valid_from: string;
+  valid_to: string | null;
+  monthly_amount: string;
+  created_at: string;
+}
+
 export interface WastewaterCosts {
   water_cold_meter_id: number;
   water_garden_meter_id: number | null;
