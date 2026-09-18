@@ -24,7 +24,8 @@
 2. Run lint/typecheck on the relevant files (models for mypy, whole backend for ruff)
 3. `docker compose up -d --build` for full prod stack after changes that affect images
 4. For model changes only (app/ is mounted in prod), `docker compose restart backend` is sufficient
-5. Do not modify files outside the scope of the current task, except for infrastructure/config files (AGENTS.md, README) when updating documentation
+5. After any model change (`app/models/`), regenerate the ERD: `cd backend && uv sync --extra dev && uv run python ../scripts/generate_erd.py --readme ../README.md --update-readme` – commit the updated `README.md`, `backend/docs/er-diagram.png` and `backend/docs/er-diagram.md` alongside the model change
+6. Do not modify files outside the scope of the current task, except for infrastructure/config files (AGENTS.md, README) when updating documentation
 
 ## Key project structure differences from earlier assumptions
 - No `app/domain/` directory – domain logic is in `app/models/` (ORM) and `app/schemas/` (Pydantic)
