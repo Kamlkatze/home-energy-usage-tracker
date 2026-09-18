@@ -8,7 +8,7 @@ A simple, local application for tracking electricity, gas, and water consumption
 - **Record readings**: Simple form to add meter readings with dates and optional notes
 - **Visualize consumption**: Line charts showing usage trends over time
 - **Tariff management**: Track price per unit and base fees for different periods
-- **Advance payment management**: Track monthly Abschläge per meter with time-range validity and overlap protection
+- **Advance payment management**: Track monthly Abschläge per meter with category (gas, cold water, wastewater, power import), time-range validity and overlap protection
 - **Meter replacement chain**: When a physical meter is swapped, link the new meter to its predecessor via `replaces_meter_id`. Cost calculations automatically follow the chain, summing each meter's contribution — no negative consumption from a counter reset on the new device
 - **Advance payment comparison**: Compare paid/planned monthly Abschläge against the estimated or actual annual cost to see whether you'll receive a refund (Guthaben) or owe a Nachzahlung
 - **Local deployment**: All data stays on your machine, no cloud services
@@ -301,19 +301,41 @@ Note: Previously separate `base_fee` and `metering_fee` tariff kinds have been m
 ```
 
 ### Advance Payments
-- `GET /api/advance-payments/` - List all advance payments (optional query parameter: `meter_id`)
+- `GET /api/advance-payments/` - List all advance payments (optional query parameters: `meter_id`, `category`)
 - `POST /api/advance-payments/` - Create a new advance payment
 - `GET /api/advance-payments/{id}` - Get advance payment details
 - `PUT /api/advance-payments/{id}` - Update advance payment
 - `DELETE /api/advance-payments/{id}` - Delete advance payment
 
-#### Example POST /api/advance-payments/ request:
+Each advance payment carries a `category` (`gas`, `cold_water`, `wastewater`, `power_import`) that determines which meter reference is used:
+- **Non-wastewater categories** (`gas`, `cold_water`, `power_import`): reference the meter via `meter_id`. `water_cold_meter_id` and `water_garden_meter_id` must be null (422 otherwise).
+- **`wastewater`**: `meter_id` must be null, `water_cold_meter_id` is required. `water_garden_meter_id` is optional — when omitted, the entire cold-water consumption counts as wastewater.
+
+**DB constraints:**
+- `ck_advance_payment_wastewater`: `NOT (category = 'wastewater') OR (meter_id IS NULL AND water_cold_meter_id IS NOT NULL)`
+- `ck_advance_payment_non_wastewater`: `(category = 'wastewater') OR (meter_id IS NOT NULL AND water_cold_meter_id IS NULL AND water_garden_meter_id IS NULL)`
+- Overlap prevention via partial EXCLUDE constraints: non-wastewater periods must not overlap for the same `(meter_id, category)`; wastewater periods must not overlap for the same `water_cold_meter_id`
+
+#### Example POST /api/advance-payments/ request (non-wastewater):
 ```json
 {
+  "category": "power_import",
   "meter_id": 1,
   "valid_from": "2024-01-01",
   "valid_to": "2024-12-31",
   "monthly_amount": "120.00"
+}
+```
+
+#### Example POST /api/advance-payments/ request (wastewater):
+```json
+{
+  "category": "wastewater",
+  "water_cold_meter_id": 2,
+  "water_garden_meter_id": 3,
+  "valid_from": "2024-01-01",
+  "valid_to": "2024-12-31",
+  "monthly_amount": "85.00"
 }
 ```
 
@@ -322,7 +344,10 @@ Note: Previously separate `base_fee` and `metering_fee` tariff kinds have been m
 [
   {
     "id": 1,
+    "category": "power_import",
     "meter_id": 1,
+    "water_cold_meter_id": null,
+    "water_garden_meter_id": null,
     "valid_from": "2024-01-01",
     "valid_to": "2024-12-31",
     "monthly_amount": "120.00",
@@ -330,8 +355,6 @@ Note: Previously separate `base_fee` and `metering_fee` tariff kinds have been m
   }
 ]
 ```
-
-**Constraint:** Overlapping advance payment periods for the same meter are rejected (EXCLUDE USING gist with daterange).
 
 ### Costs
 - `GET /api/costs/?meter_id={id}&from={date}&to={date}` - Calculate the consumption cost for one meter between two dates (query parameters: `meter_id`, `from`, `to`). Returns **404** when no reading or no covering tariff period is found, **422** when `from > to` or the computed consumption is negative.
@@ -565,6 +588,12 @@ The 30 % threshold is a fixed statutory value from EEG 2009 § 33 Abs. 2, not co
 ### Advance Payment Diff (Cost vs. Abschläge)
 - `GET /api/costs/advance-payment-diff?meter_id={id}&year={year}&as_of_date={date}` - Calculate the difference between paid/planned advance payments and the estimated or actual annual cost for a meter and year. `as_of_date` is optional (defaults to server date). Returns **200** even with no advance payments or no tariff, **404** if meter not found, **422** for invalid year (outside 2000-2100 range).
 
+**Wastewater mode:** Pass `water_cold_meter_id` (and optionally `water_garden_meter_id`) to compute the diff for the `wastewater` category instead of `meter_id`:
+- The annual cost is based on the wastewater consumption `max(0, cold_water_consumption - garden_water_consumption)` (same rules as the wastewater cost endpoint, including meter replacement chains) billed against a `wastewater` tariff attached to the **cold-water** meter
+- `total_advance_payments` sums `category=wastewater` advance payments that reference the cold-water meter via `water_cold_meter_id`
+- If `water_garden_meter_id` is omitted, `garden_consumption = 0` and the entire cold-water consumption counts as wastewater (no subtraction)
+- `meter_id` in the response is the cold-water meter id
+
 **Calculation Logic:**
 1. **Annual cost** — Uses the same logic as `/api/costs/yearly-projection`:
    - Completed year: actual full-year cost from all tariffs covering the year (`cost_basis: "actual"`)
@@ -651,14 +680,20 @@ The 30 % threshold is a fixed statutory value from EEG 2009 § 33 Abs. 2, not co
 
 ### AdvancePayment
 - `id` (integer, primary key)
-- `meter_id` (foreign key to Meter, CASCADE delete)
+- `category` (enum: gas, cold_water, wastewater, power_import)
+- `meter_id` (foreign key to Meter, CASCADE delete, nullable — used for non-wastewater categories)
+- `water_cold_meter_id` (foreign key to Meter, CASCADE delete, nullable — required for wastewater category)
+- `water_garden_meter_id` (foreign key to Meter, CASCADE delete, nullable — optional for wastewater category)
 - `valid_from` (date)
 - `valid_to` (date, optional, null means "open-ended")
 - `monthly_amount` (numeric(10,2))
 - `created_at` (datetime)
-- **Constraint**: EXCLUDE USING gist (meter_id WITH =, daterange(valid_from, valid_to, '[]') WITH &&)
-  - Prevents overlapping advance payment periods for the same meter
-  - Both bounds inclusive
+- **CHECK constraints**:
+  - `ck_advance_payment_wastewater`: `NOT (category = 'wastewater') OR (meter_id IS NULL AND water_cold_meter_id IS NOT NULL)`
+  - `ck_advance_payment_non_wastewater`: `(category = 'wastewater') OR (meter_id IS NOT NULL AND water_cold_meter_id IS NULL AND water_garden_meter_id IS NULL)`
+- **Partial EXCLUDE constraints** (overlap prevention, both bounds inclusive):
+  - `excl_advance_payment_non_wastewater`: no overlapping periods for the same `(meter_id, category)`
+  - `excl_advance_payment_wastewater`: no overlapping periods for the same `water_cold_meter_id`
 
 ## Development Commands
 

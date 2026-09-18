@@ -70,7 +70,7 @@ uv run --extra dev pytest -v
 - Annual consumption projection
 - Yearly projection with cost
 - Years overview (logical meter resolution, chain-aware yearly consumption/cost across all years with readings)
-- Advance payment diff (cost vs. Abschläge comparison)
+- Advance payment diff (cost vs. Abschläge comparison), incl. wastewater diff with and without garden meter (full cold-water consumption when `water_garden_meter_id` is omitted)
 - EEG 2009 feed-in compensation calculation
 - Decimal serialization as strings
 - **Current meters** (`GET /api/meters/current`): empty DB, standalone meters, replacement chain filtering, mixed chain + standalone
@@ -186,13 +186,27 @@ Response (200):
 | Column | Type | Notes |
 |---|---|---|
 | `id` | integer PK | |
-| `meter_id` | integer FK → meters.id | CASCADE delete |
+| `category` | enum | `gas`, `cold_water`, `wastewater`, `power_import` |
+| `meter_id` | integer nullable FK → meters.id | CASCADE delete; used for non-wastewater categories |
+| `water_cold_meter_id` | integer nullable FK → meters.id | CASCADE delete; required for `wastewater` |
+| `water_garden_meter_id` | integer nullable FK → meters.id | CASCADE delete; optional for `wastewater` |
 | `valid_from` | date | inclusive lower bound |
 | `valid_to` | date nullable | inclusive upper bound; `null` = open-ended |
 | `monthly_amount` | numeric(10,2) | vereinbarter monatlicher Abschlag |
 | `created_at` | datetime | |
 
-**Constraint:** `EXCLUDE USING gist (meter_id WITH =, daterange(valid_from, valid_to, '[]') WITH &&)` — overlapping advance payment periods for the same meter are rejected. Both bounds inclusive.
+**Category rules** (validated in the Pydantic schema and enforced by CHECK constraints):
+- `wastewater`: `meter_id` must be null, `water_cold_meter_id` required, `water_garden_meter_id` optional (when null, the full cold-water consumption counts as wastewater)
+- Other categories (`gas`, `cold_water`, `power_import`): `meter_id` required, `water_cold_meter_id`/`water_garden_meter_id` must be null
+
+**Constraints:**
+- `ck_advance_payment_wastewater`: `NOT (category = 'wastewater') OR (meter_id IS NULL AND water_cold_meter_id IS NOT NULL)`
+- `ck_advance_payment_non_wastewater`: `(category = 'wastewater') OR (meter_id IS NOT NULL AND water_cold_meter_id IS NULL AND water_garden_meter_id IS NULL)`
+- Partial EXCLUDE constraints (both bounds inclusive) prevent overlapping periods:
+  - `excl_advance_payment_non_wastewater` (WHERE `category != 'wastewater'`): no overlap for the same `(meter_id, category)`
+  - `excl_advance_payment_wastewater` (WHERE `category = 'wastewater'`): no overlap for the same `water_cold_meter_id`
+
+> Note: `Meter.advance_payments` (relationship) explicitly sets `foreign_keys="AdvancePayment.meter_id"` and uses `cascade="all"` because `advance_payments` now has three FKs pointing to `meters.id`.
 
 ## Cost Calculation
 
@@ -224,6 +238,12 @@ Compares paid/planned monthly Abschläge against the estimated annual cost:
 1. **Annual cost** — same logic as `/api/costs/yearly-projection` (actual for completed years, projected for ongoing/future)
 2. **Total advance payments** — all `AdvancePayment` records overlapping the year, prorated by days (`monthly_amount × overlap_days / 30`, same 30-day-month convention as base fee)
 3. **Difference** — `total_advance_payments - estimated_or_actual_cost` (positive = Guthaben, negative = Nachzahlung)
+
+**Wastewater mode:** Passing `water_cold_meter_id` (and optionally `water_garden_meter_id`) switches to the wastewater diff:
+- The annual cost is computed from the wastewater consumption `max(0, cold − garden)` (`_compute_wastewater_consumption`, same boundary-reading rules and chain support as the wastewater cost endpoint) billed against a `wastewater` tariff on the cold-water meter
+- Advance payments are matched via `water_cold_meter_id` (only `category=wastewater` records)
+- Omitted `water_garden_meter_id` → `garden_consumption = 0`, the full cold-water consumption counts as wastewater (no subtraction)
+- `meter_id` in the response is the cold-water meter id
 
 Returns **200** with `total_advance_payments: null` when no advance payment exists. Returns **404** when meter not found, **422** for invalid year (outside 2000–2100).
 
@@ -275,3 +295,4 @@ All migrations live in `alembic/versions/`. IDs are 12-character MD5 hashes.
 | `12182ced0bb9` | Add replaces_meter_id to meters (self-referencing FK, ON DELETE SET NULL) |
 | `d7b063605e01` | Add advance_payments table (EXCLUDE USING gist for overlap prevention) |
 | `b65e5e4f6fbc` | Add `feed_in_eeg2009` to TariffKind enum; add eeg_tier1_rate, eeg_tier2_rate, metering_point_fee_yearly columns |
+| `60757ca5eeef` | Add category to advance payments (AdvancePaymentCategory enum, water_cold_meter_id/water_garden_meter_id columns, CHECK + partial EXCLUDE constraints) |
