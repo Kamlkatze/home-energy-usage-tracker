@@ -1,4 +1,9 @@
-from .advance_payment import AdvancePayment, AdvancePaymentCreate, AdvancePaymentUpdate
+from .advance_payment import (
+    AdvancePayment,
+    AdvancePaymentCategory,
+    AdvancePaymentCreate,
+    AdvancePaymentUpdate,
+)
 from .cost import (
     AdvancePaymentDiffResponse,
     CostCalculationResponse,
@@ -20,6 +25,7 @@ from .yearly_projection_cost import YearlyProjectionWithCostResponse
 
 __all__ = [
     "AdvancePayment",
+    "AdvancePaymentCategory",
     "AdvancePaymentCreate",
     "AdvancePaymentDiffResponse",
     "AdvancePaymentUpdate",

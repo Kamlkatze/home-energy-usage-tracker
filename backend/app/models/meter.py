@@ -69,7 +69,7 @@ class Meter(Base, TimestampMixin):
         back_populates="meter", cascade="all, delete-orphan"
     )
     advance_payments: Mapped[list["AdvancePayment"]] = relationship(
-        back_populates="meter", cascade="all, delete-orphan"
+        back_populates="meter", foreign_keys="AdvancePayment.meter_id", cascade="all"
     )
     # ORM relationship to the predecessor meter (many-to-one, nullable).
     replaces_meter: Mapped["Meter | None"] = relationship(

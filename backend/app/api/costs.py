@@ -1001,14 +1001,21 @@ def _compute_total_advance_payments(
     db: Session, meter_id: int, year: int
 ) -> tuple[Decimal, bool]:
     """Sum the advance payments for a meter overlapping a year, prorated by days.
+    Uses meter_id for non-wastewater categories.
+    """
+    return _compute_total_advance_payments_by_column(
+        db, models.AdvancePayment.meter_id, meter_id, year
+    )
 
-    Each advance payment period contributes `monthly_amount * overlap_days / 30`
-    (fixed 30-day month, same proration convention as base_fee_monthly).
-    Periods use inclusive bounds on both ends ([valid_from, valid_to] with
-    NULL valid_to = open-ended). The year spans [Jan 1, Dec 31] inclusive.
 
-    Returns (total, found) where found is False when no payment overlaps
-    the year (total is then Decimal(0)).
+def _compute_total_advance_payments_by_column(
+    db: Session,
+    column,
+    value: int,
+    year: int,
+) -> tuple[Decimal, bool]:
+    """Generic advance payment sum prorated by days, filtering by an arbitrary
+    FK column (meter_id or water_cold_meter_id).
     """
     year_start = date(year, 1, 1)
     year_end = date(year, 12, 31)
@@ -1016,7 +1023,7 @@ def _compute_total_advance_payments(
     payments = (
         db.query(models.AdvancePayment)
         .filter(
-            models.AdvancePayment.meter_id == meter_id,
+            column == value,
             models.AdvancePayment.valid_from <= year_end,
             or_(
                 models.AdvancePayment.valid_to.is_(None),
@@ -1032,8 +1039,6 @@ def _compute_total_advance_payments(
 
     total_raw = Decimal(0)
     for payment in payments:
-        # Overlap between [year_start, year_end] and [valid_from, valid_to];
-        # both bounds inclusive, so the last day is counted.
         overlap_start = max(year_start, payment.valid_from)
         overlap_end = year_end
         if payment.valid_to is not None:
@@ -1169,6 +1174,142 @@ def _compute_yearly_cost_for_diff(
         return total_cost, "projected", None
 
 
+def _get_boundary_readings_for_wastewater(
+    db: Session, meter_id: int, from_: date, to: date
+) -> tuple[models.Reading, models.Reading]:
+    """Return (start, end) readings for consumption over [from_, to].
+
+    Start: reading with the largest reading_date <= from_ (reading just before
+    or on the start date). End: reading with the largest reading_date <= to.
+    Raises 404 if no readings are found.
+    """
+    start_reading = (
+        db.query(models.Reading)
+        .filter(
+            models.Reading.meter_id == meter_id,
+            models.Reading.reading_date <= from_,
+        )
+        .order_by(models.Reading.reading_date.desc())
+        .first()
+    )
+    end_reading = (
+        db.query(models.Reading)
+        .filter(
+            models.Reading.meter_id == meter_id,
+            models.Reading.reading_date <= to,
+        )
+        .order_by(models.Reading.reading_date.desc())
+        .first()
+    )
+    if start_reading is None or end_reading is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Kein Zählerstand für die Verbrauchsberechnung gefunden.",
+        )
+    return start_reading, end_reading
+
+
+def _compute_wastewater_consumption(
+    db: Session,
+    water_cold_meter_id: int,
+    water_garden_meter_id: int | None,
+    from_: date,
+    to: date,
+) -> Decimal:
+    """Compute wastewater consumption = cold_water_consumption - garden_water_consumption.
+
+    garden_water_consumption is 0 if water_garden_meter_id is None.
+    The result is floored at 0.
+    """
+    cold_chain = get_meter_chain(db, water_cold_meter_id)
+    if len(cold_chain) == 1:
+        start_reading, end_reading = _get_boundary_readings_for_wastewater(
+            db, water_cold_meter_id, from_, to
+        )
+        cold_consumption = end_reading.value - start_reading.value
+        _raise_if_negative(cold_consumption)
+    else:
+        cold_consumption, _cold_segments = _get_chain_consumption(db, cold_chain, from_, to)
+
+    garden_consumption = Decimal(0)
+    if water_garden_meter_id is not None:
+        garden_chain = get_meter_chain(db, water_garden_meter_id)
+        if len(garden_chain) == 1:
+            garden_start, garden_end = _get_boundary_readings_for_wastewater(
+                db, water_garden_meter_id, from_, to
+            )
+            garden_consumption = garden_end.value - garden_start.value
+        else:
+            garden_consumption, _ = _get_chain_consumption(db, garden_chain, from_, to)
+
+    return max(Decimal(0), cold_consumption - garden_consumption)
+
+
+def _compute_yearly_wastewater_cost_for_diff(
+    db: Session,
+    water_cold_meter_id: int,
+    year: int,
+    as_of_date: date,
+    chain: list[models.Meter],
+    water_garden_meter_id: int | None = None,
+) -> tuple[Decimal | None, Literal["actual", "projected"] | None, str | None]:
+    """Compute the annual wastewater cost for the advance-payment diff.
+
+    Uses _compute_wastewater_consumption to get the net wastewater volume,
+    then applies the WASTEWATER tariff.
+    """
+    try:
+        ProjectionService.validate_year(year)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    year_start = date(year, 1, 1)
+    year_end = date(year, 12, 31)
+
+    try:
+        wastewater_consumption = _compute_wastewater_consumption(
+            db, water_cold_meter_id, water_garden_meter_id, year_start, year_end
+        )
+    except HTTPException:
+        return None, None, "Kein Zählerstand für die Schmutzwasserberechnung gefunden."
+
+    year_status = ProjectionService.analyze_year_status(year, as_of_date)
+
+    try:
+        if year_status == "completed":
+            tariffs = _get_overlapping_tariffs(
+                db, water_cold_meter_id, models.TariffKind.WASTEWATER, year_start, year_end
+            )
+            _base_fee, total_cost, _price = _compute_cost_fields_multiperiod(
+                wastewater_consumption, tariffs, year_start, year_end
+            )
+            return total_cost, "actual", None
+        else:
+            active_tariff = _get_active_tariff_for_date(
+                db=db,
+                meter_id=water_cold_meter_id,
+                tariff_kind=models.TariffKind.WASTEWATER,
+                target_date=as_of_date,
+            )
+            if active_tariff is None:
+                return None, None, "Kein aktiver Schmutzwassertarif für dieses Datum gefunden."
+
+            price_per_unit = active_tariff.price_per_unit
+            base_fee_monthly = (
+                active_tariff.base_fee_monthly
+                if active_tariff.base_fee_monthly is not None
+                else Decimal(0)
+            )
+            energy_cost = wastewater_consumption * price_per_unit
+            base_fee_annual_raw = base_fee_monthly * Decimal(12)
+            total_cost = (energy_cost + base_fee_annual_raw).quantize(
+                _CENT, rounding=ROUND_HALF_UP
+            )
+            return total_cost, "projected", None
+    except HTTPException as e:
+        return None, None, str(e.detail)
+
+
 @router.get("/advance-payment-diff", response_model=schemas.AdvancePaymentDiffResponse)
 def get_advance_payment_diff(
     meter_id: int = Query(...),
@@ -1181,10 +1322,29 @@ def get_advance_payment_diff(
             "('projected') bewertet wird."
         ),
     ),
+    water_cold_meter_id: int | None = Query(
+        None,
+        description=(
+            "Optional: für wastewater-Kategorie. Wenn gesetzt, wird die "
+            "Schmutzwasser-Diff berechnet."
+        ),
+    ),
+    water_garden_meter_id: int | None = Query(
+        None,
+        description=(
+            "Optional: für wastewater-Kategorie. Wenn gesetzt, wird "
+            "Gartenwasserverbrauch abgezogen."
+        ),
+    ),
     db: Session = Depends(get_database_session),
 ):
     """Calculate the difference between paid/planned advance payments and the
     estimated/actual annual cost for a meter and a year.
+
+    For non-wastewater categories: uses the meter_id directly.
+    For wastewater (water_cold_meter_id): computes the wastewater consumption
+    as cold_water_consumption - garden_water_consumption and uses the
+    wastewater tariff for cost calculation.
 
     difference = total_advance_payments - estimated_or_actual_cost
     (positive = surplus/Guthaben, negative = Nachzahlung).
@@ -1192,24 +1352,45 @@ def get_advance_payment_diff(
     if as_of_date is None:
         as_of_date = datetime.now(UTC).date()
 
-    # 404 when the meter does not exist; 422 for invalid years.
-    chain = get_meter_chain(db, meter_id)
+    is_wastewater = water_cold_meter_id is not None
 
-    # 1. Estimated/actual annual cost (same logic as yearly-projection).
+    if is_wastewater:
+        # Wastewater mode: 404/422 on the cold water meter
+        chain = get_meter_chain(db, water_cold_meter_id)
+        actual_meter_id = water_cold_meter_id
+    else:
+        chain = get_meter_chain(db, meter_id)
+        actual_meter_id = meter_id
+
+    # 1. Estimated/actual annual cost
     try:
-        estimated_or_actual_cost, cost_basis, cost_message = _compute_yearly_cost_for_diff(
-            db, meter_id, year, as_of_date, chain
-        )
+        if is_wastewater:
+            estimated_or_actual_cost, cost_basis, cost_message = (
+                _compute_yearly_wastewater_cost_for_diff(
+                    db, water_cold_meter_id, year, as_of_date, chain,
+                    water_garden_meter_id=water_garden_meter_id,
+                )
+            )
+        else:
+            estimated_or_actual_cost, cost_basis, cost_message = (
+                _compute_yearly_cost_for_diff(
+                    db, meter_id, year, as_of_date, chain
+                )
+            )
     except HTTPException as e:
         if e.status_code == 422 and "Jahr" not in str(e.detail):
-            # Meter-chain lookups never raise on the year; re-raise as is.
             raise
         raise
 
-    # 2. Total advance payments overlapping the year, prorated by days.
-    total_advance_payments, found = _compute_total_advance_payments(db, meter_id, year)
+    # 2. Total advance payments overlapping the year
+    if is_wastewater:
+        total_advance_payments, found = _compute_total_advance_payments_by_column(
+            db, models.AdvancePayment.water_cold_meter_id, water_cold_meter_id, year
+        )
+    else:
+        total_advance_payments, found = _compute_total_advance_payments(db, meter_id, year)
 
-    # 3. Difference.
+    # 3. Difference
     difference = None
     if estimated_or_actual_cost is not None and found:
         difference = (total_advance_payments - estimated_or_actual_cost).quantize(
@@ -1219,7 +1400,7 @@ def get_advance_payment_diff(
     message = _combine_messages(cost_message, None if found else "Kein Abschlag für dieses Jahr hinterlegt.")
 
     return schemas.AdvancePaymentDiffResponse(
-        meter_id=meter_id,
+        meter_id=actual_meter_id,
         year=year,
         estimated_or_actual_cost=(
             str(estimated_or_actual_cost) if estimated_or_actual_cost is not None else None

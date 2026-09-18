@@ -12,11 +12,14 @@ def read_advance_payments(
     skip: int = 0,
     limit: int = 100,
     meter_id: int | None = None,
+    category: schemas.AdvancePaymentCategory | None = None,
     db: Session = Depends(get_database_session),
 ):
     query = db.query(models.AdvancePayment)
     if meter_id is not None:
         query = query.filter(models.AdvancePayment.meter_id == meter_id)
+    if category is not None:
+        query = query.filter(models.AdvancePayment.category == category)
     payments = query.offset(skip).limit(limit).all()
     return payments
 
@@ -37,9 +40,18 @@ def create_advance_payment(
     payment: schemas.AdvancePaymentCreate,
     db: Session = Depends(get_database_session),
 ):
-    meter = db.query(models.Meter).filter(models.Meter.id == payment.meter_id).first()
-    if meter is None:
-        raise HTTPException(status_code=404, detail="Meter not found")
+    if payment.category == schemas.AdvancePaymentCategory.WASTEWATER:
+        cold_meter = db.query(models.Meter).filter(models.Meter.id == payment.water_cold_meter_id).first()
+        if cold_meter is None:
+            raise HTTPException(status_code=404, detail="Water cold meter not found")
+        if payment.water_garden_meter_id is not None:
+            garden_meter = db.query(models.Meter).filter(models.Meter.id == payment.water_garden_meter_id).first()
+            if garden_meter is None:
+                raise HTTPException(status_code=404, detail="Water garden meter not found")
+    else:
+        meter = db.query(models.Meter).filter(models.Meter.id == payment.meter_id).first()
+        if meter is None:
+            raise HTTPException(status_code=404, detail="Meter not found")
 
     db_payment = models.AdvancePayment(**payment.model_dump())
     db.add(db_payment)
@@ -60,10 +72,20 @@ def update_advance_payment(
 
     update_data = payment_update.model_dump(exclude_unset=True)
 
-    if "meter_id" in update_data:
+    if "meter_id" in update_data and update_data["meter_id"] is not None:
         meter = db.query(models.Meter).filter(models.Meter.id == update_data["meter_id"]).first()
         if meter is None:
             raise HTTPException(status_code=404, detail="Meter not found")
+
+    if "water_cold_meter_id" in update_data and update_data["water_cold_meter_id"] is not None:
+        cold_meter = db.query(models.Meter).filter(models.Meter.id == update_data["water_cold_meter_id"]).first()
+        if cold_meter is None:
+            raise HTTPException(status_code=404, detail="Water cold meter not found")
+
+    if "water_garden_meter_id" in update_data and update_data["water_garden_meter_id"] is not None:
+        garden_meter = db.query(models.Meter).filter(models.Meter.id == update_data["water_garden_meter_id"]).first()
+        if garden_meter is None:
+            raise HTTPException(status_code=404, detail="Water garden meter not found")
 
     for field, value in update_data.items():
         setattr(db_payment, field, value)
