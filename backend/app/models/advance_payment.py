@@ -5,7 +5,7 @@ from datetime import date
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, Date, Enum, ForeignKey, Numeric
+from sqlalchemy import CheckConstraint, Date, Enum, ForeignKey, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, TimestampMixin
@@ -44,6 +44,7 @@ class AdvancePayment(Base, TimestampMixin):
     valid_from: Mapped[date] = mapped_column(Date, nullable=False)
     valid_to: Mapped[date | None] = mapped_column(Date)
     monthly_amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    comment: Mapped[str | None] = mapped_column(String(500))
 
     meter: Mapped[Meter | None] = relationship(
         back_populates="advance_payments",

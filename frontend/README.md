@@ -28,8 +28,10 @@
 | `/meters/new` | `pages/MeterForm.tsx` | Create meter form: label, meter number (optional), type (select from server‑fetched types), predecessor (optional, same‑type only). Unit is read-only (server-derived). Submits to `POST /api/meters/`. |
 | `/meters/:id` | `pages/MeterDetail.tsx` | Single meter detail: line chart of readings (recharts), meter info panel (type, unit, number, created date, total count), recent readings table (last 5, newest first). Fetches `GET /api/meters/:id` + `GET /api/meters/:id/readings`. |
 | `/readings/new` | `pages/AddReading.tsx` | Multi-meter reading entry form: single date for all meters, per-meter checkbox + value + optional note + last-reading reference. Shows only current (non-replaced) meters via `GET /api/meters/current`. Checkbox selection persisted in localStorage. Submits `POST /api/readings/` per selected meter with value. Shows success/partial-failure results with ✅/❌ per meter. |
-| `/tariffs` | `pages/TariffList.tsx` | Tariff overview table with all periods: kind label, meter, valid-from/until, price, base fee, metering fee (monthly or yearly), gas factors. Supports **edit** (inline modal with dynamic tariff-kind fields) and **delete** (with usage check). |
-| `/tariffs/new` | `pages/TariffForm.tsx` | Create tariff period form: meter selector, tariff kind (consumption/feed_in/self_consumption/wastewater/feed_in_eeg2009), validity range, dynamic fields per kind (price per unit, optional base + metering fees, gas Z-Zahl/Brennwert for gas meters, EEG 2009 block with tier rates + yearly metering fee). German labels/helper text throughout. EEG 2009 meter selection includes a hint to pick the feed-in meter. Handles empty meter list gracefully. |
+| `/tariffs` | `pages/TariffList.tsx` | Tariff overview table with all periods: kind label, meter, valid-from/until, price, base fee, metering fee (monthly or yearly), gas factors, optional comment, **comment** column. Category filter buttons (Strom Bezug/Gas/Wasser) above the table — the "Strom Erzeugung" type is excluded. Supports **edit** (inline modal with dynamic tariff-kind fields, optional comment editable) and **delete** (with usage check). |
+| `/tariffs/new` | `pages/TariffForm.tsx` | Create tariff period form: meter selector, tariff kind (consumption/feed_in/self_consumption/wastewater/feed_in_eeg2009), validity range, dynamic fields per kind (price per unit, optional base + metering fees, gas Z-Zahl/Brennwert for gas meters, EEG 2009 block with tier rates + yearly metering fee), optional comment field. German labels/helper text throughout. EEG 2009 meter selection includes a hint to pick the feed-in meter. Handles empty meter list gracefully. |
+| `/advance-payments` | `pages/AdvancePaymentList.tsx` | Advance payment overview with 5 filter buttons (Alle/Gas/Kaltwasser/Abwasser/Strom Bezug). Chronological table per filter: validity period, assigned meter(s), monthly amount, **comment** column. Supports **edit** via inline modal (validity period + monthly amount + optional comment, meter relations read-only). |
+| `/advance-payments/new` | `pages/AdvancePaymentForm.tsx` | Create advance payment form: category selector (4 values), dynamic meter dropdowns per category (gas → gas meter, cold_water → water_cold meter, power_import → electricity_import meter, wastewater → required water_cold + optional water_garden meter), validity range, monthly amount, optional comment. Submits to `POST /api/advance-payments/` with correct payload per category. Shows backend 422 errors. |
 | `/years-overview` | `pages/YearsOverview.tsx` | Year-over-year consumption table + line chart for all logical meters (chain-resolved via backend). Years link to `/years/:year`. |
 | `/years/:year` | `pages/YearDetail.tsx` | Year detail page grouped by category (Strom, Wasser, Sonstige). Each meter shows: consumption overview (with chain-resolved readings), line chart, readings table, cost projection per meter. **Strom category** includes EEG-Einspeisevergütung card (from `GET /api/electricity/feed-in-compensation`) and hides consumption cost display for export/production meters. **Wasser category** includes Abwasserkosten (from `GET /api/costs/wastewater/`) and Gesamtwasserkosten (Frischwasser + Abwasser). Meter "Kosten" labels renamed to "Frischwasserkosten" for water meters. |
 
@@ -70,10 +72,11 @@ All follow the shadcn/ui pattern (Tailwind + `cn()` helper, forwardRef, displayN
 | File | Description |
 |---|---|
 | `lib/tariffFields.ts` | Shared helper for tariff field visibility/labels per `TariffKind` and meter type. Exports `getTariffFields(kind, meterType, meterUnit)`, `getPriceUnitLabel(kind, meterType, meterUnit)`, `TARIFF_KIND_LABELS`, `TARIFF_KINDS`, and the `FieldConfig` interface. Used by both `TariffForm.tsx` and `TariffList.tsx`. |
+| `lib/advancePaymentFields.ts` | Shared helper for advance payment category labels and meter field visibility. Exports `ADVANCE_PAYMENT_CATEGORY_LABELS`, `ADVANCE_PAYMENT_CATEGORIES`, `getMeterFieldsForCategory(category)` (returns which meter dropdowns to show per category), `filterMetersForCategory(meters, field)`. Used by both `AdvancePaymentForm.tsx` and `AdvancePaymentList.tsx`. |
 | `lib/utils.ts` | `cn()` helper combining `clsx` and `tailwind-merge`. |
 
 ### Types (`types/index.ts`)
-Defines: `MeterType`, `TariffKind`, `MeterTypeInfo`, `Meter`, `Reading`, `TariffPeriod`, `TariffUsage`, `YearEntry`, `YearsOverviewItem`, `YearlyProjection`, `FeedInCompensation`, `WastewaterCosts` — aligned with backend schemas.
+Defines: `MeterType`, `TariffKind`, `MeterTypeInfo`, `Meter`, `Reading`, `TariffPeriod` (incl. `comment`), `TariffUsage`, `AdvancePaymentCategory`, `AdvancePayment` (incl. `comment`), `YearEntry`, `YearsOverviewItem`, `YearlyProjection`, `FeedInCompensation`, `WastewaterCosts` — aligned with backend schemas.
 
 ## 4. API Integration
 
@@ -88,6 +91,7 @@ Defines: `MeterType`, `TariffKind`, `MeterTypeInfo`, `Meter`, `Reading`, `Tariff
 | `metersApi` | `GET /types`, `GET /`, `GET /current`, `GET /:id`, `POST /`, `PUT /:id`, `DELETE /:id`, `GET /:id/readings` | `useMeterTypes`, `MeterList`, `EditMeterModal`, `MeterDetail`, `MeterForm`, `AddReading` (uses `getCurrent` + `getLastReading`), `TariffForm`, `YearDetail` (chain resolution + readings fetch) |
 | `readingsApi` | `GET /`, `GET /:id`, `POST /`, `PUT /:id`, `DELETE /:id` | `AddReading` (only `POST`) |
 | `tariffsApi` | `GET /`, `GET /:id`, `POST /`, `PUT /:id`, `DELETE /:id` | `TariffForm` (POST), `TariffList` (GET, PUT, DELETE) |
+| `advancePaymentsApi` | `GET /`, `GET /:id`, `POST /`, `PUT /:id`, `DELETE /:id` | `AdvancePaymentForm` (POST), `AdvancePaymentList` (GET, PUT) |
 | `costsApi` | `GET /years-overview`, `GET /yearly-projection`, `GET /wastewater/` | `YearsOverview`, `YearDetail` (projections + wastewater) |
 | `electricityApi` | `GET /feed-in-compensation` | `YearDetail` (EEG feed-in compensation) |
 | `healthApi` | `GET /health` | **Not used** anywhere in components |
@@ -106,7 +110,6 @@ The following backend endpoints/features have **zero** frontend representation:
 
 | Area | Backend endpoints missing from frontend |
 |---|---|
-| **Advance payments** | `GET/POST/PUT/DELETE /api/advance-payments/` – no list, no create, no detail page |
 | **Cost calculations** | `GET /api/costs/` (general), `/costs/advance-payment-diff` – no UI; `/costs/years-overview` ✅, `/costs/yearly-projection` ✅, `/costs/wastewater/` ✅ (implemented in `YearDetail`) |
 | **Electricity: feed-in compensation** | `GET /api/electricity/feed-in-compensation` — ✅ implemented in `YearDetail` as part of Strom category |
 | **Projections** | `GET /api/projections/meters/{meter_id}/projection` – no UI (separate from `/costs/yearly-projection`) |
@@ -114,6 +117,7 @@ The following backend endpoints/features have **zero** frontend representation:
 | **Tariff list / edit / delete** | ✅ Implemented – see `/tariffs` route above |
 | **Reading list / edit / delete** | Only `POST /api/readings/` is used; no reading browse, edit, or delete |
 | **Meter edit** | `PUT /api/meters/` via `EditMeterModal` in `MeterList` |
+| **Advance payment list / create / edit** | ✅ Implemented – see `/advance-payments` and `/advance-payments/new` routes above |
 
 ## 7. Known Issues / TODOs (unchanged)
 

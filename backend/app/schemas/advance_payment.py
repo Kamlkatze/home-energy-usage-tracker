@@ -16,6 +16,7 @@ class AdvancePaymentBase(BaseModel):
     valid_from: date
     valid_to: date | None = None
     monthly_amount: Decimal
+    comment: str | None = None
 
 
 class AdvancePaymentCreate(AdvancePaymentBase):
@@ -54,6 +55,7 @@ class AdvancePaymentUpdate(BaseModel):
     valid_from: date | None = None
     valid_to: date | None = None
     monthly_amount: Decimal | None = None
+    comment: str | None = None
 
     @model_validator(mode="after")
     def validate_category_fields(self):

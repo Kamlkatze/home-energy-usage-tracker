@@ -30,7 +30,7 @@ const AdvancePaymentList: React.FC = () => {
   const [meters, setMeters] = useState<Meter[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<AdvancePaymentCategory>(ADVANCE_PAYMENT_CATEGORIES[0]);
+  const [activeTab, setActiveTab] = useState<AdvancePaymentCategory | null>(null);
 
   // Edit modal state
   const [editPayment, setEditPayment] = useState<AdvancePayment | null>(null);
@@ -63,7 +63,7 @@ const AdvancePaymentList: React.FC = () => {
   const metersById = new Map(meters.map((m) => [m.id, m]));
 
   const filteredPayments = advancePayments
-    .filter((p) => p.category === activeTab)
+    .filter((p) => activeTab === null || p.category === activeTab)
     .sort((a, b) => a.valid_from.localeCompare(b.valid_from));
 
   // ---- Edit handlers ----
@@ -73,6 +73,7 @@ const AdvancePaymentList: React.FC = () => {
       valid_from: payment.valid_from,
       valid_to: payment.valid_to ?? '',
       monthly_amount: payment.monthly_amount,
+      comment: payment.comment ?? '',
     });
     setEditError(null);
   };
@@ -103,6 +104,8 @@ const AdvancePaymentList: React.FC = () => {
       } else {
         payload.valid_to = null;
       }
+
+      payload.comment = editFormData.comment || null;
 
       await advancePaymentsApi.update(editPayment.id, payload);
       setEditPayment(null);
@@ -152,6 +155,13 @@ const AdvancePaymentList: React.FC = () => {
         </CardHeader>
         <CardContent>
           <div className="flex gap-2 mb-6 flex-wrap">
+            <Button
+              variant={activeTab === null ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setActiveTab(null)}
+            >
+              Alle
+            </Button>
             {ADVANCE_PAYMENT_CATEGORIES.map((cat) => (
               <Button
                 key={cat}
@@ -165,15 +175,24 @@ const AdvancePaymentList: React.FC = () => {
           </div>
 
           {filteredPayments.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              <p className="mb-2">
-                Keine Abschlagszahlungen für{' '}
-                {ADVANCE_PAYMENT_CATEGORY_LABELS[activeTab]}.
-              </p>
-              <Link to="/advance-payments/new" className="text-primary underline">
-                Neuen Abschlag anlegen
-              </Link>
-            </div>
+            activeTab === null ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <p className="mb-2">Keine Abschlagszahlungen vorhanden.</p>
+                <Link to="/advance-payments/new" className="text-primary underline">
+                  Neuen Abschlag anlegen
+                </Link>
+              </div>
+            ) : (
+              <div className="text-center py-8 text-muted-foreground">
+                <p className="mb-2">
+                  Keine Abschlagszahlungen für{' '}
+                  {ADVANCE_PAYMENT_CATEGORY_LABELS[activeTab]}.
+                </p>
+                <Link to="/advance-payments/new" className="text-primary underline">
+                  Neuen Abschlag anlegen
+                </Link>
+              </div>
+            )
           ) : (
             <div className="overflow-x-auto">
               <Table>
@@ -182,6 +201,7 @@ const AdvancePaymentList: React.FC = () => {
                     <TableHead>Zeitraum</TableHead>
                     <TableHead>Zähler</TableHead>
                     <TableHead>Monatlicher Betrag</TableHead>
+                    <TableHead>Kommentar</TableHead>
                     <TableHead>Aktionen</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -202,6 +222,7 @@ const AdvancePaymentList: React.FC = () => {
                           }).join(', ')}
                         </TableCell>
                         <TableCell>{payment.monthly_amount} €</TableCell>
+                        <TableCell>{payment.comment || '–'}</TableCell>
                         <TableCell>
                           <Button
                             variant="outline"
@@ -279,6 +300,18 @@ const AdvancePaymentList: React.FC = () => {
                 required
                 value={editFormData.monthly_amount}
                 onChange={handleEditChange}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="edit-comment">Anbieter / Kommentar</Label>
+              <Input
+                id="edit-comment"
+                name="comment"
+                type="text"
+                value={editFormData.comment}
+                onChange={handleEditChange}
+                placeholder="z. B. Stadtwerke Musterstadt"
               />
             </div>
 

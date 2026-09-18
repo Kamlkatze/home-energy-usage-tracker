@@ -155,6 +155,7 @@ Response (200):
 | `eeg_tier1_rate` | numeric(10,5) nullable | only meaningful for `feed_in_eeg2009` tariffs |
 | `eeg_tier2_rate` | numeric(10,5) nullable | only meaningful for `feed_in_eeg2009` tariffs |
 | `metering_point_fee_yearly` | numeric(10,2) nullable | only meaningful for `feed_in_eeg2009` tariffs |
+| `comment` | string(500) nullable | optional, free text for provider name or notes |
 | `created_at` | datetime | |
 
 **Constraint:** `EXCLUDE USING gist (meter_id WITH =, tariff_kind WITH =, daterange(valid_from, valid_to, '[]') WITH &&)` — overlapping periods within the same `(meter_id, tariff_kind)` are rejected. Different `tariff_kind` values may overlap.
@@ -193,6 +194,7 @@ Response (200):
 | `valid_from` | date | inclusive lower bound |
 | `valid_to` | date nullable | inclusive upper bound; `null` = open-ended |
 | `monthly_amount` | numeric(10,2) | vereinbarter monatlicher Abschlag |
+| `comment` | string(500) nullable | optional, free text for provider name or notes |
 | `created_at` | datetime | |
 
 **Category rules** (validated in the Pydantic schema and enforced by CHECK constraints):
@@ -296,3 +298,4 @@ All migrations live in `alembic/versions/`. IDs are 12-character MD5 hashes.
 | `d7b063605e01` | Add advance_payments table (EXCLUDE USING gist for overlap prevention) |
 | `b65e5e4f6fbc` | Add `feed_in_eeg2009` to TariffKind enum; add eeg_tier1_rate, eeg_tier2_rate, metering_point_fee_yearly columns |
 | `60757ca5eeef` | Add category to advance payments (AdvancePaymentCategory enum, water_cold_meter_id/water_garden_meter_id columns, CHECK + partial EXCLUDE constraints) |
+| `3d6f19fc27d2` | Add optional `comment` column to tariff_periods and advance_payments |

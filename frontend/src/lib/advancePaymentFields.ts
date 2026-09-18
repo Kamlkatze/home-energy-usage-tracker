@@ -5,7 +5,7 @@ export const ADVANCE_PAYMENT_CATEGORY_LABELS: Record<AdvancePaymentCategory, str
   gas: 'Gas',
   cold_water: 'Kaltwasser',
   wastewater: 'Abwasser',
-  power_import: 'Strombezug',
+  power_import: 'Strom Bezug',
 };
 
 export const ADVANCE_PAYMENT_CATEGORIES = Object.keys(ADVANCE_PAYMENT_CATEGORY_LABELS) as AdvancePaymentCategory[];

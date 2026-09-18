@@ -57,6 +57,7 @@ export interface TariffPeriod {
   eeg_tier1_rate: string | null;
   eeg_tier2_rate: string | null;
   metering_point_fee_yearly: string | null;
+  comment: string | null;
   created_at: string;
 }
 
@@ -122,6 +123,7 @@ export interface AdvancePayment {
   valid_from: string;
   valid_to: string | null;
   monthly_amount: string;
+  comment: string | null;
   created_at: string;
 }
 

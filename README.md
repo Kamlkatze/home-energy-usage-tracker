@@ -7,8 +7,8 @@ A simple, local application for tracking electricity, gas, and water consumption
 - **Track multiple meters**: Gas, cold/garden water (m³), electricity import/export/production (kWh) — the unit is derived automatically from the meter type
 - **Record readings**: Simple form to add meter readings with dates and optional notes
 - **Visualize consumption**: Line charts showing usage trends over time
-- **Tariff management**: Track price per unit and base fees for different periods
-- **Advance payment management**: Track monthly Abschläge per meter with category (gas, cold water, wastewater, power import), time-range validity and overlap protection
+- **Tariff management**: Track price per unit and base fees for different periods, with optional comment field for provider name and category filter buttons (Strom Bezug/Gas/Wasser) in the list view
+- **Advance payment management**: Track monthly Abschläge per meter with category (gas, cold water, wastewater, power import), time-range validity, overlap protection, optional comment field, and an "Alle" button showing all categories at once in the list view
 - **Meter replacement chain**: When a physical meter is swapped, link the new meter to its predecessor via `replaces_meter_id`. Cost calculations automatically follow the chain, summing each meter's contribution — no negative consumption from a counter reset on the new device
 - **Advance payment comparison**: Compare paid/planned monthly Abschläge against the estimated or actual annual cost to see whether you'll receive a refund (Guthaben) or owe a Nachzahlung
 - **Local deployment**: All data stays on your machine, no cloud services
@@ -256,9 +256,9 @@ For troubleshooting and advanced shutdown options, see the complete documentatio
 
 ### Tariff Periods
 - `GET /api/tariffs/` - List all tariff periods (optional query parameter: `tariff_kind`)
-- `POST /api/tariffs/` - Create a new tariff period (tariff_kind defaults to "consumption" if omitted)
+- `POST /api/tariffs/` - Create a new tariff period (optional `comment` field for provider name)
 - `GET /api/tariffs/{id}` - Get tariff period details
-- `PUT /api/tariffs/{id}` - Update tariff period
+- `PUT /api/tariffs/{id}` - Update tariff period (including `comment`)
 - `DELETE /api/tariffs/{id}` - Delete tariff period
 
 #### TariffKind Values
@@ -279,7 +279,8 @@ Note: Previously separate `base_fee` and `metering_fee` tariff kinds have been m
   "valid_to": "2024-12-31",
   "price_per_unit": "0.3567",
   "base_fee_monthly": "15.50",
-  "metering_fee_monthly": "5.80"
+  "metering_fee_monthly": "5.80",
+  "comment": "Stadtwerke Musterstadt"
 }
 ```
 
@@ -302,9 +303,9 @@ Note: Previously separate `base_fee` and `metering_fee` tariff kinds have been m
 
 ### Advance Payments
 - `GET /api/advance-payments/` - List all advance payments (optional query parameters: `meter_id`, `category`)
-- `POST /api/advance-payments/` - Create a new advance payment
+- `POST /api/advance-payments/` - Create a new advance payment (optional `comment` field)
 - `GET /api/advance-payments/{id}` - Get advance payment details
-- `PUT /api/advance-payments/{id}` - Update advance payment
+- `PUT /api/advance-payments/{id}` - Update advance payment (including `comment`)
 - `DELETE /api/advance-payments/{id}` - Delete advance payment
 
 Each advance payment carries a `category` (`gas`, `cold_water`, `wastewater`, `power_import`) that determines which meter reference is used:
@@ -323,7 +324,8 @@ Each advance payment carries a `category` (`gas`, `cold_water`, `wastewater`, `p
   "meter_id": 1,
   "valid_from": "2024-01-01",
   "valid_to": "2024-12-31",
-  "monthly_amount": "120.00"
+  "monthly_amount": "120.00",
+  "comment": "Stadtwerke Musterstadt"
 }
 ```
 
@@ -351,6 +353,7 @@ Each advance payment carries a `category` (`gas`, `cold_water`, `wastewater`, `p
     "valid_from": "2024-01-01",
     "valid_to": "2024-12-31",
     "monthly_amount": "120.00",
+    "comment": null,
     "created_at": "2024-01-01T12:00:00Z"
   }
 ]
@@ -672,6 +675,7 @@ The 30 % threshold is a fixed statutory value from EEG 2009 § 33 Abs. 2, not co
 - `eeg_tier1_rate` (numeric(10,5), optional, only for feed_in_eeg2009 tariff kind)
 - `eeg_tier2_rate` (numeric(10,5), optional, only for feed_in_eeg2009 tariff kind)
 - `metering_point_fee_yearly` (numeric(10,2), optional, only for feed_in_eeg2009 tariff kind)
+- `comment` (string(500), optional, free text for provider name or notes)
 - `created_at` (datetime)
 - **Constraint**: EXCLUDE USING gist (meter_id WITH =, tariff_kind WITH =, daterange(valid_from, valid_to, '[]') WITH &&)
   - Prevents overlapping periods within same (meter_id, tariff_kind)
@@ -687,6 +691,7 @@ The 30 % threshold is a fixed statutory value from EEG 2009 § 33 Abs. 2, not co
 - `valid_from` (date)
 - `valid_to` (date, optional, null means "open-ended")
 - `monthly_amount` (numeric(10,2))
+- `comment` (string(500), optional, free text for provider name or notes)
 - `created_at` (datetime)
 - **CHECK constraints**:
   - `ck_advance_payment_wastewater`: `NOT (category = 'wastewater') OR (meter_id IS NULL AND water_cold_meter_id IS NOT NULL)`

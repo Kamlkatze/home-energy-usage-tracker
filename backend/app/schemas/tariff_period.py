@@ -24,6 +24,7 @@ class TariffPeriodBase(BaseModel):
     eeg_tier1_rate: Decimal | None = None
     eeg_tier2_rate: Decimal | None = None
     metering_point_fee_yearly: Decimal | None = None
+    comment: str | None = None
 
 
 class TariffPeriodCreate(TariffPeriodBase):
@@ -43,6 +44,7 @@ class TariffPeriodUpdate(BaseModel):
     eeg_tier1_rate: Decimal | None = None
     eeg_tier2_rate: Decimal | None = None
     metering_point_fee_yearly: Decimal | None = None
+    comment: str | None = None
 
 
 class TariffPeriod(TariffPeriodBase):

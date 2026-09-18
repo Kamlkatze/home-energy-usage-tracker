@@ -23,6 +23,7 @@ const AdvancePaymentForm: React.FC = () => {
   const [validFrom, setValidFrom] = useState(new Date().toISOString().split('T')[0]);
   const [validTo, setValidTo] = useState('');
   const [monthlyAmount, setMonthlyAmount] = useState('');
+  const [comment, setComment] = useState('');
   const [meterSelections, setMeterSelections] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -105,6 +106,8 @@ const AdvancePaymentForm: React.FC = () => {
         payload.water_cold_meter_id = null;
         payload.water_garden_meter_id = null;
       }
+
+      payload.comment = comment || null;
 
       await advancePaymentsApi.create(payload);
       setSuccess(true);
@@ -237,6 +240,17 @@ const AdvancePaymentForm: React.FC = () => {
                     value={monthlyAmount}
                     onChange={(e) => setMonthlyAmount(e.target.value)}
                     placeholder="z. B. 85.00"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="comment">Anbieter / Kommentar</Label>
+                  <Input
+                    id="comment"
+                    type="text"
+                    value={comment}
+                    onChange={(e) => setComment(e.target.value)}
+                    placeholder="z. B. Stadtwerke Musterstadt"
                   />
                 </div>
 
