@@ -20,12 +20,21 @@ function formatDate(dateStr: string | null): string {
   return `${d}.${m}.${y}`;
 }
 
+interface FilterItem {
+  label: string;
+  meterType: string;
+  tariffKind?: string;
+}
+
 const TariffList: React.FC = () => {
   const [tariffs, setTariffs] = useState<TariffPeriod[]>([]);
   const [meters, setMeters] = useState<Meter[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeMeterType, setActiveMeterType] = useState<string | null>(null);
+  const [activeFilter, setActiveFilter] = useState<{
+    meterType: string;
+    tariffKind?: string;
+  } | null>(null);
 
   const meterTypes = useMeterTypes();
 
@@ -74,10 +83,13 @@ const TariffList: React.FC = () => {
     return b.valid_from.localeCompare(a.valid_from);
   });
 
-  const filteredTariffs = activeMeterType
+  const filteredTariffs = activeFilter
     ? sortedTariffs.filter((t) => {
         const m = metersById.get(t.meter_id);
-        return m?.meter_type === activeMeterType;
+        if (!m) return false;
+        if (m.meter_type !== activeFilter.meterType) return false;
+        if (activeFilter.tariffKind && t.tariff_kind !== activeFilter.tariffKind) return false;
+        return true;
       })
     : sortedTariffs;
 
@@ -240,20 +252,39 @@ const TariffList: React.FC = () => {
             <>
               <div className="flex gap-2 mb-6 flex-wrap">
                 <Button
-                  variant={activeMeterType === null ? 'default' : 'outline'}
+                  variant={activeFilter === null ? 'default' : 'outline'}
                   size="sm"
-                  onClick={() => setActiveMeterType(null)}
+                  onClick={() => setActiveFilter(null)}
                 >
                   Alle
                 </Button>
-                {meterTypes.filter((mt) => mt.value !== 'electricity_production').map((mt) => (
+                {((): FilterItem[] => {
+                  const items: FilterItem[] = [];
+                  for (const mt of meterTypes) {
+                    if (mt.value === 'electricity_production') continue;
+                    if (mt.value === 'water_cold') {
+                      items.push({ label: 'Kaltwasser', meterType: 'water_cold', tariffKind: 'consumption' });
+                      items.push({ label: 'Abwasser', meterType: 'water_cold', tariffKind: 'wastewater' });
+                    } else {
+                      items.push({ label: meterTypeLabel(meterTypes, mt.value), meterType: mt.value });
+                    }
+                  }
+                  return items;
+                })().map((item) => (
                   <Button
-                    key={mt.value}
-                    variant={activeMeterType === mt.value ? 'default' : 'outline'}
+                    key={`${item.meterType}-${item.tariffKind ?? ''}`}
+                    variant={
+                      activeFilter?.meterType === item.meterType &&
+                      (activeFilter?.tariffKind ?? '') === (item.tariffKind ?? '')
+                        ? 'default'
+                        : 'outline'
+                    }
                     size="sm"
-                    onClick={() => setActiveMeterType(mt.value)}
+                    onClick={() =>
+                      setActiveFilter({ meterType: item.meterType, tariffKind: item.tariffKind })
+                    }
                   >
-                    {meterTypeLabel(meterTypes, mt.value)}
+                    {item.label}
                   </Button>
                 ))}
               </div>
