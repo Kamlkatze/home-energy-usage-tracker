@@ -851,6 +851,7 @@ home-energy-usage-tracker/
 │   │   ├── api/                      # API client
 │   │   ├── components/               # React components (MeterList, EditMeterModal)
 │   │   ├── components/ui/            # shadcn/ui components
+│   │   ├── components/year-detail/    # Year detail page components (MeterBlock, ElectricitySection, WaterSection, GasSection)
 │   │   ├── pages/                    # Page components
 │   │   ├── types/                    # TypeScript interfaces
 │   │   ├── hooks/                    # Custom React hooks

@@ -33,14 +33,14 @@
 | `/advance-payments` | `pages/AdvancePaymentList.tsx` | Advance payment overview with 5 filter buttons (Alle/Gas/Kaltwasser/Abwasser/Strom Bezug). Chronological table per filter: validity period, assigned meter(s), monthly amount, **comment** column. Supports **edit** via inline modal (validity period + monthly amount + optional comment, meter relations read-only). |
 | `/advance-payments/new` | `pages/AdvancePaymentForm.tsx` | Create advance payment form: category selector (4 values), dynamic meter dropdowns per category (gas → gas meter, cold_water → water_cold meter, power_import → electricity_import meter, wastewater → required water_cold + optional water_garden meter), validity range, monthly amount, optional comment. Submits to `POST /api/advance-payments/` with correct payload per category. Shows backend 422 errors. |
 | `/years-overview` | `pages/YearsOverview.tsx` | Year-over-year consumption table + line chart for all logical meters (chain-resolved via backend). Years link to `/years/:year`. |
-| `/years/:year` | `pages/YearDetail.tsx` | Year detail page grouped by category (Strom, Wasser, Sonstige). Each meter shows: consumption overview (with chain-resolved readings), line chart, readings table, cost projection per meter. **Strom category** includes EEG-Einspeisevergütung card (from `GET /api/electricity/feed-in-compensation`) and hides consumption cost display for export/production meters. **Wasser category** includes Abwasserkosten (from `GET /api/costs/wastewater/`) and Gesamtwasserkosten (Frischwasser + Abwasser). Meter "Kosten" labels renamed to "Frischwasserkosten" for water meters. |
+| `/years/:year` | `pages/YearDetail.tsx` | Year detail page grouped by category (Strom, Wasser, Sonstige). Uses extracted components under `components/year-detail/`. **Strom category** uses MeterBlock per meter + EEG-Einspeisevergütung card. **Wasser category** uses combined WaterSection (consumption strip, dual-line chart, paired comparison grids for Frischwasser + Abwasser). **Sonstige category** uses MeterBlock per meter. |
 
-**YearDetail chart implementation notes:**
-- **Projection line via `combinedData`:** The dashed projection line does NOT use a separate `<Line data={projectionData}>` – Recharts only creates tooltip hit targets at points in the primary `data` array of `<LineChart>`. Instead, all points (readings + projection) are merged into a single `combinedData` array. The main Line uses `dataKey="value"`, the projection Line uses `dataKey="projectedValue"`. The end-of-year projection point carries `value: undefined` (invisible to the main line) and `isProjectionEnd: true` (drives the final dot).
-- **Custom tooltip `ChartTooltip`** (module level, defined outside the render function so Recharts keeps its tooltip state): dark-mode compatible via `hsl(var(--popover))` / `hsl(var(--popover-foreground))`. "Hochrechnung" entries are only rendered when the hovered point lies in the future (`label > Date.now()`); for past/current points only "Zählerstand" appears.
-- **Dark-mode axes:** XAxis/YAxis use explicit `stroke="hsl(var(--muted-foreground))"` and `tick={{ fill: 'hsl(var(--muted-foreground))' }}`. YAxis tick values are rounded to whole numbers via `tickFormatter`.
-- **Y-domain:** computed from both `chartData` and `projectionData` (`yMin`/`yMax` with 10 % padding) so early low readings are not cut off by the projected end-of-year value.
-- **Unit-aware formatting:** kWh displays as integers (`Math.round`), m³ with one decimal (`toFixed(1)`). Applied via `formatConsumption(value, unit)` (consumption/projection cards) and `formatReadingValue(value, unit)` (readings table). EEG kWh values are hardcoded to `toFixed(0)`. Same kWh/m³ rule in `YearsOverview.tsx` inline.
+**Chart implementation notes (MeterBlock):**
+- **Projection line via `combinedData`:** Dashed projection does NOT use separate `<Line data={...}>` – Recharts only creates tooltip hit targets in the primary `data` array. All points are merged into `combinedData`: main Line uses `dataKey="value"`, projection Line uses `dataKey="projectedValue"`. End-of-year point carries `value: undefined` (invisible) and `isProjectionEnd: true`.
+- **Custom tooltip `ChartTooltip`** (module level): dark-mode via `hsl(var(--popover))` / `hsl(var(--popover-foreground))`. "Hochrechnung" only rendered when hovered point is in the future; otherwise only "Zählerstand" appears.
+- **Dark-mode axes:** explicit `stroke`/`tick.fill` using `hsl(var(--muted-foreground))`. YAxis tick values rounded to whole numbers.
+- **Y-domain:** computed from both `chartData` and `projectionData` with 10 % padding so early low readings aren't cut off.
+- **Unit-aware formatting:** kWh → integers (`Math.round`), m³ → one decimal (`toFixed(1)`). EEG kWh → `toFixed(0)`. Same in `YearsOverview.tsx`.
 
 ## 3. Existing Components
 
@@ -62,6 +62,16 @@ All follow the shadcn/ui pattern (Tailwind + `cn()` helper, forwardRef, displayN
 |---|---|---|
 | `MeterList` | `MeterList.tsx` | **Functions as a page** (used as `<Route>` element), not as an embeddable component. |
 | `EditMeterModal` | `EditMeterModal.tsx` | Dialog for editing a meter: name, number, predecessor dropdown. Meter type and unit are read-only. |
+
+#### Year Detail (`components/year-detail/`)
+| Module | Description |
+|---|---|
+| `types.ts` | Shared interfaces: `MeterSection`, `AdvancePaymentDiffs` |
+| `utils.ts` | Helpers: `formatEuro()`, `basisLabel()` |
+| `MeterBlock.tsx` | Single meter card: chart, readings, projection. Contains all Recharts logic (combinedData, ChartTooltip, dark-mode styling, unit-aware formatting). |
+| `ElectricitySection.tsx` | Strom category: all electricity meters + EEG Einspeisevergütung card. |
+| `WaterSection.tsx` | Wasser category: combined consumption strip (FW/GW/AW actual + projected), dual-line chart (Frischwasser + Gartenwasser with projections), paired 3×2 comparison grids (Frischwasser costs + Abwasserkosten with advance payment diffs), and separate Zählerstände tables for both Frischwasser and Gartenwasser. No longer uses individual MeterBlocks. |
+| `GasSection.tsx` | Sonstige category: gas meters. |
 
 ### Hooks
 | Hook | File | Notes |
