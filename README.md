@@ -229,6 +229,7 @@ For troubleshooting and advanced shutdown options, see the complete documentatio
 ## API Endpoints
 
 ### Meters
+- `GET /api/meters/current` - Return only current (non-replaced) meters — newest in each replacement chain plus standalone meters. Used by the frontend to show only active meters.
 - `GET /api/meters/types` - List all meter types with German label and fixed unit. Example response:
   ```json
   [
@@ -246,6 +247,7 @@ For troubleshooting and advanced shutdown options, see the complete documentatio
 - `PUT /api/meters/{id}` - Update meter (same validation for `replaces_meter_id` applies; changing `meter_type` is rejected with **422** when readings exist for this meter)
 - `DELETE /api/meters/{id}` - Delete meter
 - `GET /api/meters/{id}/readings` - Get readings for a meter
+- `GET /api/meters/{id}/projection` - Get annual consumption projection for a meter (see [Projection Endpoint](#projection-endpoint))
 
 ### Readings
 - `GET /api/readings/` - List all readings
@@ -258,6 +260,7 @@ For troubleshooting and advanced shutdown options, see the complete documentatio
 - `GET /api/tariffs/` - List all tariff periods (optional query parameter: `tariff_kind`)
 - `POST /api/tariffs/` - Create a new tariff period (optional `comment` field for provider name)
 - `GET /api/tariffs/{id}` - Get tariff period details
+- `GET /api/tariffs/{tariff_id}/usage` - Get tariff usage info (reading count within validity range, across the full meter chain)
 - `PUT /api/tariffs/{id}` - Update tariff period (including `comment`)
 - `DELETE /api/tariffs/{id}` - Delete tariff period
 
@@ -406,6 +409,7 @@ Each advance payment carries a `category` (`gas`, `cold_water`, `wastewater`, `p
 
 ### EEG 2009 Feed-in Compensation
 - `GET /api/electricity/feed-in-compensation?production_meter_id={id}&export_meter_id={id}&import_meter_id={id}&from={date}&to={date}` - Calculate the feed-in compensation according to EEG 2009 § 33 Abs. 2. Three meter IDs are accepted as query parameters with no fixed DB relationship (analogous to the wastewater endpoint). `import_meter_id` is accepted for future extensibility but currently unused.
+- `GET /api/electricity/feed-in-compensation-projection?production_meter_id={id}&export_meter_id={id}&year={year}` - Projected annual feed-in compensation for a full year, using linear projections for both production and export consumption.
 
 **Calculation (EEG 2009 § 33 Abs. 2):**
   P = production_consumption (total generation)
@@ -503,6 +507,9 @@ The 30 % threshold is a fixed statutory value from EEG 2009 § 33 Abs. 2, not co
 }
 ```
 
+### Projection Endpoint
+- `GET /api/meters/{meter_id}/projection?year={year}&as_of_date={date}` - Standalone annual consumption projection for a meter (separate from the combined yearly projection with cost above).
+
 **Calculation Logic:**
 - **Year completed** (year < as_of_date.year): Actual consumption = end.value - start.value (real yearly consumption)
 - **Year ongoing** (year >= as_of_date.year): Linear projection = (actual consumption / elapsed days) * 365
@@ -589,7 +596,7 @@ The 30 % threshold is a fixed statutory value from EEG 2009 § 33 Abs. 2, not co
 ```
 
 ### Advance Payment Diff (Cost vs. Abschläge)
-- `GET /api/costs/advance-payment-diff?meter_id={id}&year={year}&as_of_date={date}` - Calculate the difference between paid/planned advance payments and the estimated or actual annual cost for a meter and year. `as_of_date` is optional (defaults to server date). Returns **200** even with no advance payments or no tariff, **404** if meter not found, **422** for invalid year (outside 2000-2100 range).
+- `GET /api/costs/advance-payment-diff?meter_id={id}&year={year}&as_of_date={date}` - Calculate the difference and the estimated or actual annual cost for a meter and year. `as_of_date` is optional (defaults to server date). Returns **200** even with no advance payments or no tariff, **404** if meter not found, **422** for invalid year (outside 2000-2100 range).
 
 **Wastewater mode:** Pass `water_cold_meter_id` (and optionally `water_garden_meter_id`) to compute the diff for the `wastewater` category instead of `meter_id`:
 - The annual cost is based on the wastewater consumption `max(0, cold_water_consumption - garden_water_consumption)` (same rules as the wastewater cost endpoint, including meter replacement chains) billed against a `wastewater` tariff attached to the **cold-water** meter
@@ -634,6 +641,12 @@ The 30 % threshold is a fixed statutory value from EEG 2009 § 33 Abs. 2, not co
   "message": "Kein Abschlag für dieses Jahr hinterlegt."
 }
 ```
+
+### Advance Payment Diff By Category
+- `GET /api/costs/advance-payment-diff-by-category?category={cat}&year={year}&meter_id={id}&water_cold_meter_id={id}` - Thin wrapper around `advance-payment-diff` with category-based parameter validation. Adds a `category` field to the response.
+
+### Health
+- `GET /health` - Health check endpoint, returns `{"status": "healthy"}`.
 
 ## Database Schema
 
@@ -734,7 +747,7 @@ erDiagram
 ### TariffPeriod
 - `id` (integer, primary key)
 - `meter_id` (foreign key to Meter)
-- `tariff_kind` (enum: consumption, feed_in, self_consumption, wastewater)
+- `tariff_kind` (enum: consumption, feed_in, feed_in_eeg2009, self_consumption, wastewater)
 - `valid_from` (date)
 - `valid_to` (date, optional, null means "open-ended - valid until today")
 - `price_per_unit` (numeric)

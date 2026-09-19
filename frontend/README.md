@@ -62,6 +62,7 @@ All follow the shadcn/ui pattern (Tailwind + `cn()` helper, forwardRef, displayN
 |---|---|---|
 | `MeterList` | `MeterList.tsx` | **Functions as a page** (used as `<Route>` element), not as an embeddable component. |
 | `EditMeterModal` | `EditMeterModal.tsx` | Dialog for editing a meter: name, number, predecessor dropdown. Meter type and unit are read-only. |
+| `ThemeToggle` | `ThemeToggle.tsx` | Dark/light mode toggle button in nav bar. Stores preference in `localStorage.theme`. |
 
 #### Year Detail (`components/year-detail/`)
 | Module | Description |
@@ -122,7 +123,7 @@ The following backend endpoints/features have **zero** frontend representation:
 |---|---|
 | **Cost calculations** | `GET /api/costs/` (general), `/costs/advance-payment-diff` – no UI; `/costs/years-overview` ✅, `/costs/yearly-projection` ✅, `/costs/wastewater/` ✅ (implemented in `YearDetail`) |
 | **Electricity: feed-in compensation** | `GET /api/electricity/feed-in-compensation` — ✅ implemented in `YearDetail` as part of Strom category |
-| **Projections** | `GET /api/projections/meters/{meter_id}/projection` – no UI (separate from `/costs/yearly-projection`) |
+| **Projections** | `GET /api/meters/{meter_id}/projection` – no UI (separate from `/costs/yearly-projection`) |
 | **Consumption timeseries** | No frontend endpoint consumer for aggregated timeseries data |
 | **Tariff list / edit / delete** | ✅ Implemented – see `/tariffs` route above |
 | **Reading list / edit / delete** | Only `POST /api/readings/` is used; no reading browse, edit, or delete |
