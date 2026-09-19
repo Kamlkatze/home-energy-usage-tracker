@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -6,6 +6,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from .. import models, schemas
+from ..services.projection import ProjectionService
 from .deps import get_database_session
 
 router = APIRouter()
@@ -208,4 +209,92 @@ def calculate_feed_in_compensation(
         tier1_kwh=tier1_kwh,
         tier2_kwh=tier2_kwh,
         total_compensation=total_compensation,
+    )
+
+
+@router.get(
+    "/feed-in-compensation-projection",
+    response_model=schemas.FeedInCompensationProjectionResponse,
+)
+def calculate_feed_in_compensation_projection(
+    production_meter_id: int = Query(...),
+    export_meter_id: int = Query(...),
+    year: int = Query(...),
+    db: Session = Depends(get_database_session),
+):
+    _get_meter_or_404(db, production_meter_id)
+    _get_meter_or_404(db, export_meter_id)
+
+    as_of_date = datetime.now(UTC).date()
+
+    # Get projected annual consumption for both meters
+    try:
+        prod_projection = ProjectionService.calculate_projection(
+            db=db, meter_id=production_meter_id, year=year, as_of_date=as_of_date
+        )
+        exp_projection = ProjectionService.calculate_projection(
+            db=db, meter_id=export_meter_id, year=year, as_of_date=as_of_date
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    if prod_projection["basis"] == "insufficient_data" or (
+        prod_projection["projected_annual_consumption"] is None
+    ):
+        return schemas.FeedInCompensationProjectionResponse(
+            production_meter_id=production_meter_id,
+            export_meter_id=export_meter_id,
+            year=year,
+            production_consumption=None,
+            export_consumption=None,
+            self_consumption=None,
+            tier1_kwh=None,
+            tier2_kwh=None,
+            total_compensation=None,
+            basis=prod_projection["basis"],
+            message=prod_projection.get("message"),
+        )
+
+    P = prod_projection["projected_annual_consumption"]
+    E = exp_projection["projected_annual_consumption"] if exp_projection["projected_annual_consumption"] is not None else Decimal(0)
+    S = max(Decimal(0), P - E)
+
+    threshold_kwh = P * _EEG_2009_THRESHOLD
+    tier1_kwh = min(S, threshold_kwh)
+    tier2_kwh = max(Decimal(0), S - threshold_kwh)
+
+    # Look up EEG tariff on the export meter for the full year
+    from_date = date(year, 1, 1)
+    to_date = date(year, 12, 31)
+    tariff = _get_feed_in_eeg2009_tariff(db, export_meter_id, from_date, to_date)
+
+    tier1_rate = tariff.eeg_tier1_rate if tariff.eeg_tier1_rate is not None else Decimal(0)
+    tier2_rate = tariff.eeg_tier2_rate if tariff.eeg_tier2_rate is not None else Decimal(0)
+    metering_point_fee = (
+        tariff.metering_point_fee_yearly
+        if tariff.metering_point_fee_yearly is not None
+        else Decimal(0)
+    )
+
+    days = Decimal((to_date - from_date).days)
+    total_raw = (
+        P * tariff.price_per_unit
+        - tier1_kwh * tier1_rate
+        - tier2_kwh * tier2_rate
+        - days * metering_point_fee / Decimal(365)
+    )
+    total_compensation = total_raw.quantize(_CENT, rounding=ROUND_HALF_UP)
+
+    return schemas.FeedInCompensationProjectionResponse(
+        production_meter_id=production_meter_id,
+        export_meter_id=export_meter_id,
+        year=year,
+        production_consumption=P,
+        export_consumption=E,
+        self_consumption=S,
+        tier1_kwh=tier1_kwh,
+        tier2_kwh=tier2_kwh,
+        total_compensation=total_compensation,
+        basis=prod_projection["basis"],
+        message=None,
     )

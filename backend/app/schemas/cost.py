@@ -59,6 +59,20 @@ class FeedInCompensationResponse(BaseModel):
     total_compensation: Decimal
 
 
+class FeedInCompensationProjectionResponse(BaseModel):
+    production_meter_id: int
+    export_meter_id: int
+    year: int
+    production_consumption: Decimal | None
+    export_consumption: Decimal | None
+    self_consumption: Decimal | None
+    tier1_kwh: Decimal | None
+    tier2_kwh: Decimal | None
+    total_compensation: Decimal | None
+    basis: str
+    message: str | None = None
+
+
 class YearEntry(BaseModel):
     year: int
     consumption: str | None = None

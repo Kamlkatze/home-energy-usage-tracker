@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { costsApi, metersApi, electricityApi } from '../api/client';
-import { Meter, Reading, YearsOverviewItem, YearlyProjection, FeedInCompensation, WastewaterCosts } from '../types';
+import { Meter, Reading, YearsOverviewItem, YearlyProjection, FeedInCompensation, FeedInCompensationProjection, WastewaterCosts, AdvancePaymentDiffByCategory } from '../types';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { Button } from '../components/ui/button';
@@ -96,9 +96,21 @@ const YearDetail: React.FC = () => {
   const [eegData, setEegData] = useState<FeedInCompensation | null>(null);
   const [eegLoading, setEegLoading] = useState(false);
   const [eegError, setEegError] = useState<string | null>(null);
+  const [eegProjection, setEegProjection] = useState<FeedInCompensationProjection | null>(null);
+  const [eegProjectionLoading, setEegProjectionLoading] = useState(false);
+  const [eegProjectionError, setEegProjectionError] = useState<string | null>(null);
   const [wastewaterData, setWastewaterData] = useState<WastewaterCosts | null>(null);
   const [wastewaterLoading, setWastewaterLoading] = useState(false);
   const [wastewaterError, setWastewaterError] = useState<string | null>(null);
+  const [advancePaymentDiffs, setAdvancePaymentDiffs] = useState<Record<
+    'gas' | 'cold_water' | 'wastewater' | 'power_import',
+    AdvancePaymentDiffByCategory | null
+  >>({
+    gas: null,
+    cold_water: null,
+    wastewater: null,
+    power_import: null,
+  });
 
   const fetchData = useCallback(async () => {
     if (isNaN(year)) {
@@ -218,10 +230,33 @@ const YearDetail: React.FC = () => {
           } finally {
             setEegLoading(false);
           }
+
+          // Fetch EEG projection
+          setEegProjectionLoading(true);
+          setEegProjectionError(null);
+          try {
+            const proj = await electricityApi.getFeedInCompensationProjection(
+              prodItem.meter_id,
+              expItem.meter_id,
+              year,
+            );
+            setEegProjection(proj);
+          } catch (projErr: any) {
+            const msg =
+              projErr?.response?.data?.detail ||
+              projErr?.message ||
+              'Fehler beim Laden der EEG-Prognose.';
+            setEegProjectionError(msg);
+          } finally {
+            setEegProjectionLoading(false);
+          }
         } else {
           setEegData(null);
           setEegLoading(false);
           setEegError(null);
+          setEegProjection(null);
+          setEegProjectionLoading(false);
+          setEegProjectionError(null);
         }
       }
 
@@ -267,6 +302,58 @@ const YearDetail: React.FC = () => {
         setWastewaterLoading(false);
         setWastewaterError(null);
       }
+
+      // Fetch advance payment diffs for gas, cold_water, wastewater, power_import
+      const advanceFetchers: Array<{
+        key: 'gas' | 'cold_water' | 'wastewater' | 'power_import';
+        fn: () => Promise<AdvancePaymentDiffByCategory | null>;
+      }> = [];
+
+      const gasItem = relevantItems.find(i => i.meter_type === 'gas');
+      if (gasItem) {
+        advanceFetchers.push({
+          key: 'gas',
+          fn: () => costsApi.getAdvancePaymentDiffByCategory('gas', year, gasItem.meter_id),
+        });
+      }
+
+      const powerImportItem = relevantItems.find(i => i.meter_type === 'electricity_import');
+      if (powerImportItem) {
+        advanceFetchers.push({
+          key: 'power_import',
+          fn: () => costsApi.getAdvancePaymentDiffByCategory('power_import', year, powerImportItem.meter_id),
+        });
+      }
+
+      if (coldItem) {
+        advanceFetchers.push({
+          key: 'cold_water',
+          fn: () => costsApi.getAdvancePaymentDiffByCategory('cold_water', year, coldItem.meter_id),
+        });
+        advanceFetchers.push({
+          key: 'wastewater',
+          fn: () => costsApi.getAdvancePaymentDiffByCategory('wastewater', year, undefined, coldItem.meter_id, gardenItem?.meter_id),
+        });
+      }
+
+      const diffs: Record<string, AdvancePaymentDiffByCategory | null> = {
+        gas: null,
+        cold_water: null,
+        wastewater: null,
+        power_import: null,
+      };
+
+      await Promise.all(
+        advanceFetchers.map(async ({ key, fn }) => {
+          try {
+            diffs[key] = await fn();
+          } catch {
+            // Leave as null (network error etc.)
+          }
+        })
+      );
+
+      setAdvancePaymentDiffs(diffs as Record<'gas' | 'cold_water' | 'wastewater' | 'power_import', AdvancePaymentDiffByCategory | null>);
     } catch (err: any) {
       setError(
         err?.response?.data?.detail ||
@@ -471,14 +558,43 @@ const chartData = section.readings.map((r) => ({
               {yearEntry && (
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <div className="bg-muted rounded p-2">
-                    <p className="text-xs text-muted-foreground">Verbrauch {year}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {item.meter_type === 'electricity_export' ? 'Einspeisung' :
+                       item.meter_type === 'electricity_production' ? 'Erzeugung' : 'Verbrauch'} {year}
+                    </p>
                     <p className="text-sm font-semibold">
-                      {yearEntry.consumption != null
-                        ? formatConsumption(yearEntry.consumption)
-                        : '—'}
+                      {section.projection?.actual_consumption_to_date != null
+                        ? formatConsumption(section.projection.actual_consumption_to_date)
+                        : yearEntry.consumption != null
+                          ? formatConsumption(yearEntry.consumption)
+                          : '—'}
                     </p>
                   </div>
-                  {!isExportOrProduction && (
+                  {!isExportOrProduction && item.meter_type === 'electricity_import' && (
+                    <>
+                      {section.projection && section.projection.basis !== 'actual_full_year' && section.projection.projected_annual_consumption != null && (
+                        <div className="bg-muted rounded p-2">
+                          <p className="text-xs text-muted-foreground">
+                            Verbrauch (prog.) {year}
+                          </p>
+                          <p className="text-sm font-semibold">
+                            {formatConsumption(section.projection.projected_annual_consumption)}
+                          </p>
+                          <p className="text-[10px] text-muted-foreground mt-0.5">
+                            Basis: {basisLabel(section.projection.basis)}
+                          </p>
+                        </div>
+                      )}
+                      {section.projection && section.projection.basis === 'actual_full_year' && (
+                        <div className="bg-muted rounded p-2 flex items-center justify-center">
+                          <p className="text-xs text-muted-foreground">
+                            Jahr abgeschlossen
+                          </p>
+                        </div>
+                      )}
+                    </>
+                  )}
+                  {!isExportOrProduction && item.meter_type !== 'electricity_import' && (
                     <div className="bg-muted rounded p-2">
                       <p className="text-xs text-muted-foreground">{costLabel} {year}</p>
                       <p className="text-sm font-semibold">
@@ -491,10 +607,52 @@ const chartData = section.readings.map((r) => ({
                       )}
                     </div>
                   )}
-                  <div className="bg-muted rounded p-2">
-                    <p className="text-xs text-muted-foreground">Zählerstände</p>
-                    <p className="text-sm font-semibold">{section.readings.length}</p>
-                  </div>
+                  {!isExportOrProduction && item.meter_type !== 'electricity_import' && section.projection && section.projection.basis !== 'actual_full_year' && section.projection.projected_annual_consumption != null && (
+                    <div className="bg-muted rounded p-2">
+                      <p className="text-xs text-muted-foreground">
+                        {item.meter_type === 'electricity_export' ? 'Einspeisung' :
+                         item.meter_type === 'electricity_production' ? 'Erzeugung' : 'Verbrauch'} (prog.) {year}
+                      </p>
+                      <p className="text-sm font-semibold">
+                        {formatConsumption(section.projection.projected_annual_consumption)}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">
+                        Basis: {basisLabel(section.projection.basis)}
+                      </p>
+                    </div>
+                  )}
+                  {!isExportOrProduction && item.meter_type !== 'electricity_import' && section.projection && section.projection.basis === 'actual_full_year' && (
+                    <div className="bg-muted rounded p-2 flex items-center justify-center">
+                      <p className="text-xs text-muted-foreground">
+                        Jahr abgeschlossen
+                      </p>
+                    </div>
+                  )}
+                  {isExportOrProduction && (
+                    <>
+                      {section.projection && section.projection.basis !== 'actual_full_year' && section.projection.projected_annual_consumption != null && (
+                        <div className="bg-muted rounded p-2">
+                          <p className="text-xs text-muted-foreground">
+                            {item.meter_type === 'electricity_export' ? 'Einspeisung' :
+                             item.meter_type === 'electricity_production' ? 'Erzeugung' : 'Verbrauch'} (prog.) {year}
+                          </p>
+                          <p className="text-sm font-semibold">
+                            {formatConsumption(section.projection.projected_annual_consumption)}
+                          </p>
+                          <p className="text-[10px] text-muted-foreground mt-0.5">
+                            Basis: {basisLabel(section.projection.basis)}
+                          </p>
+                        </div>
+                      )}
+                      {section.projection && section.projection.basis === 'actual_full_year' && (
+                        <div className="bg-muted rounded p-2 flex items-center justify-center">
+                          <p className="text-xs text-muted-foreground">
+                            Jahr abgeschlossen
+                          </p>
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
               )}
 
@@ -589,61 +747,195 @@ const chartData = section.readings.map((r) => ({
                 </div>
               </div>
 
-              {!isExportOrProduction && (
-                <div>
-                  <h5 className="text-xs font-semibold text-muted-foreground mb-1">
-                    {isWater ? 'Frischwasserkosten-Prognose' : 'Kostenprojektion'} {year}
-                  </h5>
-                  {section.projectionLoading ? (
-                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                      Lade Projektion...
-                    </div>
-                  ) : section.projectionError ? (
-                    <div className="text-xs text-destructive">{section.projectionError}</div>
-                  ) : section.projection ? (
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-1">
-                      <div className="bg-muted rounded p-1.5">
-                        <p className="text-[10px] text-muted-foreground">{isWater ? 'Frischwasser-' : ''}Verbrauch (tats.)</p>
-                        <p className="text-xs font-semibold">
-                          {section.projection.actual_consumption_to_date != null
-                            ? formatConsumption(section.projection.actual_consumption_to_date)
-                            : '—'}
-                        </p>
+              {!isExportOrProduction && item.meter_type === 'electricity_import' && (
+                <>
+                  <div>
+                    <h5 className="text-xs font-semibold text-muted-foreground mb-1">
+                      Kostenprojektion {year}
+                    </h5>
+                    {section.projectionLoading ? (
+                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        Lade Projektion...
                       </div>
-                      <div className="bg-muted rounded p-1.5">
-                        <p className="text-[10px] text-muted-foreground">{isWater ? 'Frischwasser-' : ''}Verbrauch (prog.)</p>
-                        <p className="text-xs font-semibold">
-                          {section.projection.projected_annual_consumption != null
-                            ? formatConsumption(section.projection.projected_annual_consumption)
-                            : '—'}
-                        </p>
+                    ) : section.projectionError ? (
+                      <div className="text-xs text-destructive">{section.projectionError}</div>
+                    ) : section.projection ? (
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                        <div className="bg-muted rounded p-1.5">
+                          <p className="text-[10px] text-muted-foreground">Verbrauch tatsächlich</p>
+                          <p className="text-xs font-semibold">
+                            {section.projection.actual_consumption_to_date != null
+                              ? formatConsumption(section.projection.actual_consumption_to_date)
+                              : '—'}
+                          </p>
+                        </div>
+                        <div className="bg-muted rounded p-1.5">
+                          <p className="text-[10px] text-muted-foreground">Kosten tatsächlich</p>
+                          <p className="text-xs font-semibold">
+                            {formatEuro(section.projection.actual_cost_to_date)}
+                          </p>
+                        </div>
+                        <div className="bg-muted rounded p-1.5">
+                          <p className="text-[10px] text-muted-foreground">Verbrauch prognostiziert</p>
+                          <p className="text-xs font-semibold">
+                            {section.projection.projected_annual_consumption != null
+                              ? formatConsumption(section.projection.projected_annual_consumption)
+                              : '—'}
+                          </p>
+                        </div>
+                        <div className="bg-muted rounded p-1.5">
+                          <p className="text-[10px] text-muted-foreground">Kosten prognostiziert</p>
+                          <p className="text-xs font-semibold">
+                            {formatEuro(section.projection.projected_annual_cost)}
+                          </p>
+                        </div>
+                        {(() => {
+                          const cat = 'power_import';
+                          const data = advancePaymentDiffs[cat];
+                          return data ? (
+                            <>
+                              <div className="bg-muted rounded p-1.5">
+                                <p className="text-[10px] text-muted-foreground">Abschlagszahlungen hochgerechnet</p>
+                                <p className="text-xs font-semibold">
+                                  {data.total_advance_payments != null ? formatEuro(data.total_advance_payments) : '—'}
+                                </p>
+                              </div>
+                              <div className="bg-muted rounded p-1.5">
+                                <p className="text-[10px] text-muted-foreground">Differenz Abschläge zu Kosten</p>
+                                <p className="text-xs font-semibold" style={{
+                                  color: data.difference != null
+                                    ? (parseFloat(data.difference) >= 0 ? '#16a34a' : 'hsl(var(--destructive))')
+                                    : undefined,
+                                }}>
+                                  {data.difference != null ? formatEuro(data.difference) : '—'}
+                                </p>
+                              </div>
+                            </>
+                          ) : (
+                            <div className="col-span-2 bg-muted rounded p-1.5">
+                              <p className="text-xs text-muted-foreground">Kein Abschlag hinterlegt.</p>
+                            </div>
+                          );
+                        })()}
                       </div>
-                      <div className="bg-muted rounded p-1.5">
-                        <p className="text-[10px] text-muted-foreground">{isWater ? 'Frischwasser-' : ''}kosten (tats.)</p>
-                        <p className="text-xs font-semibold">
-                          {formatEuro(section.projection.actual_cost_to_date)}
-                        </p>
-                      </div>
-                      <div className="bg-muted rounded p-1.5">
-                        <p className="text-[10px] text-muted-foreground">{isWater ? 'Frischwasser-' : ''}kosten (prog.)</p>
-                        <p className="text-xs font-semibold">
-                          {formatEuro(section.projection.projected_annual_cost)}
-                        </p>
-                      </div>
-                    </div>
-                  ) : null}
+                    ) : null}
 
-                  {section.projection && section.projection.message && (
-                    <p className="text-[10px] text-muted-foreground mt-0.5">{section.projection.message}</p>
-                  )}
-                  {section.projection && (
-                    <p className="text-[10px] text-muted-foreground mt-0.5">
-                      Basis: {basisLabel(section.projection.basis)}
-                      &nbsp;|&nbsp;Stand: {new Date(section.projection.as_of_date).toLocaleDateString()}
-                    </p>
-                  )}
-                </div>
+                    {section.projection && section.projection.message && (
+                      <p className="text-[10px] text-muted-foreground mt-0.5">{section.projection.message}</p>
+                    )}
+                    {section.projection && (
+                      <p className="text-[10px] text-muted-foreground mt-0.5">
+                        Basis: {basisLabel(section.projection.basis)}
+                        &nbsp;|&nbsp;Stand: {new Date(section.projection.as_of_date).toLocaleDateString()}
+                      </p>
+                    )}
+                  </div>
+                </>
+              )}
+
+              {!isExportOrProduction && item.meter_type !== 'electricity_import' && (
+                <>
+                  <div>
+                    <h5 className="text-xs font-semibold text-muted-foreground mb-1">
+                      {isWater ? 'Frischwasserkosten-Prognose' : 'Kostenprojektion'} {year}
+                    </h5>
+                    {section.projectionLoading ? (
+                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        Lade Projektion...
+                      </div>
+                    ) : section.projectionError ? (
+                      <div className="text-xs text-destructive">{section.projectionError}</div>
+                    ) : section.projection ? (
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-1">
+                        <div className="bg-muted rounded p-1.5">
+                          <p className="text-[10px] text-muted-foreground">{isWater ? 'Frischwasser-' : ''}Verbrauch (tats.)</p>
+                          <p className="text-xs font-semibold">
+                            {section.projection.actual_consumption_to_date != null
+                              ? formatConsumption(section.projection.actual_consumption_to_date)
+                              : '—'}
+                          </p>
+                        </div>
+                        <div className="bg-muted rounded p-1.5">
+                          <p className="text-[10px] text-muted-foreground">{isWater ? 'Frischwasser-' : ''}Verbrauch (prog.)</p>
+                          <p className="text-xs font-semibold">
+                            {section.projection.projected_annual_consumption != null
+                              ? formatConsumption(section.projection.projected_annual_consumption)
+                              : '—'}
+                          </p>
+                        </div>
+                        <div className="bg-muted rounded p-1.5">
+                          <p className="text-[10px] text-muted-foreground">{isWater ? 'Frischwasser-' : ''}kosten (tats.)</p>
+                          <p className="text-xs font-semibold">
+                            {formatEuro(section.projection.actual_cost_to_date)}
+                          </p>
+                        </div>
+                        <div className="bg-muted rounded p-1.5">
+                          <p className="text-[10px] text-muted-foreground">{isWater ? 'Frischwasser-' : ''}kosten (prog.)</p>
+                          <p className="text-xs font-semibold">
+                            {formatEuro(section.projection.projected_annual_cost)}
+                          </p>
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {section.projection && section.projection.message && (
+                      <p className="text-[10px] text-muted-foreground mt-0.5">{section.projection.message}</p>
+                    )}
+                    {section.projection && (
+                      <p className="text-[10px] text-muted-foreground mt-0.5">
+                        Basis: {basisLabel(section.projection.basis)}
+                        &nbsp;|&nbsp;Stand: {new Date(section.projection.as_of_date).toLocaleDateString()}
+                      </p>
+                    )}
+                  </div>
+
+                  {(() => {
+                    const advanceCategories: Array<{
+                      cat: 'gas' | 'cold_water' | 'wastewater' | 'power_import';
+                      label: string;
+                    }> = [];
+                    if (item.meter_type === 'gas') {
+                      advanceCategories.push({ cat: 'gas', label: 'Gas' });
+                    }
+
+                    if (advanceCategories.length === 0) return null;
+
+                    return advanceCategories.map(({ cat, label }) => {
+                      const data = advancePaymentDiffs[cat];
+                      return (
+                        <div key={cat} className="border rounded-lg p-3 bg-muted/20 mt-2">
+                          <h5 className="text-xs font-semibold text-muted-foreground mb-1">
+                            Abschlagsdifferenz {label} {year}
+                          </h5>
+                          {data ? (
+                            <div className="grid grid-cols-2 gap-2">
+                              <div className="bg-muted rounded p-2">
+                                <p className="text-[10px] text-muted-foreground">Abschlagszahlungen (hochger.)</p>
+                                <p className="text-xs font-semibold">
+                                  {data.total_advance_payments != null ? formatEuro(data.total_advance_payments) : '—'}
+                                </p>
+                              </div>
+                              <div className="bg-muted rounded p-2">
+                                <p className="text-[10px] text-muted-foreground">Differenz zu Abschlägen</p>
+                                <p className="text-xs font-semibold" style={{
+                                  color: data.difference != null
+                                    ? (parseFloat(data.difference) >= 0 ? '#16a34a' : 'hsl(var(--destructive))')
+                                    : undefined,
+                                }}>
+                                  {data.difference != null ? formatEuro(data.difference) : '—'}
+                                </p>
+                              </div>
+                            </div>
+                          ) : (
+                            <p className="text-xs text-muted-foreground">Kein Abschlag hinterlegt.</p>
+                          )}
+                        </div>
+                      );
+                    });
+                  })()}
+                </>
               )}
             </div>
           );
@@ -696,6 +988,52 @@ const chartData = section.readings.map((r) => ({
                       </div>
                     </div>
                   )}
+                  {eegProjectionError && (
+                    <div className="text-xs text-destructive">{eegProjectionError}</div>
+                  )}
+                  {eegProjection && eegProjection.basis === 'actual_full_year' && (
+                    <div className="border rounded-lg p-3 bg-muted/20">
+                      <h4 className="text-xs font-semibold text-muted-foreground mb-2">EEG-Einspeisevergütung (Prognose)</h4>
+                      <p className="text-xs text-muted-foreground">
+                        Das Jahr {year} ist bereits abgeschlossen. Die tatsächlichen Werte werden oben angezeigt.
+                      </p>
+                    </div>
+                  )}
+                  {eegProjectionLoading && (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      Lade EEG-Prognose...
+                    </div>
+                  )}
+                  {eegProjection && eegProjection.basis !== 'actual_full_year' && eegProjection.production_consumption != null && (
+                    <div className="border rounded-lg p-3 bg-muted/20">
+                      <h4 className="text-xs font-semibold text-muted-foreground mb-2">EEG-Einspeisevergütung (Prognose)</h4>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        <div className="bg-muted rounded p-2">
+                          <p className="text-[10px] text-muted-foreground">Erzeugung (P)</p>
+                          <p className="text-sm font-semibold">{parseFloat(eegProjection.production_consumption).toFixed(0)} kWh</p>
+                        </div>
+                        <div className="bg-muted rounded p-2">
+                          <p className="text-[10px] text-muted-foreground">Einspeisung (E)</p>
+                          <p className="text-sm font-semibold">{parseFloat(eegProjection.export_consumption!).toFixed(0)} kWh</p>
+                        </div>
+                        <div className="bg-muted rounded p-2">
+                          <p className="text-[10px] text-muted-foreground">Eigenverbrauch</p>
+                          <p className="text-sm font-semibold">{parseFloat(eegProjection.self_consumption!).toFixed(0)} kWh</p>
+                          <p className="text-[10px] text-muted-foreground mt-0.5">
+                            Tier 1: {parseFloat(eegProjection.tier1_kwh!).toFixed(1)} &bull; Tier 2: {parseFloat(eegProjection.tier2_kwh!).toFixed(0)} kWh
+                          </p>
+                        </div>
+                        <div className="bg-muted rounded p-2">
+                          <p className="text-[10px] text-muted-foreground">Vergütung</p>
+                          <p className="text-sm font-semibold">{formatEuro(eegProjection.total_compensation!)}</p>
+                        </div>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground mt-2">
+                        Basis: {basisLabel(eegProjection.basis as YearlyProjection['basis'])}
+                      </p>
+                    </div>
+                  )}
                   {electricSections.map((s, i) => renderMeterBlock(s, i))}
                 </CardContent>
               </Card>
@@ -726,7 +1064,7 @@ const chartData = section.readings.map((r) => ({
                         <h4 className="text-xs font-semibold text-muted-foreground mb-2">Abwasserkosten</h4>
                         <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
                           <div className="bg-muted rounded p-2">
-                            <p className="text-[10px] text-muted-foreground">Kaltwasserverbrauch</p>
+                            <p className="text-[10px] text-muted-foreground">Frischwasserverbrauch</p>
                             <p className="text-sm font-semibold">{parseFloat(wastewaterData.cold_consumption).toFixed(1)} m³</p>
                           </div>
                           <div className="bg-muted rounded p-2">
@@ -763,7 +1101,7 @@ const chartData = section.readings.map((r) => ({
                           return (
                             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                               <div className="bg-muted rounded p-2">
-                                <p className="text-[10px] text-muted-foreground">Frischwasser Kaltwasser</p>
+                                <p className="text-[10px] text-muted-foreground">Frischwasser</p>
                                 <p className="text-sm font-semibold">{formatEuro(coldCost)}</p>
                               </div>
                               {gardenCost && (
@@ -786,6 +1124,57 @@ const chartData = section.readings.map((r) => ({
                       </div>
                     </>
                   )}
+
+                  {(() => {
+                    const hasColdWater = waterSections.some(s => s.overviewItem.meter_type === 'water_cold');
+                    const waterAdvanceCategories: Array<{
+                      cat: 'cold_water' | 'wastewater';
+                      label: string;
+                    }> = [];
+                    if (hasColdWater) {
+                      waterAdvanceCategories.push({ cat: 'cold_water', label: 'Frischwasser' });
+                      waterAdvanceCategories.push({ cat: 'wastewater', label: 'Abwasser' });
+                    }
+                    if (waterAdvanceCategories.length === 0) return null;
+                    return (
+                      <div className="border rounded-lg p-3 bg-muted/20">
+                        <h4 className="text-xs font-semibold text-muted-foreground mb-2">Abschlagsdifferenzen</h4>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          {waterAdvanceCategories.map(({ cat, label }) => {
+                            const data = advancePaymentDiffs[cat];
+                            return (
+                              <div key={cat} className="bg-muted rounded p-2">
+                                <p className="text-[10px] text-muted-foreground mb-1">{label}</p>
+                                {data ? (
+                                  <div className="grid grid-cols-2 gap-2">
+                                    <div>
+                                      <p className="text-[10px] text-muted-foreground">Abschlagszahlungen (hochger.)</p>
+                                      <p className="text-xs font-semibold">
+                                        {data.total_advance_payments != null ? formatEuro(data.total_advance_payments) : '—'}
+                                      </p>
+                                    </div>
+                                    <div>
+                                      <p className="text-[10px] text-muted-foreground">Differenz zu Abschlägen</p>
+                                      <p className="text-xs font-semibold" style={{
+                                        color: data.difference != null
+                                          ? (parseFloat(data.difference) >= 0 ? '#16a34a' : 'hsl(var(--destructive))')
+                                          : undefined,
+                                      }}>
+                                        {data.difference != null ? formatEuro(data.difference) : '—'}
+                                      </p>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <p className="text-xs text-muted-foreground">Kein Abschlag hinterlegt.</p>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
                   {waterSections.map((s, i) => renderMeterBlock(s, i))}
                 </CardContent>
               </Card>

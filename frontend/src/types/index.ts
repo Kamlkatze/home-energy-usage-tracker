@@ -112,6 +112,20 @@ export interface FeedInCompensation {
   total_compensation: string;
 }
 
+export interface FeedInCompensationProjection {
+  production_meter_id: number;
+  export_meter_id: number;
+  year: number;
+  production_consumption: string | null;
+  export_consumption: string | null;
+  self_consumption: string | null;
+  tier1_kwh: string | null;
+  tier2_kwh: string | null;
+  total_compensation: string | null;
+  basis: string;
+  message: string | null;
+}
+
 export type AdvancePaymentCategory = 'gas' | 'cold_water' | 'wastewater' | 'power_import';
 
 export interface AdvancePayment {
@@ -139,4 +153,15 @@ export interface WastewaterCosts {
   price_per_unit: string;
   base_fee_total: string;
   total_cost: string;
+}
+
+export interface AdvancePaymentDiffByCategory {
+  meter_id: number;
+  year: number;
+  category: AdvancePaymentCategory;
+  estimated_or_actual_cost: string | null;
+  cost_basis: 'actual' | 'projected' | null;
+  total_advance_payments: string | null;
+  difference: string | null;
+  message: string | null;
 }

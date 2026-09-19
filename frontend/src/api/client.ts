@@ -1,5 +1,5 @@
-import axios from 'axios';
-import { Meter, MeterUpdateData } from '../types';
+import axios, { AxiosError } from 'axios';
+import { Meter, MeterUpdateData, AdvancePaymentDiffByCategory } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 
@@ -154,6 +154,44 @@ export const costsApi = {
     const response = await apiClient.get('/api/costs/wastewater/', { params });
     return response.data;
   },
+
+  getAdvancePaymentDiffByCategory: async (
+    category: 'gas' | 'cold_water' | 'wastewater' | 'power_import',
+    year: number,
+    meterId?: number,
+    waterColdMeterId?: number,
+    waterGardenMeterId?: number,
+    asOfDate?: string,
+  ): Promise<AdvancePaymentDiffByCategory | null> => {
+    const params: Record<string, string | number | undefined> = {
+      category,
+      year,
+    };
+    if (category === 'wastewater') {
+      if (waterColdMeterId !== undefined) {
+        params.water_cold_meter_id = waterColdMeterId;
+      }
+      if (waterGardenMeterId !== undefined) {
+        params.water_garden_meter_id = waterGardenMeterId;
+      }
+    } else {
+      if (meterId !== undefined) {
+        params.meter_id = meterId;
+      }
+    }
+    if (asOfDate !== undefined) {
+      params.as_of_date = asOfDate;
+    }
+    try {
+      const response = await apiClient.get('/api/costs/advance-payment-diff-by-category', { params });
+      return response.data;
+    } catch (error) {
+      if (error instanceof AxiosError && error.response?.status === 404) {
+        return null;
+      }
+      throw error;
+    }
+  },
 };
 
 export const electricityApi = {
@@ -169,6 +207,20 @@ export const electricityApi = {
         export_meter_id: exportMeterId,
         from,
         to,
+      },
+    });
+    return response.data;
+  },
+  getFeedInCompensationProjection: async (
+    productionMeterId: number,
+    exportMeterId: number,
+    year: number,
+  ) => {
+    const response = await apiClient.get('/api/electricity/feed-in-compensation-projection', {
+      params: {
+        production_meter_id: productionMeterId,
+        export_meter_id: exportMeterId,
+        year,
       },
     });
     return response.data;
