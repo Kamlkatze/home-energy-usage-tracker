@@ -15,6 +15,33 @@ const COLORS = [
   '#ec4899', '#14b8a6', '#f97316',
 ];
 
+const ChartTooltip: React.FC<{ active?: boolean; payload?: any[], label?: any; items: YearsOverviewItem[] }> = ({ active, payload, label, items }) => {
+  if (!active || !payload || payload.length === 0) return null;
+  return (
+    <div style={{
+      backgroundColor: 'hsl(var(--popover))',
+      color: 'hsl(var(--popover-foreground))',
+      border: '1px solid hsl(var(--border))',
+      borderRadius: 'var(--radius)',
+      padding: '8px 12px',
+      fontSize: '12px',
+    }}>
+      <p style={{ marginBottom: 4, fontWeight: 600 }}>Jahr: {label}</p>
+      {payload.map((p: any, idx: number) => {
+        const unit = items.find(i => i.meter_label === p.name)?.unit || '';
+        const value = typeof p.value === 'number'
+          ? (unit === 'kWh' ? `${Math.round(p.value)} ${unit}` : `${p.value.toFixed(2)} ${unit}`)
+          : p.value;
+        return (
+          <p key={idx} style={{ color: p.color, margin: 0 }}>
+            {p.name}: {value}
+          </p>
+        );
+      })}
+    </div>
+  );
+};
+
 const YearsOverview: React.FC = () => {
   const [items, setItems] = useState<YearsOverviewItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -131,7 +158,7 @@ const YearsOverview: React.FC = () => {
                     return (
                       <TableCell key={item.meter_id}>
                         {val != null
-                          ? `${item.unit === 'kWh' ? Math.round(parseFloat(val)) : parseFloat(val).toFixed(1)} ${item.unit}`
+                          ? `${item.unit === 'kWh' ? Math.round(parseFloat(val)) : parseFloat(val).toFixed(2)} ${item.unit}`
                           : '—'}
                       </TableCell>
                     );
@@ -152,16 +179,40 @@ const YearsOverview: React.FC = () => {
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="year" />
-                <YAxis />
-                <Tooltip />
-                <Legend />
+                <XAxis
+                  dataKey="year"
+                  stroke="hsl(var(--muted-foreground))"
+                  tick={{ fill: 'hsl(var(--muted-foreground))' }}
+                />
+                <YAxis
+                  stroke="hsl(var(--muted-foreground))"
+                  tick={{ fill: 'hsl(var(--muted-foreground))' }}
+                  tickFormatter={(v: number) => Math.round(v).toString()}
+                  label={{ value: 'Verbrauch', angle: -90, position: 'insideLeft', fill: 'hsl(var(--muted-foreground))' }}
+                />
+                <Tooltip content={<ChartTooltip items={items} />} />
+                <Legend
+                  content={({ payload }) => (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', justifyContent: 'center', padding: '8px 0' }}>
+                      {payload?.map((entry: any, idx: number) => {
+                        const item = items.find(i => i.meter_label === entry.value);
+                        const unit = item?.unit || '';
+                        return (
+                          <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <div style={{ width: 12, height: 12, backgroundColor: entry.color, borderRadius: 2 }} />
+                            <span style={{ color: 'hsl(var(--foreground))', fontSize: 12 }}>{entry.value} ({unit})</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                />
                 {items.map((item, idx) => (
                   <Line
                     key={item.meter_id}
                     type="monotone"
                     dataKey={item.meter_label}
-                    name={`${item.meter_label} (${item.unit})`}
+                    name={item.meter_label}
                     stroke={COLORS[idx % COLORS.length]}
                     strokeWidth={2}
                     dot={{ r: 4 }}
