@@ -414,9 +414,6 @@ const coldConsActual = coldSection.projection?.actual_consumption_to_date ?? col
                   <div className="bg-muted rounded p-1.5">
                     <p className="text-[10px] text-muted-foreground">Abwasserkosten prognostiziert</p>
                     <p className="text-xs font-semibold">{awCostProj != null ? formatEuro(awCostProj) : '—'}</p>
-                    {awCostProj != null && (
-                      <p className="text-[9px] text-muted-foreground mt-0.5">Schätzung</p>
-                    )}
                   </div>
                   {awDiff ? (
                     <>
