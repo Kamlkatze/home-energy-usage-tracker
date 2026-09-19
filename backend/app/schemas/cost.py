@@ -4,6 +4,8 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from ..models.advance_payment import AdvancePaymentCategory
+
 
 class CostCalculationResponse(BaseModel):
     meter_id: int
@@ -38,6 +40,10 @@ class AdvancePaymentDiffResponse(BaseModel):
     total_advance_payments: str | None = None
     difference: str | None = None
     message: str | None = None
+
+
+class AdvancePaymentDiffByCategoryResponse(AdvancePaymentDiffResponse):
+    category: AdvancePaymentCategory
 
 
 class FeedInCompensationResponse(BaseModel):

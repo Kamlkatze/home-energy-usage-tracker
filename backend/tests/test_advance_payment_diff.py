@@ -428,3 +428,196 @@ def test_wastewater_advance_payment_without_garden_meter_uses_full_cold_water_co
         db_session, cold_meter_id, garden_meter_id, date(2023, 1, 1), date(2023, 12, 31),
     )
     assert consumption_with_garden == Decimal("450.000")
+
+
+# ---------------------------------------------------------------------------
+# Tests for GET /api/costs/advance-payment-diff-by-category
+# ---------------------------------------------------------------------------
+
+
+def call_diff_by_category(client, category, year, as_of_date=None, meter_id=None,
+                          water_cold_meter_id=None, water_garden_meter_id=None):
+    params = {"category": category, "year": year}
+    if as_of_date is not None:
+        params["as_of_date"] = as_of_date
+    if meter_id is not None:
+        params["meter_id"] = meter_id
+    if water_cold_meter_id is not None:
+        params["water_cold_meter_id"] = water_cold_meter_id
+    if water_garden_meter_id is not None:
+        params["water_garden_meter_id"] = water_garden_meter_id
+    return client.get("/api/costs/advance-payment-diff-by-category", params=params)
+
+
+def test_diff_by_category_power_import(client):
+    """Happy path: category=power_import returns same data as
+    advance-payment-diff with category field."""
+    meter_id = _create_meter(client)
+    _create_reading(client, meter_id, "1000.000", "2022-12-31")
+    _create_reading(client, meter_id, "1500.000", "2023-06-30")
+    _create_reading(client, meter_id, "2000.000", "2023-12-31")
+    _create_tariff(
+        client, meter_id,
+        valid_from="2023-01-01", valid_to="2023-12-31",
+        price_per_unit="0.35000", base_fee_monthly="12.00",
+    )
+    _create_advance_payment(
+        client, meter_id,
+        valid_from="2023-01-01", valid_to="2023-12-31",
+        monthly_amount="100.00",
+    )
+
+    response = call_diff_by_category(
+        client, category="power_import", year=2023,
+        as_of_date="2024-01-15", meter_id=meter_id,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["category"] == "power_import"
+    assert data["meter_id"] == meter_id
+    assert data["year"] == 2023
+    assert data["cost_basis"] == "actual"
+    assert Decimal(data["estimated_or_actual_cost"]) == Decimal("495.60")
+    assert Decimal(data["total_advance_payments"]) == Decimal("1216.67")
+    assert Decimal(data["difference"]) == Decimal("721.07")
+
+
+def test_diff_by_category_gas(client):
+    """Happy path: category=gas completes successfully."""
+    meter_id = _create_meter(client, "gas")
+    _create_reading(client, meter_id, "1000.000", "2022-12-31")
+    _create_reading(client, meter_id, "1500.000", "2023-06-30")
+    _create_reading(client, meter_id, "2000.000", "2023-12-31")
+    _create_tariff(
+        client, meter_id,
+        valid_from="2023-01-01", valid_to="2023-12-31",
+        price_per_unit="0.12000", base_fee_monthly="15.00",
+        gas_z_zahl="0.95", gas_brennwert="11.0",
+    )
+    _create_advance_payment(
+        client, meter_id,
+        valid_from="2023-01-01", valid_to="2023-12-31",
+        monthly_amount="80.00", category="gas",
+    )
+
+    response = call_diff_by_category(
+        client, category="gas", year=2023,
+        as_of_date="2024-01-15", meter_id=meter_id,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["category"] == "gas"
+    assert data["meter_id"] == meter_id
+    assert data["year"] == 2023
+
+
+def test_diff_by_category_cold_water(client):
+    """Happy path: category=cold_water completes successfully."""
+    meter_id = _create_meter(client, "water_cold")
+    _create_reading(client, meter_id, "500.000", "2022-12-31")
+    _create_reading(client, meter_id, "800.000", "2023-06-30")
+    _create_reading(client, meter_id, "1100.000", "2023-12-31")
+    _create_tariff(
+        client, meter_id,
+        valid_from="2023-01-01", valid_to="2023-12-31",
+        price_per_unit="2.50000", base_fee_monthly="10.00",
+    )
+    _create_advance_payment(
+        client, meter_id,
+        valid_from="2023-01-01", valid_to="2023-12-31",
+        monthly_amount="50.00", category="cold_water",
+    )
+
+    response = call_diff_by_category(
+        client, category="cold_water", year=2023,
+        as_of_date="2024-01-15", meter_id=meter_id,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["category"] == "cold_water"
+    assert data["meter_id"] == meter_id
+
+
+def test_diff_by_category_wastewater(client):
+    """Happy path: category=wastewater completes successfully."""
+    cold_meter_id = _create_meter(client, "water_cold")
+    garden_meter_id = _create_meter(client, "water_garden")
+
+    _create_reading(client, cold_meter_id, "1000.000", "2022-12-31")
+    _create_reading(client, cold_meter_id, "1500.000", "2023-12-31")
+    _create_reading(client, garden_meter_id, "200.000", "2022-12-31")
+    _create_reading(client, garden_meter_id, "250.000", "2023-12-31")
+
+    _create_tariff(
+        client, cold_meter_id,
+        valid_from="2023-01-01", valid_to="2023-12-31",
+        price_per_unit="4.00000", base_fee_monthly="15.00",
+        tariff_kind="wastewater",
+    )
+    _create_wastewater_advance_payment(
+        client, cold_meter_id,
+        valid_from="2023-01-01", valid_to="2023-12-31",
+        monthly_amount="160.00",
+        water_garden_meter_id=garden_meter_id,
+    )
+
+    response = call_diff_by_category(
+        client, category="wastewater", year=2023,
+        as_of_date="2024-01-15",
+        water_cold_meter_id=cold_meter_id,
+        water_garden_meter_id=garden_meter_id,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["category"] == "wastewater"
+    assert data["meter_id"] == cold_meter_id
+    assert Decimal(data["estimated_or_actual_cost"]) == Decimal("1982.00")
+    assert Decimal(data["total_advance_payments"]) == Decimal("1946.67")
+    assert Decimal(data["difference"]) == Decimal("-35.33")
+
+
+def test_diff_by_category_missing_meter_id(client):
+    """422 when meter_id is missing for a non-wastewater category."""
+    response = call_diff_by_category(
+        client, category="power_import", year=2023,
+        as_of_date="2024-01-15",
+    )
+    assert response.status_code == 422
+    assert "meter_id ist erforderlich" in response.json()["detail"]
+
+
+def test_diff_by_category_missing_water_cold_meter_id(client):
+    """422 when water_cold_meter_id is missing for wastewater."""
+    response = call_diff_by_category(
+        client, category="wastewater", year=2023,
+        as_of_date="2024-01-15",
+    )
+    assert response.status_code == 422
+    assert "water_cold_meter_id ist erforderlich" in response.json()["detail"]
+
+
+def test_diff_by_category_both_meter_and_water_cold(client):
+    """422 when both meter_id AND water_cold_meter_id are set for wastewater."""
+    meter_id = _create_meter(client)
+    response = call_diff_by_category(
+        client, category="wastewater", year=2023,
+        as_of_date="2024-01-15",
+        meter_id=meter_id,
+        water_cold_meter_id=meter_id,
+    )
+    assert response.status_code == 422
+    assert "meter_id darf nicht gesetzt sein" in response.json()["detail"]
+
+
+def test_diff_by_category_water_params_for_non_wastewater(client):
+    """422 when water_cold_meter_id is set for a non-wastewater category."""
+    meter_id = _create_meter(client)
+    response = call_diff_by_category(
+        client, category="gas", year=2023,
+        as_of_date="2024-01-15",
+        meter_id=meter_id,
+        water_cold_meter_id=999,
+    )
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert "water_cold_meter_id darf nicht gesetzt sein" in detail

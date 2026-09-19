@@ -5,6 +5,7 @@ from .advance_payment import (
     AdvancePaymentUpdate,
 )
 from .cost import (
+    AdvancePaymentDiffByCategoryResponse,
     AdvancePaymentDiffResponse,
     CostCalculationResponse,
     FeedInCompensationResponse,
@@ -27,6 +28,7 @@ __all__ = [
     "AdvancePayment",
     "AdvancePaymentCategory",
     "AdvancePaymentCreate",
+    "AdvancePaymentDiffByCategoryResponse",
     "AdvancePaymentDiffResponse",
     "AdvancePaymentUpdate",
     "CostCalculationResponse",

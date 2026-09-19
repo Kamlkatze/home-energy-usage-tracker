@@ -7,6 +7,7 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from .. import models, schemas
+from ..models.advance_payment import AdvancePaymentCategory
 from ..services.meter_chain import get_meter_chain
 from ..services.projection import ProjectionService
 from .deps import get_database_session
@@ -1352,6 +1353,21 @@ def get_advance_payment_diff(
     if as_of_date is None:
         as_of_date = datetime.now(UTC).date()
 
+    return _compute_advance_payment_diff(
+        db=db, meter_id=meter_id, year=year, as_of_date=as_of_date,
+        water_cold_meter_id=water_cold_meter_id,
+        water_garden_meter_id=water_garden_meter_id,
+    )
+
+
+def _compute_advance_payment_diff(
+    db: Session,
+    meter_id: int,
+    year: int,
+    as_of_date: date,
+    water_cold_meter_id: int | None = None,
+    water_garden_meter_id: int | None = None,
+) -> schemas.AdvancePaymentDiffResponse:
     is_wastewater = water_cold_meter_id is not None
 
     if is_wastewater:
@@ -1409,6 +1425,82 @@ def get_advance_payment_diff(
         total_advance_payments=str(total_advance_payments) if found else None,
         difference=str(difference) if difference is not None else None,
         message=message,
+    )
+
+
+@router.get(
+    "/advance-payment-diff-by-category",
+    response_model=schemas.AdvancePaymentDiffByCategoryResponse,
+)
+def get_advance_payment_diff_by_category(
+    category: AdvancePaymentCategory = Query(...),
+    year: int = Query(...),
+    as_of_date: date | None = Query(
+        None,
+        description=(
+            "Referenzdatum 'heute' (Standard: Server-Datum). Bestimmt, ob das "
+            "Jahr als abgeschlossen ('actual') oder laufend/zukünftig "
+            "('projected') bewertet wird."
+        ),
+    ),
+    meter_id: int | None = Query(
+        None,
+        description="Erforderlich für Kategorien gas, cold_water, power_import.",
+    ),
+    water_cold_meter_id: int | None = Query(
+        None,
+        description="Erforderlich für Kategorie wastewater.",
+    ),
+    water_garden_meter_id: int | None = Query(
+        None,
+        description="Optional für Kategorie wastewater. Gartenwasserverbrauch wird abgezogen.",
+    ),
+    db: Session = Depends(get_database_session),
+):
+    if as_of_date is None:
+        as_of_date = datetime.now(UTC).date()
+
+    if category == AdvancePaymentCategory.WASTEWATER:
+        if water_cold_meter_id is None:
+            raise HTTPException(
+                status_code=422,
+                detail="water_cold_meter_id ist erforderlich für Kategorie wastewater.",
+            )
+        if meter_id is not None:
+            raise HTTPException(
+                status_code=422,
+                detail="meter_id darf nicht gesetzt sein für Kategorie wastewater.",
+            )
+        result = _compute_advance_payment_diff(
+            db=db, meter_id=water_cold_meter_id, year=year,
+            as_of_date=as_of_date,
+            water_cold_meter_id=water_cold_meter_id,
+            water_garden_meter_id=water_garden_meter_id,
+        )
+    else:
+        if meter_id is None:
+            raise HTTPException(
+                status_code=422,
+                detail="meter_id ist erforderlich für diese Kategorie.",
+            )
+        if water_cold_meter_id is not None:
+            raise HTTPException(
+                status_code=422,
+                detail="water_cold_meter_id darf nicht gesetzt sein für diese Kategorie.",
+            )
+        if water_garden_meter_id is not None:
+            raise HTTPException(
+                status_code=422,
+                detail="water_garden_meter_id darf nicht gesetzt sein für diese Kategorie.",
+            )
+        result = _compute_advance_payment_diff(
+            db=db, meter_id=meter_id, year=year, as_of_date=as_of_date,
+        )
+
+    # Add category to the response
+    return schemas.AdvancePaymentDiffByCategoryResponse(
+        **result.model_dump(),
+        category=category,
     )
 
 

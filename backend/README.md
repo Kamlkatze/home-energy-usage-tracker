@@ -54,6 +54,7 @@ uv run --extra dev pytest tests/test_costs.py
 uv run --extra dev pytest tests/test_meter_replacement.py
 uv run --extra dev pytest tests/test_advance_payments.py
 uv run --extra dev pytest tests/test_advance_payment_diff.py
+uv run --extra dev pytest tests/test_advance_payment_diff.py -k "by_category"
 
 # Run with verbose output
 uv run --extra dev pytest -v
@@ -71,6 +72,7 @@ uv run --extra dev pytest -v
 - Yearly projection with cost
 - Years overview (logical meter resolution, chain-aware yearly consumption/cost across all years with readings)
 - Advance payment diff (cost vs. Abschläge comparison), incl. wastewater diff with and without garden meter (full cold-water consumption when `water_garden_meter_id` is omitted)
+- Advance payment diff by category (wrapper with category validation for all 4 `AdvancePaymentCategory` values: `gas`, `cold_water`, `power_import`, `wastewater`) — success paths and 422 validation errors
 - EEG 2009 feed-in compensation calculation
 - Decimal serialization as strings
 - **Current meters** (`GET /api/meters/current`): empty DB, standalone meters, replacement chain filtering, mixed chain + standalone
@@ -248,6 +250,45 @@ Compares paid/planned monthly Abschläge against the estimated annual cost:
 - `meter_id` in the response is the cold-water meter id
 
 Returns **200** with `total_advance_payments: null` when no advance payment exists. Returns **404** when meter not found, **422** for invalid year (outside 2000–2100).
+
+### Advance Payment Diff By Category
+
+**`GET /api/costs/advance-payment-diff-by-category?category={cat}&year={year}&meter_id={id}&water_cold_meter_id={id}`**
+
+Thin wrapper around the `advance-payment-diff` endpoint that adds category-based parameter validation. Internally calls `_compute_advance_payment_diff` (same logic as `advance-payment-diff`). Response is identical to `advance-payment-diff` plus a `category` field.
+
+**Query Parameters:**
+| Parameter | Required | Description |
+|---|---|---|
+| `category` | ✅ | Enum: `gas`, `cold_water`, `power_import`, `wastewater` |
+| `year` | ✅ | Target year (2000–2100) |
+| `as_of_date` | optional | Reference date (default: server date). Determines `actual` vs `projected` cost basis |
+| `meter_id` | ✅ (non-wastewater) | Meter ID for categories `gas`, `cold_water`, `power_import`. Must not be set for `wastewater` |
+| `water_cold_meter_id` | ✅ (wastewater) | Cold water meter ID for `wastewater` category. Must not be set for non-wastewater |
+| `water_garden_meter_id` | optional | Garden water meter ID (only for `wastewater`). When omitted, full cold-water consumption counts as wastewater |
+
+**Validation:**
+- `wastewater`: `water_cold_meter_id` required, `meter_id` must be null → 422 otherwise
+- Other categories: `meter_id` required, `water_cold_meter_id`/`water_garden_meter_id` must be null → 422 otherwise
+
+**Example Request:**
+```
+GET /api/costs/advance-payment-diff-by-category?category=power_import&year=2023&meter_id=1&as_of_date=2024-01-15
+```
+
+**Response (200):**
+```json
+{
+  "meter_id": 1,
+  "year": 2023,
+  "estimated_or_actual_cost": "495.60",
+  "cost_basis": "actual",
+  "total_advance_payments": "1216.67",
+  "difference": "721.07",
+  "message": null,
+  "category": "power_import"
+}
+```
 
 ### Years Overview
 
