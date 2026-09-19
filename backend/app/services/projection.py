@@ -314,6 +314,8 @@ class ProjectionService:
                 "days_elapsed": None,
                 "projected_annual_consumption": None,
                 "projected_meter_reading_end_of_year": None,
+                "start_reading_value": None,
+                "start_reading_date": None,
                 "basis": "insufficient_data",
                 "message": f"Nicht genügend Zählerstände im Jahr {year} vorhanden, um eine Hochrechnung zu erstellen."
             }
@@ -329,6 +331,8 @@ class ProjectionService:
                 "days_elapsed": None,
                 "projected_annual_consumption": None,
                 "projected_meter_reading_end_of_year": None,
+                "start_reading_value": None,
+                "start_reading_date": None,
                 "basis": "insufficient_data",
                 "message": f"Nicht genügend Zählerstände im Jahr {year} vorhanden, um eine Hochrechnung zu erstellen."
             }
@@ -367,6 +371,8 @@ class ProjectionService:
                     "days_elapsed": None,
                     "projected_annual_consumption": None,
                     "projected_meter_reading_end_of_year": None,
+                    "start_reading_value": None,
+                    "start_reading_date": None,
                     "basis": "insufficient_data",
                     "message": f"Nicht genügend Zählerstände im Jahr {year} vorhanden, um eine Hochrechnung zu erstellen."
                 }
@@ -390,6 +396,8 @@ class ProjectionService:
             "days_elapsed": days_elapsed,
             "projected_annual_consumption": projected_annual,
             "projected_meter_reading_end_of_year": projected_meter_reading_end_of_year,
+            "start_reading_value": start_reading.value,
+            "start_reading_date": start_reading.reading_date,
             "basis": basis,
             "message": message
         }

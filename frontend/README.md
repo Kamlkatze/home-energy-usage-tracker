@@ -37,9 +37,10 @@
 
 **Chart implementation notes (MeterBlock):**
 - **Projection line via `combinedData`:** Dashed projection does NOT use separate `<Line data={...}>` – Recharts only creates tooltip hit targets in the primary `data` array. All points are merged into `combinedData`: main Line uses `dataKey="value"`, projection Line uses `dataKey="projectedValue"`. End-of-year point carries `value: undefined` (invisible) and `isProjectionEnd: true`.
-- **Custom tooltip `ChartTooltip`** (module level): dark-mode via `hsl(var(--popover))` / `hsl(var(--popover-foreground))`. "Hochrechnung" only rendered when hovered point is in the future; otherwise only "Zählerstand" appears.
+- **Consumption mode toggle ("seit 01.01."):** New in this iteration. Each chart (MeterBlock, GasMeterView, WaterSection combined chart) has a toggle button to switch between absolute meter readings and cumulative consumption since Jan 1. In consumption mode, every reading value is offset by `start_reading_value` (from the projection response) — the chart starts at 0 and the Y-axis lower bound is fixed at 0. Projection line uses `projected_annual_consumption` instead of `projected_meter_reading_end_of_year`. Default is consumption mode (`useState(true)`).
+- **Nice Y-axis bounds:** New helper `niceAxisBounds()` in `utils.ts` computes data-min/max → even-number axis bounds with a constant step (2, 4, 10, 20, 40, 100, …). The lower bound is never negative. Replaces the old 10 % dynamic padding approach.
+- **Custom tooltip `ChartTooltip`** (module level): dark-mode via `hsl(var(--popover))` / `hsl(var(--popover-foreground))`. "Hochrechnung" only rendered when hovered point is in the future. Values formatted unit-aware: kWh → `Math.round()`, m³ → `toFixed(1)`.
 - **Dark-mode axes:** explicit `stroke`/`tick.fill` using `hsl(var(--muted-foreground))`. YAxis tick values rounded to whole numbers.
-- **Y-domain:** computed from both `chartData` and `projectionData` with 10 % padding so early low readings aren't cut off.
 - **Unit-aware formatting:** kWh → integers (`Math.round`), m³ → one decimal (`toFixed(1)`). EEG kWh → `toFixed(0)`. Same in `YearsOverview.tsx`.
 
 ## 3. Existing Components
@@ -68,7 +69,7 @@ All follow the shadcn/ui pattern (Tailwind + `cn()` helper, forwardRef, displayN
 | Module | Description |
 |---|---|
 | `types.ts` | Shared interfaces: `MeterSection`, `AdvancePaymentDiffs` |
-| `utils.ts` | Helpers: `formatEuro()`, `basisLabel()` |
+| `utils.ts` | Helpers: `formatEuro()`, `basisLabel()`, `niceAxisBounds()` (even-number axis bounds with constant step, no negative values) |
 | `MeterBlock.tsx` | Single meter card: chart, readings, projection. Contains all Recharts logic (combinedData, ChartTooltip, dark-mode styling, unit-aware formatting). |
 | `ElectricitySection.tsx` | Strom category: all electricity meters + EEG Einspeisevergütung card. |
 | `WaterSection.tsx` | Wasser category: combined consumption strip (FW/GW/AW actual + projected), dual-line chart (Frischwasser + Gartenwasser with projections), paired 3×2 comparison grids (Frischwasser costs + Abwasserkosten with advance payment diffs), and separate Zählerstände tables for both Frischwasser and Gartenwasser. No longer uses individual MeterBlocks. |
@@ -87,7 +88,7 @@ All follow the shadcn/ui pattern (Tailwind + `cn()` helper, forwardRef, displayN
 | `lib/utils.ts` | `cn()` helper combining `clsx` and `tailwind-merge`. |
 
 ### Types (`types/index.ts`)
-Defines: `MeterType`, `TariffKind`, `MeterTypeInfo`, `Meter`, `Reading`, `TariffPeriod` (incl. `comment`), `TariffUsage`, `AdvancePaymentCategory`, `AdvancePayment` (incl. `comment`), `YearEntry`, `YearsOverviewItem`, `YearlyProjection`, `FeedInCompensation`, `WastewaterCosts` — aligned with backend schemas.
+Defines: `MeterType`, `TariffKind`, `MeterTypeInfo`, `Meter`, `Reading`, `TariffPeriod` (incl. `comment`), `TariffUsage`, `AdvancePaymentCategory`, `AdvancePayment` (incl. `comment`), `YearEntry`, `YearsOverviewItem`, `YearlyProjection` (incl. `start_reading_value`, `start_reading_date`), `FeedInCompensation`, `WastewaterCosts` — aligned with backend schemas.
 
 ## 4. API Integration
 

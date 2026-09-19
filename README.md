@@ -6,7 +6,7 @@ A simple, local application for tracking electricity, gas, and water consumption
 
 - **Track multiple meters**: Gas, cold/garden water (m³), electricity import/export/production (kWh) — the unit is derived automatically from the meter type
 - **Record readings**: Simple form to add meter readings with dates and optional notes
-- **Visualize consumption**: Line charts showing usage trends over time
+- **Visualize consumption**: Line charts showing usage trends over time, with toggle between absolute meter readings and cumulative consumption since Jan 1 (starts at 0, even-number axis bounds)
 - **Tariff management**: Track price per unit and base fees for different periods, with optional comment field for provider name and category filter buttons (Strom Bezug/Gas/Wasser) in the list view
 - **Advance payment management**: Track monthly Abschläge per meter with category (gas, cold water, wastewater, power import), time-range validity, overlap protection, optional comment field, and an "Alle" button showing all categories at once in the list view
 - **Meter replacement chain**: When a physical meter is swapped, link the new meter to its predecessor via `replaces_meter_id`. Cost calculations automatically follow the chain, summing each meter's contribution — no negative consumption from a counter reset on the new device
@@ -465,6 +465,8 @@ The 30 % threshold is a fixed statutory value from EEG 2009 § 33 Abs. 2, not co
   "actual_consumption_to_date": "250.500",
   "projected_annual_consumption": "601.447",
   "projected_meter_reading_end_of_year": "2675.447",
+  "start_reading_value": "2074.000",
+  "start_reading_date": "2024-12-31",
   "basis": "linear_from_prev_year_end",
   "actual_cost_to_date": "92.35",
   "projected_annual_cost": "221.89",
@@ -482,6 +484,8 @@ The 30 % threshold is a fixed statutory value from EEG 2009 § 33 Abs. 2, not co
   "actual_consumption_to_date": "250.500",
   "projected_annual_consumption": "601.447",
   "projected_meter_reading_end_of_year": "2675.447",
+  "start_reading_value": "2074.000",
+  "start_reading_date": "2024-12-31",
   "basis": "linear_from_prev_year_end",
   "actual_cost_to_date": null,
   "projected_annual_cost": null,
@@ -528,6 +532,9 @@ The 30 % threshold is a fixed statutory value from EEG 2009 § 33 Abs. 2, not co
   "actual_consumption_to_date": "250.500",
   "days_elapsed": 152,
   "projected_annual_consumption": "601.447",
+  "projected_meter_reading_end_of_year": "2675.447",
+  "start_reading_value": "2074.000",
+  "start_reading_date": "2024-12-31",
   "basis": "linear_from_prev_year_end",
   "message": null
 }
@@ -542,6 +549,9 @@ The 30 % threshold is a fixed statutory value from EEG 2009 § 33 Abs. 2, not co
   "actual_consumption_to_date": "850.250",
   "days_elapsed": 366,
   "projected_annual_consumption": "850.250",
+  "projected_meter_reading_end_of_year": "2850.250",
+  "start_reading_value": "2000.000",
+  "start_reading_date": "2024-01-15",
   "basis": "actual_full_year",
   "message": null
 }
@@ -556,6 +566,9 @@ The 30 % threshold is a fixed statutory value from EEG 2009 § 33 Abs. 2, not co
   "actual_consumption_to_date": null,
   "days_elapsed": null,
   "projected_annual_consumption": null,
+  "projected_meter_reading_end_of_year": null,
+  "start_reading_value": null,
+  "start_reading_date": null,
   "basis": "insufficient_data",
   "message": "Nicht genügend Zählerstände im Jahr 2024 vorhanden, um eine Hochrechnung zu erstellen."
 }

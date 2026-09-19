@@ -313,6 +313,8 @@ Returns **200** always (per-year failures are surfaced as null fields, never as 
 entire chain, and consumption is summed segment-by-segment — consistent with the cost
 calculation chain logic.
 
+**New in this iteration:** The response now includes `start_reading_value` (the meter reading used as the baseline, typically from Dec 31 of the previous year or the first reading of the target year) and `start_reading_date` — consumed by the frontend to draw a cumulative consumption chart starting at 0 on Jan 1.
+
 **Response field `projected_meter_reading_end_of_year`** (Decimal string | null): the
 projected absolute meter reading at the end of the target year, used by the frontend chart
 to draw the dashed projection line as an absolute reading instead of a delta.

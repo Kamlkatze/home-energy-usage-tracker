@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { MeterSection, AdvancePaymentDiffs } from './types';
-import { formatEuro, basisLabel } from './utils';
+import { formatEuro, basisLabel, niceAxisBounds } from './utils';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Flame } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
@@ -21,6 +21,7 @@ const ChartTooltip: React.FC<{ active?: boolean; payload?: any[]; label?: any; u
     ? payload
     : payload.filter((p: any) => p.name !== 'Hochrechnung');
   if (filteredPayload.length === 0) return null;
+  const fmtValue = (v: number): string => unit === 'kWh' ? Math.round(v).toString() : v.toFixed(1);
   return (
     <div style={{
       backgroundColor: 'hsl(var(--popover))',
@@ -35,7 +36,7 @@ const ChartTooltip: React.FC<{ active?: boolean; payload?: any[]; label?: any; u
       </p>
       {filteredPayload.map((p: any, idx: number) => (
         <p key={idx} style={{ color: p.color, margin: 0 }}>
-          {p.name}: {typeof p.value === 'number' ? `${p.value} ${unit}` : p.value}
+          {p.name}: {typeof p.value === 'number' ? `${fmtValue(p.value)} ${unit}` : p.value}
         </p>
       ))}
     </div>
@@ -50,6 +51,7 @@ interface GasMeterViewProps {
 }
 
 const GasMeterView: React.FC<GasMeterViewProps> = ({ section, meterIdx, advancePaymentDiffs, year }) => {
+  const [showConsumption, setShowConsumption] = useState(true);
   const item = section.overviewItem;
   const unit = item.unit;
   const chartColor = COLORS[meterIdx % COLORS.length];
@@ -66,10 +68,16 @@ const GasMeterView: React.FC<GasMeterViewProps> = ({ section, meterIdx, advanceP
   const startOfYear = new Date(year, 0, 1).getTime();
   const startOfNextYear = new Date(year + 1, 0, 1).getTime();
 
+  const startReadingValue = section.projection?.start_reading_value
+    ? parseFloat(section.projection.start_reading_value)
+    : null;
+
   const chartData = section.readings.map((r) => ({
     date: new Date(r.reading_date).toLocaleDateString(),
     timestamp: new Date(r.reading_date).getTime(),
-    value: parseFloat(r.value),
+    value: showConsumption && startReadingValue != null
+      ? parseFloat(r.value) - startReadingValue
+      : parseFloat(r.value),
     note: r.note,
   }));
 
@@ -77,7 +85,9 @@ const GasMeterView: React.FC<GasMeterViewProps> = ({ section, meterIdx, advanceP
     unit.includes('m³') ? Math.round(v * 100) / 100 : Math.round(v);
 
   const lastPoint = chartData.length > 0 ? chartData[chartData.length - 1] : null;
-  const rawProjectionValue = section.projection?.projected_meter_reading_end_of_year;
+  const rawProjectionValue = showConsumption
+    ? section.projection?.projected_annual_consumption
+    : section.projection?.projected_meter_reading_end_of_year;
   const projectionData = rawProjectionValue
     ? [
         lastPoint
@@ -131,9 +141,11 @@ const GasMeterView: React.FC<GasMeterViewProps> = ({ section, meterIdx, advanceP
     ...chartData.map(d => d.value),
     ...(showProjection ? projectionData.map(d => d.value) : []),
   ];
-  const yMin = yValues.length > 0 ? Math.min(...yValues) : 0;
-  const yMax = yValues.length > 0 ? Math.max(...yValues) : 1;
-  const yPadding = (yMax - yMin) * 0.1 || 1;
+  const bounds = niceAxisBounds(
+    yValues.length > 0 ? Math.min(...yValues) : 0,
+    yValues.length > 0 ? Math.max(...yValues) : 1,
+    showConsumption
+  );
 
   const projection = section.projection;
   const actualCons = projection?.actual_consumption_to_date ?? null;
@@ -147,9 +159,21 @@ const GasMeterView: React.FC<GasMeterViewProps> = ({ section, meterIdx, advanceP
     <div className="border rounded-lg p-3 space-y-3">
       <div className="flex items-center justify-between">
         <h4 className="font-semibold text-sm">{item.meter_label}</h4>
-        <span className="text-xs font-medium bg-primary/10 text-primary px-2 py-0.5 rounded-full">
-          {item.meter_type}
-        </span>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowConsumption(!showConsumption)}
+            className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
+              showConsumption
+                ? 'bg-primary/10 text-primary border-primary/30'
+                : 'bg-muted text-muted-foreground border-transparent'
+            }`}
+          >
+            seit 01.01.
+          </button>
+          <span className="text-xs font-medium bg-primary/10 text-primary px-2 py-0.5 rounded-full">
+            {item.meter_type}
+          </span>
+        </div>
       </div>
       {section.chain.length > 1 && (
         <p className="text-xs text-muted-foreground">
@@ -174,7 +198,9 @@ const GasMeterView: React.FC<GasMeterViewProps> = ({ section, meterIdx, advanceP
       </div>
 
       <div>
-        <h5 className="text-xs font-semibold text-muted-foreground mb-1">Verbrauchsverlauf {year}</h5>
+        <h5 className="text-xs font-semibold text-muted-foreground mb-1">
+          {showConsumption ? 'Verbrauch seit 01.01.' : 'Zählerstand'} {year}
+        </h5>
         <div className="h-48">
           {combinedData.length > 0 ? (
             <ResponsiveContainer width="100%" height="100%">
@@ -192,8 +218,8 @@ const GasMeterView: React.FC<GasMeterViewProps> = ({ section, meterIdx, advanceP
                   stroke="hsl(var(--muted-foreground))"
                 />
                 <YAxis
-                  domain={[yMin - yPadding, yMax + yPadding]}
-                  label={{ value: unit, angle: -90, position: 'insideLeft', fill: 'hsl(var(--muted-foreground))' }}
+                  domain={[bounds.min, bounds.max]}
+                  label={{ value: showConsumption ? unit + ' (kumuliert)' : unit, angle: -90, position: 'insideLeft', fill: 'hsl(var(--muted-foreground))' }}
                   tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
                   tickFormatter={(v: number) => Math.round(v).toString()}
                   stroke="hsl(var(--muted-foreground))"
@@ -206,7 +232,7 @@ const GasMeterView: React.FC<GasMeterViewProps> = ({ section, meterIdx, advanceP
                   strokeWidth={1.5}
                   dot={{ r: 2 }}
                   activeDot={{ r: 4 }}
-                  name="Zählerstand"
+                  name={showConsumption ? 'Verbrauch' : 'Zählerstand'}
                 />
                 {showProjection && (
                   <Line

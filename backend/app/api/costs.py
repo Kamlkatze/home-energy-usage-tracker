@@ -991,6 +991,8 @@ def get_yearly_projection_with_cost(
         actual_consumption_to_date=projection_data["actual_consumption_to_date"],
         projected_annual_consumption=projection_data["projected_annual_consumption"],
         projected_meter_reading_end_of_year=projection_data["projected_meter_reading_end_of_year"],
+        start_reading_value=projection_data.get("start_reading_value"),
+        start_reading_date=projection_data.get("start_reading_date"),
         basis=projection_data["basis"],
         actual_cost_to_date=actual_cost_to_date,
         projected_annual_cost=projected_annual_cost,

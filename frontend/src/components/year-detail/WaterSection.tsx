@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { MeterSection, AdvancePaymentDiffs } from './types';
-import { formatEuro, basisLabel } from './utils';
+import { formatEuro, basisLabel, niceAxisBounds } from './utils';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Loader2, Euro } from 'lucide-react';
 import { WastewaterCosts } from '../../types';
@@ -56,11 +56,19 @@ const ChartTooltip: React.FC<{ active?: boolean; payload?: any[]; label?: any }>
 function makeCombinedChartData(
   coldSection: MeterSection | undefined,
   gardenSection: MeterSection | undefined,
-  year: number
+  year: number,
+  showConsumption: boolean
 ): CombinedChartPoint[] {
   const startOfYear = new Date(year, 0, 1).getTime();
   const startOfNextYear = new Date(year + 1, 0, 1).getTime();
   const map = new Map<number, CombinedChartPoint>();
+
+  const coldStartValue = showConsumption && coldSection?.projection?.start_reading_value
+    ? parseFloat(coldSection.projection.start_reading_value)
+    : null;
+  const gardenStartValue = showConsumption && gardenSection?.projection?.start_reading_value
+    ? parseFloat(gardenSection.projection.start_reading_value)
+    : null;
 
   function upsert(timestamp: number, updates: Partial<CombinedChartPoint>) {
     const existing = map.get(timestamp);
@@ -81,17 +89,21 @@ function makeCombinedChartData(
   }
 
   for (const r of (coldSection?.readings || [])) {
-    upsert(new Date(r.reading_date).getTime(), { fwValue: parseFloat(r.value) });
+    const raw = parseFloat(r.value);
+    upsert(new Date(r.reading_date).getTime(), { fwValue: coldStartValue != null ? raw - coldStartValue : raw });
   }
 
   for (const r of (gardenSection?.readings || [])) {
-    upsert(new Date(r.reading_date).getTime(), { gwValue: parseFloat(r.value) });
+    const raw = parseFloat(r.value);
+    upsert(new Date(r.reading_date).getTime(), { gwValue: gardenStartValue != null ? raw - gardenStartValue : raw });
   }
 
   let results = Array.from(map.values()).sort((a, b) => a.timestamp - b.timestamp);
 
   const coldProj = coldSection?.projection;
-  const coldProjEndRaw = coldProj?.projected_meter_reading_end_of_year;
+  const coldProjEndRaw = showConsumption
+    ? coldProj?.projected_annual_consumption
+    : coldProj?.projected_meter_reading_end_of_year;
   const coldShowProj = coldProj && coldProjEndRaw && coldProj.basis !== 'actual_full_year' && coldProj.basis !== 'insufficient_data';
 
   if (coldShowProj) {
@@ -106,7 +118,9 @@ function makeCombinedChartData(
   }
 
   const gardenProj = gardenSection?.projection;
-  const gardenProjEndRaw = gardenProj?.projected_meter_reading_end_of_year;
+  const gardenProjEndRaw = showConsumption
+    ? gardenProj?.projected_annual_consumption
+    : gardenProj?.projected_meter_reading_end_of_year;
  const gardenShowProj = gardenProj && gardenProjEndRaw && gardenProj.basis !== 'actual_full_year' && gardenProj.basis !== 'insufficient_data';
 
   if (gardenShowProj) {
@@ -147,6 +161,7 @@ const WaterSection: React.FC<WaterSectionProps> = ({
   sections, year, advancePaymentDiffs,
   wastewaterData, wastewaterLoading, wastewaterError,
 }) => {
+  const [showConsumption, setShowConsumption] = useState(true);
   const coldSection = sections.find(s => s.overviewItem.meter_type === 'water_cold');
   const gardenSection = sections.find(s => s.overviewItem.meter_type === 'water_garden');
 
@@ -181,12 +196,14 @@ const coldConsActual = coldSection.projection?.actual_consumption_to_date ?? col
     awCostProj = est.toFixed(2);
   }
 
-  const combinedData = makeCombinedChartData(coldSection, gardenSection, year);
+  const combinedData = makeCombinedChartData(coldSection, gardenSection, year, showConsumption);
 
   const allValues = combinedData.flatMap(d => [d.fwValue, d.gwValue]).filter((v): v is number => v !== undefined);
-  const yMin = allValues.length > 0 ? Math.min(...allValues) : 0;
-  const yMax = allValues.length > 0 ? Math.max(...allValues) : 1;
-  const yPadding = (yMax - yMin) * 0.1 || 1;
+  const bounds = niceAxisBounds(
+    allValues.length > 0 ? Math.min(...allValues) : 0,
+    allValues.length > 0 ? Math.max(...allValues) : 1,
+    showConsumption
+  );
 
   const startOfYear = new Date(year, 0, 1).getTime();
   const startOfNextYear = new Date(year + 1, 0, 1).getTime();
@@ -250,7 +267,21 @@ const coldConsActual = coldSection.projection?.actual_consumption_to_date ?? col
         </div>
 
         <div className="border rounded-lg p-3">
-          <h4 className="text-xs font-semibold text-muted-foreground mb-1">Frischwasser & Gartenwasser {year}</h4>
+          <div className="flex items-center justify-between mb-1">
+            <h4 className="text-xs font-semibold text-muted-foreground">
+              {showConsumption ? 'Frischwasser & Gartenwasser seit 01.01.' : 'Frischwasser & Gartenwasser'} {year}
+            </h4>
+            <button
+              onClick={() => setShowConsumption(!showConsumption)}
+              className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
+                showConsumption
+                  ? 'bg-primary/10 text-primary border-primary/30'
+                  : 'bg-muted text-muted-foreground border-transparent'
+              }`}
+            >
+              seit 01.01.
+            </button>
+          </div>
           <div className="h-48">
             {combinedData.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
@@ -268,8 +299,8 @@ const coldConsActual = coldSection.projection?.actual_consumption_to_date ?? col
                     stroke="hsl(var(--muted-foreground))"
                   />
                   <YAxis
-                    domain={[yMin - yPadding, yMax + yPadding]}
-                    label={{ value: 'm³', angle: -90, position: 'insideLeft', fill: 'hsl(var(--muted-foreground))' }}
+                    domain={[bounds.min, bounds.max]}
+                    label={{ value: showConsumption ? 'm\u00B3 (kumuliert)' : 'm\u00B3', angle: -90, position: 'insideLeft', fill: 'hsl(var(--muted-foreground))' }}
                     tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
                     tickFormatter={(v: number) => Math.round(v).toString()}
                     stroke="hsl(var(--muted-foreground))"
