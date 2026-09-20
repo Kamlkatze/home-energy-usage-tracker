@@ -43,6 +43,8 @@ const AddReading: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [results, setResults] = useState<SubmitResult[] | null>(null);
 
+  const [showReplaced, setShowReplaced] = useState(false);
+
   useEffect(() => {
     fetchMeters();
   }, []);
@@ -59,7 +61,7 @@ const AddReading: React.FC = () => {
   const fetchMeters = async () => {
     try {
       setLoadingMeters(true);
-      const data = await metersApi.getCurrent();
+      const data = await metersApi.getAll();
       setMeters(data);
 
       // Load localStorage: selectedIds = meters checked last time,
@@ -101,7 +103,7 @@ const AddReading: React.FC = () => {
       // Fetch last reading for each meter
       await Promise.all(data.map((meter: Meter) => loadLastReading(meter.id)));
     } catch (err) {
-      console.error('Error fetching current meters:', err);
+      console.error('Error fetching meters:', err);
     } finally {
       setLoadingMeters(false);
     }
@@ -284,19 +286,41 @@ const AddReading: React.FC = () => {
 
                 {/* Meter list */}
                 <div className="space-y-4">
-                  {meters.length === 0 ? (
-                    <Card>
-                      <CardContent className="p-8 text-center text-muted-foreground">
-                        Keine Zähler vorhanden. Bitte legen Sie zuerst einen Zähler an.
-                      </CardContent>
-                    </Card>
-                  ) : (
-                    meters.map(meter => {
-                      const entry = entries[meter.id];
-                      const lastReading = lastReadings[meter.id];
-                      if (!entry) return null;
+                  {(() => {
+                    const replacedMeterIds = new Set(
+                      meters
+                        .filter(m => m.replaces_meter_id !== null)
+                        .map(m => m.replaces_meter_id as number)
+                    );
+                    const visibleMeters = showReplaced
+                      ? meters
+                      : meters.filter(m => !replacedMeterIds.has(m.id));
+                    return (
+                      <>
+                        <div className="flex items-center gap-2">
+                          <Checkbox
+                            id="show-replaced"
+                            checked={showReplaced}
+                            onChange={(e) => setShowReplaced(e.target.checked)}
+                          />
+                          <Label htmlFor="show-replaced" className="text-sm cursor-pointer text-muted-foreground">
+                            Alte Zähler anzeigen
+                          </Label>
+                        </div>
+                        {visibleMeters.length === 0 ? (
+                          <Card>
+                            <CardContent className="p-8 text-center text-muted-foreground">
+                              Keine Zähler vorhanden. Bitte legen Sie zuerst einen Zähler an.
+                            </CardContent>
+                          </Card>
+                        ) : (
+                          visibleMeters.map(meter => {
+                        const entry = entries[meter.id];
+                        const lastReading = lastReadings[meter.id];
+                        const isReplaced = replacedMeterIds.has(meter.id);
+                        if (!entry) return null;
                       return (
-                        <Card key={meter.id} className={entry.checked ? '' : 'opacity-60'}>
+                        <Card key={meter.id} className={`${entry.checked ? '' : 'opacity-60'} ${isReplaced ? 'border-amber-300 dark:border-amber-700' : ''}`}>
                           <CardContent className="p-4">
                             <div className="flex items-start gap-3">
                               {/* Checkbox */}
@@ -319,6 +343,11 @@ const AddReading: React.FC = () => {
                                     <span className="text-sm text-muted-foreground font-normal ml-2">
                                       ({meterTypeLabel(meterTypes, meter.meter_type)} • {meter.unit})
                                     </span>
+                                    {isReplaced && (
+                                      <span className="text-xs text-amber-600 dark:text-amber-400 font-normal ml-2">
+                                        (ersetzt)
+                                      </span>
+                                    )}
                                   </Label>
                                 </div>
 
@@ -359,7 +388,10 @@ const AddReading: React.FC = () => {
                         </Card>
                       );
                     })
-                  )}
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
 
                 {/* Submit */}

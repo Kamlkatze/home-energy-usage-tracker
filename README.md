@@ -5,7 +5,7 @@ A simple, local application for tracking electricity, gas, and water consumption
 ## Features
 
 - **Track multiple meters**: Gas, cold/garden water (m³), electricity import/export/production (kWh) — the unit is derived automatically from the meter type
-- **Record readings**: Simple form to add meter readings with dates and optional notes; edit or delete existing readings directly in the year detail tables via inline dialog
+- **Record readings**: Simple form to add meter readings with dates and optional notes; edit or delete existing readings directly in the year detail tables via inline dialog. By default only current meters are shown — replaced meters can be displayed via an "Alte Zähler anzeigen" toggle.
 - **Visualize consumption**: Separate line charts per energy type (Strom, Wasser, Gas) on the years-overview page, plus per-meter charts on the year detail page showing usage trends over time, with toggle between absolute meter readings and cumulative consumption since Jan 1 (starts at 0, even-number axis bounds)
 - **Tariff management**: Track price per unit and base fees for different periods, with optional comment field for provider name and category filter buttons (Strom Bezug/Gas/Wasser) in the list view
 - **Advance payment management**: Track monthly Abschläge per meter with category (gas, cold water, wastewater, power import), time-range validity, overlap protection, optional comment field, and an "Alle" button showing all categories at once in the list view
@@ -229,7 +229,7 @@ For troubleshooting and advanced shutdown options, see the complete documentatio
 ## API Endpoints
 
 ### Meters
-- `GET /api/meters/current` - Return only current (non-replaced) meters — newest in each replacement chain plus standalone meters. Used by the frontend to show only active meters.
+- `GET /api/meters/current` - Return only current (non-replaced) meters — newest in each replacement chain plus standalone meters. Used by the frontend to show only active meters (with an optional toggle for replaced meters in the reading form).
 - `GET /api/meters/types` - List all meter types with German label and fixed unit. Example response:
   ```json
   [
