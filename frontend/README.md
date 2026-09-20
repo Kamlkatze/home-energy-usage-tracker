@@ -33,7 +33,7 @@
 | `/advance-payments` | `pages/AdvancePaymentList.tsx` | Advance payment overview with 5 filter buttons (Alle/Gas/Kaltwasser/Abwasser/Strom Bezug). Chronological table per filter: validity period, assigned meter(s), monthly amount, **comment** column. Supports **edit** via inline modal (validity period + monthly amount + optional comment, meter relations read-only). |
 | `/advance-payments/new` | `pages/AdvancePaymentForm.tsx` | Create advance payment form: category selector (4 values), dynamic meter dropdowns per category (gas → gas meter, cold_water → water_cold meter, power_import → electricity_import meter, wastewater → required water_cold + optional water_garden meter), validity range, monthly amount, optional comment. Submits to `POST /api/advance-payments/` with correct payload per category. Shows backend 422 errors. |
 | `/years-overview` | `pages/YearsOverview.tsx` | Year-over-year consumption table + line chart for all logical meters (chain-resolved via backend). Years link to `/years/:year`. |
-| `/years/:year` | `pages/YearDetail.tsx` | Year detail page grouped by category (Strom, Wasser, Gas). **Strom** uses MeterBlock per meter + EEG-Einspeisevergütung card. **Wasser** uses combined WaterSection (consumption strip, dual-line chart, paired comparison grids for Frischwasser + Abwasser). **Gas** uses GasSection (consumption strip, chart, readings table, comparison grid per meter). |
+| `/years/:year` | `pages/YearDetail.tsx` | Year detail page grouped by category (Strom, Wasser, Gas). **Strom** uses MeterBlock per meter + EEG-Einspeisevergütung card. **Wasser** uses combined WaterSection (consumption strip, dual-line chart, paired comparison grids for Frischwasser + Abwasser). **Gas** uses GasSection (consumption strip, chart, readings table, comparison grid per meter). Readings are editable/deletable via inline dialog in all tables. |
 
 **Chart implementation notes (MeterBlock):**
 - **Projection line via `combinedData`:** Dashed projection does NOT use separate `<Line data={...}>` – Recharts only creates tooltip hit targets in the primary `data` array. All points are merged into `combinedData`: main Line uses `dataKey="value"`, projection Line uses `dataKey="projectedValue"`. End-of-year point carries `value: undefined` (invisible) and `isProjectionEnd: true`.
@@ -70,10 +70,11 @@ All follow the shadcn/ui pattern (Tailwind + `cn()` helper, forwardRef, displayN
 |---|---|
 | `types.ts` | Shared interfaces: `MeterSection`, `AdvancePaymentDiffs` |
 | `utils.ts` | Helpers: `formatEuro()`, `basisLabel()`, `niceAxisBounds()` (even-number axis bounds with constant step, no negative values) |
-| `MeterBlock.tsx` | Single meter card: chart, readings, projection. Contains all Recharts logic (combinedData, ChartTooltip, dark-mode styling, unit-aware formatting). |
+| `MeterBlock.tsx` | Single meter card: chart, readings table with edit/delete buttons, projection. Contains all Recharts logic (combinedData, ChartTooltip, dark-mode styling, unit-aware formatting). |
 | `ElectricitySection.tsx` | Strom category: all electricity meters + EEG Einspeisevergütung card. |
-| `WaterSection.tsx` | Wasser category: combined consumption strip (FW/GW/AW actual + projected), dual-line chart (Frischwasser + Gartenwasser with projections), paired 3×2 comparison grids (Frischwasser costs + Abwasserkosten with advance payment diffs), and separate Zählerstände tables for both Frischwasser and Gartenwasser. No longer uses individual MeterBlocks. |
-| `GasSection.tsx` | Gas section: separate consumption strip (Verbrauch tats./prog.), chart + readings table per meter, and comparison grid (Kosten tats./prog. + Abschlagsdifferenz). |
+| `WaterSection.tsx` | Wasser category: combined consumption strip (FW/GW/AW actual + projected), dual-line chart (Frischwasser + Gartenwasser with projections), paired 3×2 comparison grids (Frischwasser costs + Abwasserkosten with advance payment diffs), and separate Zählerstände tables for both Frischwasser and Gartenwasser with edit/delete buttons. No longer uses individual MeterBlocks. |
+| `GasSection.tsx` | Gas section: separate consumption strip (Verbrauch tats./prog.), chart + readings table with edit/delete buttons per meter, and comparison grid (Kosten tats./prog. + Abschlagsdifferenz). |
+| `ReadingEditDialog.tsx` | Reusable dialog for editing or deleting a single reading. Opens from pencil/trash icons in any readings table. Contains edit form (date, value, note) and delete confirmation view. Calls `readingsApi.update()` / `readingsApi.delete()`. |
 
 ### Hooks
 | Hook | File | Notes |
@@ -101,7 +102,7 @@ Defines: `MeterType`, `TariffKind`, `MeterTypeInfo`, `Meter`, `Reading`, `Tariff
 | Object | Endpoints | Used in |
 |---|---|---|
 | `metersApi` | `GET /types`, `GET /`, `GET /current`, `GET /:id`, `POST /`, `PUT /:id`, `DELETE /:id`, `GET /:id/readings` | `useMeterTypes`, `MeterList`, `EditMeterModal`, `MeterDetail`, `MeterForm`, `AddReading` (uses `getCurrent` + `getLastReading`), `TariffForm`, `YearDetail` (chain resolution + readings fetch) |
-| `readingsApi` | `GET /`, `GET /:id`, `POST /`, `PUT /:id`, `DELETE /:id` | `AddReading` (only `POST`) |
+| `readingsApi` | `GET /`, `GET /:id`, `POST /`, `PUT /:id`, `DELETE /:id` | `AddReading` (POST), `ReadingEditDialog` in `YearDetail` (PUT, DELETE) |
 | `tariffsApi` | `GET /`, `GET /:id`, `POST /`, `PUT /:id`, `DELETE /:id` | `TariffForm` (POST), `TariffList` (GET, PUT, DELETE) |
 | `advancePaymentsApi` | `GET /`, `GET /:id`, `POST /`, `PUT /:id`, `DELETE /:id` | `AdvancePaymentForm` (POST), `AdvancePaymentList` (GET, PUT) |
 | `costsApi` | `GET /years-overview`, `GET /yearly-projection`, `GET /wastewater/` | `YearsOverview`, `YearDetail` (projections + wastewater) |
@@ -127,7 +128,7 @@ The following backend endpoints/features have **zero** frontend representation:
 | **Projections** | `GET /api/meters/{meter_id}/projection` – no UI (separate from `/costs/yearly-projection`) |
 | **Consumption timeseries** | No frontend endpoint consumer for aggregated timeseries data |
 | **Tariff list / edit / delete** | ✅ Implemented – see `/tariffs` route above |
-| **Reading list / edit / delete** | Only `POST /api/readings/` is used; no reading browse, edit, or delete |
+| **Reading list / edit / delete** | ✅ Implemented – see year detail page tables |
 | **Meter edit** | `PUT /api/meters/` via `EditMeterModal` in `MeterList` |
 | **Advance payment list / create / edit** | ✅ Implemented – see `/advance-payments` and `/advance-payments/new` routes above |
 
@@ -140,6 +141,6 @@ The following backend endpoints/features have **zero** frontend representation:
 5. **`MeterList` misplaced:** Lives in `components/` but used as route page.
 6. ~~**`index.html` language:** `<html lang="en">` doesn't match German UI.~~
 7. **Vite dev proxy target issue:** Default `localhost:8000` won't work from inside frontend container.
-8. **No reading list/edit/delete.**
+8. ~~**No reading list/edit/delete.**~~
 9. ~~**No dark mode toggle.**~~
 10. **`dist/` directory** present in repository (build artefact).

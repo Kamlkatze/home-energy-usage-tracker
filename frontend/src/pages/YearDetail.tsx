@@ -41,6 +41,54 @@ const YearDetail: React.FC = () => {
   const [wastewaterData, setWastewaterData] = useState<WastewaterCosts | null>(null);
   const [wastewaterLoading, setWastewaterLoading] = useState(false);
   const [wastewaterError, setWastewaterError] = useState<string | null>(null);
+
+  const sectionsRef = React.useRef(sections);
+  sectionsRef.current = sections;
+
+  const refreshSection = useCallback(async (meterId: number) => {
+    const currentSections = sectionsRef.current;
+    const section = currentSections.find(s => s.overviewItem.meter_id === meterId);
+    if (!section) return;
+
+    try {
+      const readingsPromises = section.chain.map((m) =>
+        metersApi.getReadings(m.id) as Promise<Reading[]>
+      );
+      const fetchedReadingsArrays = await Promise.all(readingsPromises);
+      const allChainReadings = fetchedReadingsArrays
+        .flat()
+        .filter((r) => {
+          const d = new Date(r.reading_date);
+          return d.getFullYear() === year;
+        })
+        .sort(
+          (a, b) =>
+            new Date(a.reading_date).getTime() -
+            new Date(b.reading_date).getTime()
+        );
+
+      setSections(prev => prev.map(s =>
+        s.overviewItem.meter_id === meterId
+          ? { ...s, readings: allChainReadings, projectionLoading: true, projectionError: null }
+          : s
+      ));
+
+      const projection = await costsApi.getYearlyProjection(meterId, year);
+      setSections(prev => prev.map(s =>
+        s.overviewItem.meter_id === meterId
+          ? { ...s, projection, projectionLoading: false }
+          : s
+      ));
+    } catch (err: any) {
+      const msg = err?.response?.data?.detail || err?.message || 'Fehler beim Laden der Daten.';
+      setSections(prev => prev.map(s =>
+        s.overviewItem.meter_id === meterId
+          ? { ...s, projectionError: msg, projectionLoading: false }
+          : s
+      ));
+    }
+  }, [year]);
+
   const [advancePaymentDiffs, setAdvancePaymentDiffs] = useState<Record<
     'gas' | 'cold_water' | 'wastewater' | 'power_import',
     AdvancePaymentDiffByCategory | null
@@ -301,7 +349,7 @@ const YearDetail: React.FC = () => {
       );
       setLoading(false);
     }
-  }, [year]);
+}, [year]);
 
   useEffect(() => {
     fetchData();
@@ -394,6 +442,7 @@ const YearDetail: React.FC = () => {
         eegProjectionLoading={eegProjectionLoading}
         eegProjectionError={eegProjectionError}
         advancePaymentDiffs={advancePaymentDiffs}
+        onRefreshSection={refreshSection}
       />
 
       <WaterSection
@@ -403,12 +452,14 @@ const YearDetail: React.FC = () => {
         wastewaterData={wastewaterData}
         wastewaterLoading={wastewaterLoading}
         wastewaterError={wastewaterError}
+        onRefreshSection={refreshSection}
       />
 
       <GasSection
         sections={otherSections}
         advancePaymentDiffs={advancePaymentDiffs}
         year={year}
+        onRefreshSection={refreshSection}
       />
     </div>
   );

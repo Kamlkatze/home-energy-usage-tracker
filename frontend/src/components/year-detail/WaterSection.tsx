@@ -2,13 +2,14 @@ import React, { useState } from 'react';
 import { MeterSection, AdvancePaymentDiffs } from './types';
 import { formatEuro, basisLabel, niceAxisBounds } from './utils';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
-import { Loader2, Euro } from 'lucide-react';
-import { WastewaterCosts } from '../../types';
+import { Loader2, Euro, Pencil, Trash2 } from 'lucide-react';
+import { WastewaterCosts, Reading } from '../../types';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer,
 } from 'recharts';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
+import ReadingEditDialog from './ReadingEditDialog';
 
 const WATER_COLORS = {
   fw: '#3b82f6',
@@ -155,13 +156,16 @@ interface WaterSectionProps {
   wastewaterData: WastewaterCosts | null;
   wastewaterLoading: boolean;
   wastewaterError: string | null;
+  onRefreshSection?: (meterId: number) => void;
 }
 
 const WaterSection: React.FC<WaterSectionProps> = ({
   sections, year, advancePaymentDiffs,
   wastewaterData, wastewaterLoading, wastewaterError,
+  onRefreshSection,
 }) => {
   const [showConsumption, setShowConsumption] = useState(true);
+  const [editingReading, setEditingReading] = useState<{ reading: Reading; meterId: number } | null>(null);
   const coldSection = sections.find(s => s.overviewItem.meter_type === 'water_cold');
   const gardenSection = sections.find(s => s.overviewItem.meter_type === 'water_garden');
 
@@ -486,6 +490,7 @@ const coldConsActual = coldSection.projection?.actual_consumption_to_date ?? col
                     <TableHead className="text-xs">Datum</TableHead>
                     <TableHead className="text-xs">Wert (m³)</TableHead>
                     <TableHead className="text-xs">Notiz</TableHead>
+                    <TableHead className="text-xs w-16"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -494,6 +499,24 @@ const coldConsActual = coldSection.projection?.actual_consumption_to_date ?? col
                       <TableCell className="text-xs py-1">{new Date(r.reading_date).toLocaleDateString()}</TableCell>
                       <TableCell className="text-xs py-1">{parseFloat(r.value).toFixed(1)}</TableCell>
                       <TableCell className="text-xs py-1">{r.note || '—'}</TableCell>
+                      <TableCell className="text-xs py-1">
+                        <div className="flex gap-1">
+                          <button
+                            onClick={() => setEditingReading({ reading: r, meterId: coldSection.overviewItem.meter_id })}
+                            className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                            title="Bearbeiten"
+                          >
+                            <Pencil className="h-3 w-3" />
+                          </button>
+                          <button
+                            onClick={() => setEditingReading({ reading: r, meterId: coldSection.overviewItem.meter_id })}
+                            className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-destructive transition-colors"
+                            title="Löschen"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        </div>
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -517,6 +540,7 @@ const coldConsActual = coldSection.projection?.actual_consumption_to_date ?? col
                       <TableHead className="text-xs">Datum</TableHead>
                       <TableHead className="text-xs">Wert (m³)</TableHead>
                       <TableHead className="text-xs">Notiz</TableHead>
+                      <TableHead className="text-xs w-16"></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -525,6 +549,24 @@ const coldConsActual = coldSection.projection?.actual_consumption_to_date ?? col
                         <TableCell className="text-xs py-1">{new Date(r.reading_date).toLocaleDateString()}</TableCell>
                         <TableCell className="text-xs py-1">{parseFloat(r.value).toFixed(1)}</TableCell>
                         <TableCell className="text-xs py-1">{r.note || '—'}</TableCell>
+                        <TableCell className="text-xs py-1">
+                          <div className="flex gap-1">
+                            <button
+                              onClick={() => setEditingReading({ reading: r, meterId: gardenSection.overviewItem.meter_id })}
+                              className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                              title="Bearbeiten"
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </button>
+                            <button
+                              onClick={() => setEditingReading({ reading: r, meterId: gardenSection.overviewItem.meter_id })}
+                              className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-destructive transition-colors"
+                              title="Löschen"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </button>
+                          </div>
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -546,6 +588,19 @@ const coldConsActual = coldSection.projection?.actual_consumption_to_date ?? col
         )}
         {wastewaterError && (
           <div className="text-xs text-destructive">{wastewaterError}</div>
+        )}
+
+        {editingReading && (
+          <ReadingEditDialog
+            reading={editingReading.reading}
+            unit="m³"
+            onClose={() => setEditingReading(null)}
+            onSaved={() => {
+              const mid = editingReading.meterId;
+              setEditingReading(null);
+              if (onRefreshSection) onRefreshSection(mid);
+            }}
+          />
         )}
 
       </CardContent>

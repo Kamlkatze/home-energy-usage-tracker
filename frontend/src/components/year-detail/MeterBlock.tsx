@@ -2,11 +2,12 @@ import React, { useState } from 'react';
 import { MeterSection, AdvancePaymentDiffs } from './types';
 import { formatEuro, basisLabel, niceAxisBounds } from './utils';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Pencil, Trash2 } from 'lucide-react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer,
 } from 'recharts';
+import ReadingEditDialog from './ReadingEditDialog';
 
 const ChartTooltip: React.FC<{ active?: boolean; payload?: any[]; label?: any; unit: string; showConsumption?: boolean }> = ({ active, payload, label, unit }) => {
   if (!active || !payload || payload.length === 0) return null;
@@ -47,8 +48,10 @@ const MeterBlock: React.FC<{
   meterIdx: number;
   advancePaymentDiffs: AdvancePaymentDiffs;
   year: number;
-}> = ({ section, meterIdx, advancePaymentDiffs, year }) => {
+  onRefreshSection?: (meterId: number) => void;
+}> = ({ section, meterIdx, advancePaymentDiffs, year, onRefreshSection }) => {
   const [showConsumption, setShowConsumption] = useState(true);
+  const [editingReading, setEditingReading] = useState<{ reading: import('../../types').Reading; meterId: number } | null>(null);
   const item = section.overviewItem;
   const unit = item.unit;
   const chartColor = COLORS[meterIdx % COLORS.length];
@@ -351,6 +354,7 @@ const MeterBlock: React.FC<{
                   <TableHead className="text-xs">Datum</TableHead>
                   <TableHead className="text-xs">Wert ({unit})</TableHead>
                   <TableHead className="text-xs">Notiz</TableHead>
+                  <TableHead className="text-xs w-16"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -359,6 +363,24 @@ const MeterBlock: React.FC<{
                     <TableCell className="text-xs py-1">{new Date(r.reading_date).toLocaleDateString()}</TableCell>
                     <TableCell className="text-xs py-1">{formatReadingValue(r.value)}</TableCell>
                     <TableCell className="text-xs py-1">{r.note || '—'}</TableCell>
+                    <TableCell className="text-xs py-1">
+                      <div className="flex gap-1">
+                        <button
+                          onClick={() => setEditingReading({ reading: r, meterId: section.overviewItem.meter_id })}
+                          className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                          title="Bearbeiten"
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </button>
+                        <button
+                          onClick={() => setEditingReading({ reading: r, meterId: section.overviewItem.meter_id })}
+                          className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-destructive transition-colors"
+                          title="Löschen"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      </div>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -370,6 +392,18 @@ const MeterBlock: React.FC<{
           )}
         </div>
       </div>
+
+      {editingReading && (
+        <ReadingEditDialog
+          reading={editingReading.reading}
+          unit={unit}
+          onClose={() => setEditingReading(null)}
+          onSaved={() => {
+            setEditingReading(null);
+            if (onRefreshSection) onRefreshSection(editingReading.meterId);
+          }}
+        />
+      )}
 
       {!isExportOrProduction && item.meter_type === 'electricity_import' && (
         <>

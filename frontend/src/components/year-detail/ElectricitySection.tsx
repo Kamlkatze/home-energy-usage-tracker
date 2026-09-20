@@ -16,6 +16,7 @@ interface ElectricitySectionProps {
   eegProjectionLoading: boolean;
   eegProjectionError: string | null;
   advancePaymentDiffs: AdvancePaymentDiffs;
+  onRefreshSection?: (meterId: number) => void;
 }
 
 const ElectricitySection: React.FC<ElectricitySectionProps> = ({
@@ -23,6 +24,7 @@ const ElectricitySection: React.FC<ElectricitySectionProps> = ({
   eegData, eegLoading, eegError,
   eegProjection, eegProjectionLoading, eegProjectionError,
   advancePaymentDiffs,
+  onRefreshSection,
 }) => {
   if (sections.length === 0) return null;
 
@@ -123,6 +125,7 @@ const ElectricitySection: React.FC<ElectricitySectionProps> = ({
             meterIdx={i}
             advancePaymentDiffs={advancePaymentDiffs}
             year={year}
+            onRefreshSection={onRefreshSection}
           />
         ))}
       </CardContent>

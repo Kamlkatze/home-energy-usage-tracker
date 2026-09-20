@@ -2,12 +2,14 @@ import React, { useState } from 'react';
 import { MeterSection, AdvancePaymentDiffs } from './types';
 import { formatEuro, basisLabel, niceAxisBounds } from './utils';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
-import { Flame } from 'lucide-react';
+import { Flame, Pencil, Trash2 } from 'lucide-react';
+import { Reading } from '../../types';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer,
 } from 'recharts';
+import ReadingEditDialog from './ReadingEditDialog';
 
 const COLORS = [
   '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6',
@@ -48,10 +50,12 @@ interface GasMeterViewProps {
   meterIdx: number;
   advancePaymentDiffs: AdvancePaymentDiffs;
   year: number;
+  onRefreshSection?: (meterId: number) => void;
 }
 
-const GasMeterView: React.FC<GasMeterViewProps> = ({ section, meterIdx, advancePaymentDiffs, year }) => {
+const GasMeterView: React.FC<GasMeterViewProps> = ({ section, meterIdx, advancePaymentDiffs, year, onRefreshSection }) => {
   const [showConsumption, setShowConsumption] = useState(true);
+  const [editingReading, setEditingReading] = useState<{ reading: Reading; meterId: number } | null>(null);
   const item = section.overviewItem;
   const unit = item.unit;
   const chartColor = COLORS[meterIdx % COLORS.length];
@@ -270,6 +274,7 @@ const GasMeterView: React.FC<GasMeterViewProps> = ({ section, meterIdx, advanceP
                   <TableHead className="text-xs">Datum</TableHead>
                   <TableHead className="text-xs">Wert ({unit})</TableHead>
                   <TableHead className="text-xs">Notiz</TableHead>
+                  <TableHead className="text-xs w-16"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -278,6 +283,24 @@ const GasMeterView: React.FC<GasMeterViewProps> = ({ section, meterIdx, advanceP
                     <TableCell className="text-xs py-1">{new Date(r.reading_date).toLocaleDateString()}</TableCell>
                     <TableCell className="text-xs py-1">{formatReadingValue(r.value)}</TableCell>
                     <TableCell className="text-xs py-1">{r.note || '—'}</TableCell>
+                    <TableCell className="text-xs py-1">
+                      <div className="flex gap-1">
+                        <button
+                          onClick={() => setEditingReading({ reading: r, meterId: section.overviewItem.meter_id })}
+                          className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                          title="Bearbeiten"
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </button>
+                        <button
+                          onClick={() => setEditingReading({ reading: r, meterId: section.overviewItem.meter_id })}
+                          className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-destructive transition-colors"
+                          title="Löschen"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      </div>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -289,6 +312,19 @@ const GasMeterView: React.FC<GasMeterViewProps> = ({ section, meterIdx, advanceP
           )}
         </div>
       </div>
+
+      {editingReading && (
+        <ReadingEditDialog
+          reading={editingReading.reading}
+          unit={unit}
+          onClose={() => setEditingReading(null)}
+          onSaved={() => {
+            const mid = editingReading.meterId;
+            setEditingReading(null);
+            if (onRefreshSection) onRefreshSection(mid);
+          }}
+        />
+      )}
 
       <div className="border rounded-lg p-3 bg-muted/20">
         <h5 className="text-xs font-semibold text-muted-foreground mb-1">Kosten {year}</h5>
@@ -351,9 +387,10 @@ interface GasSectionProps {
   sections: MeterSection[];
   advancePaymentDiffs: AdvancePaymentDiffs;
   year: number;
+  onRefreshSection?: (meterId: number) => void;
 }
 
-const GasSection: React.FC<GasSectionProps> = ({ sections, advancePaymentDiffs, year }) => {
+const GasSection: React.FC<GasSectionProps> = ({ sections, advancePaymentDiffs, year, onRefreshSection }) => {
   if (sections.length === 0) return null;
 
   return (
@@ -372,6 +409,7 @@ const GasSection: React.FC<GasSectionProps> = ({ sections, advancePaymentDiffs, 
             meterIdx={idx}
             advancePaymentDiffs={advancePaymentDiffs}
             year={year}
+            onRefreshSection={onRefreshSection}
           />
         ))}
       </CardContent>
