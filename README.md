@@ -365,7 +365,7 @@ Each advance payment carries a `category` (`gas`, `cold_water`, `wastewater`, `p
 ### Costs
 - `GET /api/costs/?meter_id={id}&from={date}&to={date}` - Calculate the consumption cost for one meter between two dates (query parameters: `meter_id`, `from`, `to`). Returns **404** when no reading or no covering tariff period is found, **422** when `from > to` or the computed consumption is negative.
 
-**Multi-period support:** If the date range spans multiple tariff periods, consumption is allocated proportionally by days in each overlapping period. The `price_per_unit` field in the response shows the first period's price for backward compatibility; the total cost correctly accounts for all periods.
+**Multi-period support:** If the date range spans multiple tariff periods, consumption is allocated proportionally by days in each overlapping period. Base fees are prorated using calendar-accurate month lengths (full months count as 1, partial months by actual days in that month). The `price_per_unit` field in the response shows the first period's price for backward compatibility; the total cost correctly accounts for all periods.
 
 **Meter replacement chain support:** If the requested meter has a `replaces_meter_id` (directly or transitively), the endpoint automatically follows the chain. Consumption is computed as the sum of each meter's contribution over its active segment (determined by the first reading date of the successor). Tariffs are looked up per meter in the chain so a tariff change at the predecessor is fully reflected. Rounding happens only once at the final output boundary — never per segment — to avoid accumulated cent errors.
 
@@ -621,7 +621,7 @@ The 30 % threshold is a fixed statutory value from EEG 2009 § 33 Abs. 2, not co
 1. **Annual cost** — Uses the same logic as `/api/costs/yearly-projection`:
    - Completed year: actual full-year cost from all tariffs covering the year (`cost_basis: "actual"`)
    - Ongoing/future year: projected cost using the tariff active on `as_of_date` (`cost_basis: "projected"`)
-2. **Total advance payments** — Sums all `AdvancePayment` records for the meter that overlap the year, prorated by days (fixed 30-day month, same convention as `base_fee_monthly`). Each period contributes `monthly_amount × overlap_days / 30`.
+2. **Total advance payments** — Sums all `AdvancePayment` records for the meter that overlap the year, prorated using calendar-accurate month lengths (full months count as 1, partial months by actual days in that month). This ensures a full-year payment of e.g. 48€/month yields exactly 576€ (48 × 12), not 584€.
 3. **Difference** — `total_advance_payments - estimated_or_actual_cost` (positive = Guthaben, negative = Nachzahlung)
 
 **Edge cases:**

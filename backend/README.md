@@ -217,9 +217,11 @@ Response (200):
 **`app/api/costs.py`**
 
 ### Single meter
-Consumption = `end_reading.value − start_reading.value`. Base fee is prorated by days
-(fixed 30-day month). Multi-period ranges allocate consumption proportionally by overlapping days.
-Gas meters convert m³ → kWh per-period via `gas_z_zahl × gas_brennwert`.
+Consumption = `end_reading.value − start_reading.value`. Base fee is prorated using
+calendar-accurate month lengths (full months count as 1, partial months by actual
+days in that month). Multi-period ranges allocate consumption proportionally by
+overlapping days. Gas meters convert m³ → kWh per-period via
+`gas_z_zahl × gas_brennwert`.
 
 ### Meter replacement chain
 When the requested meter has a `replaces_meter_id` (or a chain of them), the endpoint:
@@ -240,7 +242,7 @@ applies any tariff changes that happened during the period.
 Compares paid/planned monthly Abschläge against the estimated annual cost:
 
 1. **Annual cost** — same logic as `/api/costs/yearly-projection` (actual for completed years, projected for ongoing/future)
-2. **Total advance payments** — all `AdvancePayment` records overlapping the year, prorated by days (`monthly_amount × overlap_days / 30`, same 30-day-month convention as base fee)
+2. **Total advance payments** — all `AdvancePayment` records overlapping the year, prorated using calendar-accurate month lengths (full months count as 1, partial months by actual days in that month)
 3. **Difference** — `total_advance_payments - estimated_or_actual_cost` (positive = Guthaben, negative = Nachzahlung)
 
 **Wastewater mode:** Passing `water_cold_meter_id` (and optionally `water_garden_meter_id`) switches to the wastewater diff:
@@ -281,10 +283,10 @@ GET /api/costs/advance-payment-diff-by-category?category=power_import&year=2023&
 {
   "meter_id": 1,
   "year": 2023,
-  "estimated_or_actual_cost": "495.60",
-  "cost_basis": "actual",
-  "total_advance_payments": "1216.67",
-  "difference": "721.07",
+  "estimated_or_actual_cost": "845.30",
+  "cost_basis": "projected",
+  "total_advance_payments": "800.00",
+  "difference": "-45.30",
   "message": null,
   "category": "power_import"
 }
