@@ -32,7 +32,7 @@
 | `/tariffs/new` | `pages/TariffForm.tsx` | Create tariff period form: meter selector, tariff kind (consumption/feed_in/self_consumption/wastewater/feed_in_eeg2009), validity range, dynamic fields per kind (price per unit, optional base + metering fees, gas Z-Zahl/Brennwert for gas meters, EEG 2009 block with tier rates + yearly metering fee), optional comment field. German labels/helper text throughout. EEG 2009 meter selection includes a hint to pick the feed-in meter. Handles empty meter list gracefully. |
 | `/advance-payments` | `pages/AdvancePaymentList.tsx` | Advance payment overview with 5 filter buttons (Alle/Gas/Kaltwasser/Abwasser/Strom Bezug). Chronological table per filter: validity period, assigned meter(s), monthly amount, **comment** column. Supports **edit** via inline modal (validity period + monthly amount + optional comment, meter relations read-only). |
 | `/advance-payments/new` | `pages/AdvancePaymentForm.tsx` | Create advance payment form: category selector (4 values), dynamic meter dropdowns per category (gas → gas meter, cold_water → water_cold meter, power_import → electricity_import meter, wastewater → required water_cold + optional water_garden meter), validity range, monthly amount, optional comment. Submits to `POST /api/advance-payments/` with correct payload per category. Shows backend 422 errors. |
-| `/years-overview` | `pages/YearsOverview.tsx` | Year-over-year consumption table + line chart for all logical meters (chain-resolved via backend). Years link to `/years/:year`. |
+| `/years-overview` | `pages/YearsOverview.tsx` | Year-over-year consumption table + separate line charts per energy type (Strom, Wasser, Gas) for all logical meters (chain-resolved via backend). Years link to `/years/:year`. |
 | `/years/:year` | `pages/YearDetail.tsx` | Year detail page grouped by category (Strom, Wasser, Gas). **Strom** uses MeterBlock per meter + EEG-Einspeisevergütung card. **Wasser** uses combined WaterSection (consumption strip, dual-line chart, paired comparison grids for Frischwasser + Abwasser). **Gas** uses GasSection (consumption strip, chart, readings table, comparison grid per meter). Readings are editable/deletable via inline dialog in all tables. |
 
 **Chart implementation notes (MeterBlock):**
@@ -42,6 +42,8 @@
 - **Custom tooltip `ChartTooltip`** (module level): dark-mode via `hsl(var(--popover))` / `hsl(var(--popover-foreground))`. "Hochrechnung" only rendered when hovered point is in the future. Values formatted unit-aware: kWh → `Math.round()`, m³ → `toFixed(1)`.
 - **Dark-mode axes:** explicit `stroke`/`tick.fill` using `hsl(var(--muted-foreground))`. YAxis tick values rounded to whole numbers.
 - **Unit-aware formatting:** kWh → integers (`Math.round`), m³ → one decimal (`toFixed(1)`). EEG kWh → `toFixed(0)`. Same in `YearsOverview.tsx`.
+
+**YearsOverview chart split:** The years-overview page shows three separate `ChartCard` components (Strom, Wasser, Gas) instead of a single combined chart. Each card uses the same `ChartTooltip`, dark-mode styling, and unit-aware formatting. Meters are grouped by `meter_type` using `ELECTRIC_TYPES` (electricity_import, electricity_export, electricity_production) and `WATER_TYPES` (water_cold, water_garden). The X-axis is sorted ascending (oldest year first).
 
 ## 3. Existing Components
 

@@ -6,7 +6,7 @@ A simple, local application for tracking electricity, gas, and water consumption
 
 - **Track multiple meters**: Gas, cold/garden water (m³), electricity import/export/production (kWh) — the unit is derived automatically from the meter type
 - **Record readings**: Simple form to add meter readings with dates and optional notes; edit or delete existing readings directly in the year detail tables via inline dialog
-- **Visualize consumption**: Line charts showing usage trends over time, with toggle between absolute meter readings and cumulative consumption since Jan 1 (starts at 0, even-number axis bounds)
+- **Visualize consumption**: Separate line charts per energy type (Strom, Wasser, Gas) on the years-overview page, plus per-meter charts on the year detail page showing usage trends over time, with toggle between absolute meter readings and cumulative consumption since Jan 1 (starts at 0, even-number axis bounds)
 - **Tariff management**: Track price per unit and base fees for different periods, with optional comment field for provider name and category filter buttons (Strom Bezug/Gas/Wasser) in the list view
 - **Advance payment management**: Track monthly Abschläge per meter with category (gas, cold water, wastewater, power import), time-range validity, overlap protection, optional comment field, and an "Alle" button showing all categories at once in the list view
 - **Meter replacement chain**: When a physical meter is swapped, link the new meter to its predecessor via `replaces_meter_id`. Cost calculations automatically follow the chain, summing each meter's contribution — no negative consumption from a counter reset on the new device

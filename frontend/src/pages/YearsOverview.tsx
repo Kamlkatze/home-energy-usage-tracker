@@ -15,6 +15,9 @@ const COLORS = [
   '#ec4899', '#14b8a6', '#f97316',
 ];
 
+const ELECTRIC_TYPES = ['electricity_import', 'electricity_export', 'electricity_production'];
+const WATER_TYPES = ['water_cold', 'water_garden'];
+
 const ChartTooltip: React.FC<{ active?: boolean; payload?: any[], label?: any; items: YearsOverviewItem[] }> = ({ active, payload, label, items }) => {
   if (!active || !payload || payload.length === 0) return null;
   return (
@@ -39,6 +42,73 @@ const ChartTooltip: React.FC<{ active?: boolean; payload?: any[], label?: any; i
         );
       })}
     </div>
+  );
+};
+
+interface ChartCardProps {
+  title: string;
+  items: YearsOverviewItem[];
+  chartData: Record<string, any>[];
+}
+
+const ChartCard: React.FC<ChartCardProps> = ({ title, items, chartData }) => {
+  if (items.length === 0) return null;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="h-80">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={chartData}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis
+                dataKey="year"
+                stroke="hsl(var(--muted-foreground))"
+                tick={{ fill: 'hsl(var(--muted-foreground))' }}
+              />
+              <YAxis
+                stroke="hsl(var(--muted-foreground))"
+                tick={{ fill: 'hsl(var(--muted-foreground))' }}
+                tickFormatter={(v: number) => Math.round(v).toString()}
+                label={{ value: 'Verbrauch', angle: -90, position: 'insideLeft', fill: 'hsl(var(--muted-foreground))' }}
+              />
+              <Tooltip content={<ChartTooltip items={items} />} />
+              <Legend
+                content={({ payload }) => (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', justifyContent: 'center', padding: '8px 0' }}>
+                    {payload?.map((entry: any, idx: number) => {
+                      const item = items.find(i => i.meter_label === entry.value);
+                      const unit = item?.unit || '';
+                      return (
+                        <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <div style={{ width: 12, height: 12, backgroundColor: entry.color, borderRadius: 2 }} />
+                          <span style={{ color: 'hsl(var(--foreground))', fontSize: 12 }}>{entry.value} ({unit})</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              />
+              {items.map((item, idx) => (
+                <Line
+                  key={item.meter_id}
+                  type="monotone"
+                  dataKey={item.meter_label}
+                  name={item.meter_label}
+                  stroke={COLORS[idx % COLORS.length]}
+                  strokeWidth={2}
+                  dot={{ r: 4 }}
+                  activeDot={{ r: 6 }}
+                  connectNulls
+                />
+              ))}
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </CardContent>
+    </Card>
   );
 };
 
@@ -67,7 +137,7 @@ const YearsOverview: React.FC = () => {
   }, [fetchData]);
 
   const allYears = [...new Set(items.flatMap((item) => item.years.map((y) => y.year)))].sort(
-    (a, b) => b - a
+    (a, b) => a - b
   );
 
   const tableData = allYears.map((year) => {
@@ -79,14 +149,23 @@ const YearsOverview: React.FC = () => {
     return row;
   });
 
-  const chartData = allYears.map((year) => {
-    const row: Record<string, any> = { year: String(year) };
-    items.forEach((item) => {
-      const entry = item.years.find((y) => y.year === year);
-      row[item.meter_label] = entry?.consumption ? parseFloat(entry.consumption) : null;
+  const buildChartData = (meterItems: YearsOverviewItem[]) =>
+    allYears.map((year) => {
+      const row: Record<string, any> = { year: String(year) };
+      meterItems.forEach((item) => {
+        const entry = item.years.find((y) => y.year === year);
+        row[item.meter_label] = entry?.consumption ? parseFloat(entry.consumption) : null;
+      });
+      return row;
     });
-    return row;
-  });
+
+  const electricItems = items.filter((i) => ELECTRIC_TYPES.includes(i.meter_type));
+  const waterItems = items.filter((i) => WATER_TYPES.includes(i.meter_type));
+  const gasItems = items.filter((i) => i.meter_type === 'gas');
+
+  const electricChartData = buildChartData(electricItems);
+  const waterChartData = buildChartData(waterItems);
+  const gasChartData = buildChartData(gasItems);
 
   if (loading) {
     return (
@@ -170,61 +249,9 @@ const YearsOverview: React.FC = () => {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Verbrauchsverlauf</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="h-80">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis
-                  dataKey="year"
-                  stroke="hsl(var(--muted-foreground))"
-                  tick={{ fill: 'hsl(var(--muted-foreground))' }}
-                />
-                <YAxis
-                  stroke="hsl(var(--muted-foreground))"
-                  tick={{ fill: 'hsl(var(--muted-foreground))' }}
-                  tickFormatter={(v: number) => Math.round(v).toString()}
-                  label={{ value: 'Verbrauch', angle: -90, position: 'insideLeft', fill: 'hsl(var(--muted-foreground))' }}
-                />
-                <Tooltip content={<ChartTooltip items={items} />} />
-                <Legend
-                  content={({ payload }) => (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', justifyContent: 'center', padding: '8px 0' }}>
-                      {payload?.map((entry: any, idx: number) => {
-                        const item = items.find(i => i.meter_label === entry.value);
-                        const unit = item?.unit || '';
-                        return (
-                          <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                            <div style={{ width: 12, height: 12, backgroundColor: entry.color, borderRadius: 2 }} />
-                            <span style={{ color: 'hsl(var(--foreground))', fontSize: 12 }}>{entry.value} ({unit})</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                />
-                {items.map((item, idx) => (
-                  <Line
-                    key={item.meter_id}
-                    type="monotone"
-                    dataKey={item.meter_label}
-                    name={item.meter_label}
-                    stroke={COLORS[idx % COLORS.length]}
-                    strokeWidth={2}
-                    dot={{ r: 4 }}
-                    activeDot={{ r: 6 }}
-                    connectNulls
-                  />
-                ))}
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </CardContent>
-      </Card>
+      <ChartCard title="Stromverbrauch" items={electricItems} chartData={electricChartData} />
+      <ChartCard title="Wasserverbrauch" items={waterItems} chartData={waterChartData} />
+      <ChartCard title="Gasverbrauch" items={gasItems} chartData={gasChartData} />
     </div>
   );
 };
