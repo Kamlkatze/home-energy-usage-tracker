@@ -210,7 +210,7 @@ def test_normal_meter_cost_unchanged(client):
     Readings 1000.000 (2024-01-10) and 1150.500 (2024-03-10):
       consumption     = 150.500 kWh
       days_in_range   = 60
-      base_fee_total  = 12.50 * 60 / 30 = 25.00
+      base_fee_total  = 12.50 * (22/31 + 1 + 9/31) = 25.00
       total_cost      = 150.500 * 0.35490 + 25.00 = 78.41
     """
     meter_id = _create_meter(client, label="Standalone")
@@ -253,16 +253,16 @@ def test_chained_meter_consumption(client):
 
     Segment P: 2024-01-01 to 2024-03-31 (90 days inclusive-exclusive)
       consumption = 300 kWh
-      base fee: 10.00 * 90/30 = 30.00
+      base fee: 10.00 * (1 + 1 + 30/31) = 29.6774... -> 29.68
       energy: 300 * 0.30000 = 90.00
     Segment M: 2024-04-01 to 2024-06-30 (90 days inclusive-exclusive)
       consumption = 200 kWh
-      base fee: 10.00 * 90/30 = 30.00
+      base fee: 10.00 * (1 + 1 + 29/30) = 29.6667... -> 29.67
       energy: 200 * 0.40000 = 80.00
 
     Total:
-      base_fee_total = 60.00
-      total_cost = 60.00 + 90.00 + 80.00 = 230.00
+      base_fee_total = 29.6774 + 29.6667 = 59.34
+      total_cost = 59.34 + 90.00 + 80.00 = 229.34
     """
     old_id = _create_meter(client, label="Alter Zähler P")
     new_id = _create_meter(client, label="Neuer Zähler M", replaces_meter_id=old_id)
@@ -288,8 +288,8 @@ def test_chained_meter_consumption(client):
     data = response.json()
     assert data["meter_id"] == new_id
     assert Decimal(data["consumption"]) == Decimal(500)
-    assert Decimal(data["base_fee_total"]) == Decimal("60.00")
-    assert Decimal(data["total_cost"]) == Decimal("230.00")
+    assert Decimal(data["base_fee_total"]) == Decimal("59.34")
+    assert Decimal(data["total_cost"]) == Decimal("229.34")
 
 
 def test_chained_meter_with_tariff_change_in_chain(client):

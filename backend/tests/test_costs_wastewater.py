@@ -65,7 +65,7 @@ def test_calculate_wastewater_costs_happy_path_both_meters(client):
       garden_consumption = 79.500 - 20.000  = 59.500
       wastewater         = 150.500 - 59.500 = 91.000
     days_in_range  = (2024-03-10 - 2024-01-10).days = 60
-    base_fee_total = 6.00 * 60 / 30              = 12.00
+    base_fee_total = 6.00 * (22/31 + 1 + 9/31)    = 12.00
     total_cost     = 91.000 * 2.10000 + 12.00    = 203.10
     """
     cold_meter_id = _create_meter(client, "water_cold")
@@ -137,7 +137,7 @@ def test_calculate_wastewater_costs_garden_exceeds_cold_floored_at_zero(client):
     garden 50.000 -> 200.000 (consumption 150.000):
       wastewater = max(0, 100.000 - 150.000) = 0.000
     Only the prorated base fee remains:
-      base_fee_total = 6.00 * 60 / 30 = 12.00, total_cost = 12.00
+      base_fee_total = 6.00 * (22/31 + 1 + 9/31) = 12.00, total_cost = 12.00
     """
     cold_meter_id = _create_meter(client, "water_cold")
     garden_meter_id = _create_meter(client, "water_garden")

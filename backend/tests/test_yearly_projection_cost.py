@@ -92,9 +92,9 @@ def test_yearly_projection_with_cost_basic_case(client):
     # Consumption from Dec 31 to Feb 15: 200 over 46 days
     # Prorated for Jan 1 to Feb 15: 200 * 45/46 = 195.652
     # Energy cost: 195.652 * 0.30 = 58.6956
-    # Base fee: 10.00 * 45/30 = 15.00
-    # Total actual cost: 58.6956 + 15.00 = 73.6956 ≈ 73.70
-    assert Decimal(data["actual_cost_to_date"]) == Decimal("73.70")
+    # Base fee: Jan full (31/31) + Feb 1-14 (14/29) = 10.00 + 10.00*14/29 = 14.8276
+    # Total actual cost: 58.6956 + 14.8276 = 73.5232 → 73.52
+    assert Decimal(data["actual_cost_to_date"]) == Decimal("73.52")
     
     # Projected annual consumption: (200 / 46) * 365 ≈ 1586.9565
     # Projected energy cost: 1586.9565 * 0.30 = 476.08695
@@ -204,9 +204,9 @@ def test_yearly_projection_completed_year(client):
     assert Decimal(data["projected_annual_consumption"]) == Decimal("1000.000")  # Same as actual for completed year
     
     # Actual cost for full year: consumption 1000 * 0.35 = 350.00
-    # Base fee: 12.00 * 364/30 = 145.60 (Jan 1 to Dec 31 exclusive = 364 days)
-    # Total: 350.00 + 145.60 = 495.60
-    assert Decimal(data["projected_annual_cost"]) == Decimal("495.60")
+    # Base fee: 12.00 * (11 + 30/31) = 143.6129 (Jan 1 to Dec 31 exclusive = 364 days)
+    # Total: 350.00 + 143.61 = 493.61
+    assert Decimal(data["projected_annual_cost"]) == Decimal("493.61")
 
 
 def test_yearly_projection_meter_not_found(client):
@@ -466,7 +466,7 @@ def test_yearly_projection_non_gas_unaffected_by_gas_fields(client):
     assert data["unit"] == "kWh"
     # Identical to test_yearly_projection_with_cost_basic_case:
     # no conversion applied despite gas fields on the tariff.
-    assert Decimal(data["actual_cost_to_date"]) == Decimal("73.70")
+    assert Decimal(data["actual_cost_to_date"]) == Decimal("73.52")
     assert Decimal(data["projected_annual_cost"]) == Decimal("596.09")
 
 
