@@ -145,4 +145,4 @@ The following backend endpoints/features have **zero** frontend representation:
 7. **Vite dev proxy target issue:** Default `localhost:8000` won't work from inside frontend container.
 8. ~~**No reading list/edit/delete.**~~
 9. ~~**No dark mode toggle.**~~
-10. **`dist/` directory** present in repository (build artefact).
+10. ~~**`dist/` directory** present in repository (build artefact).~~
