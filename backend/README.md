@@ -33,6 +33,8 @@ uv run --extra dev pytest
 # Run linting
 uv run --extra dev ruff check --fix
 uv run --extra dev mypy app/models
+# Note: Ruff ignores B008 per-file in app/api/*.py — FastAPI's Query/Depends/Body
+# function-call-in-default pattern is an accepted false positive for that rule.
 
 # Database migrations
 uv run alembic revision --autogenerate -m "description"

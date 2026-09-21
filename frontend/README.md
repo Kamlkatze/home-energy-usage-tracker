@@ -16,6 +16,7 @@
 | UI primitives | shadcn/ui style | – | hand-written, not installed via CLI (button, card, input, label, select, table, textarea) |
 | Utility | class-variance-authority | ^0.7.0 | used in button variants |
 | Utility | clsx + tailwind-merge | ^2.0.0 | `cn()` helper in `lib/utils.ts` |
+| Linting | ESLint | ^8.53 (legacy `.eslintrc.cjs`) | `typescript-eslint`, `eslint-plugin-react`, `react-hooks`, `react-refresh`, `jsx-a11y`; no Prettier |
 
 **Not used (installed but 0 imports):** `date-fns`.
 
@@ -132,7 +133,14 @@ The following backend endpoints/features have **zero** frontend representation:
 | **Meter edit** | `PUT /api/meters/` via `EditMeterModal` in `MeterList` |
 | **Advance payment list / create / edit** | ✅ Implemented – see `/advance-payments` and `/advance-payments/new` routes above |
 
-## 7. Known Issues / TODOs (unchanged)
+## 7. Linting (ESLint)
+
+- **Config:** Legacy `.eslintrc.cjs` (ESLint 8, not flat config — project uses `"type": "module"`, hence the `.cjs` extension). Plugins: `@typescript-eslint`, `react`, `react-hooks`, `react-refresh`, `jsx-a11y`.
+- **Scripts:** `npm run lint` (fails on warnings via `--max-warnings 0`), `npm run lint:fix` (safe autofix only).
+- **Rule philosophy:** Recommended sets for TS/React/React-hooks/jsx-a11y are enabled. Noisy/strict stylistic rules are relaxed (`explicit-module-boundary-types` off, `no-explicit-any` as warning, `react/prop-types` off since TypeScript validates). `jsx-a11y/recommended` rules are all set to **warn** (not error) so a11y issues don't block the build for a solo dev. There is **no Prettier** in this project.
+- **No autofixer for `react/no-unescaped-entities`:** this rule is not auto-fixable, so `npm run lint:fix` cannot repair it — such occurrences must be escaped manually (e.g. `"` → `&quot;`) in JSX text.
+
+## 8. Known Issues / TODOs
 
 1. ~~**Mixed language UI:** Several pages (e.g. Home, AddReading) still use English labels — meters pages are fully translated to German.~~ Home page, AddReading, and meters pages are now fully German.
 2. **`select.tsx` dead code:** Unused `SelectTrigger`, `SelectContent`, `SelectValue` exports.
@@ -142,3 +150,4 @@ The following backend endpoints/features have **zero** frontend representation:
 6. ~~**No reading list/edit/delete.**~~
 7. ~~**No dark mode toggle.**~~
 8. ~~**`dist/` directory** present in repository (build artefact).~~
+9. **jsx-a11y baseline warnings:** `jsx-a11y/recommended` currently reports 5 warnings across `components/ui/`: `heading-has-content` (card.tsx), `click-events-have-key-events` + `no-static-element-interactions` (dialog.tsx), `label-has-associated-control` + `label-has-for` (label.tsx). These are intentionally left unfixed to lock in a baseline; resolving them is a separate follow-up.

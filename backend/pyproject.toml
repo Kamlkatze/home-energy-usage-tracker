@@ -54,6 +54,12 @@ line-length = 88
 [tool.ruff.lint]
 ignore = ["E501"]
 
+# B008 is a known false positive for FastAPI `Query`/`Depends`/`Body` defaults;
+# see https://github.com/astral-sh/ruff/issues/2258 for context. The exception is
+# scoped to the API routers where FastAPI parameter defaults live.
+[tool.ruff.lint.per-file-ignores]
+"app/api/*.py" = ["B008"]
+
 [tool.mypy]
 python_version = "3.11"
 ignore_missing_imports = true

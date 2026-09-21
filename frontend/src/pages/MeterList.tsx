@@ -113,12 +113,12 @@ const MeterList: React.FC = () => {
 
                       {predecessor && (
                         <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
-                          Ersetzt Zähler #{predecessor.id} „{predecessor.label}"
+                          Ersetzt Zähler #{predecessor.id} „{predecessor.label}&quot;
                         </p>
                       )}
                       {successor && (
                         <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                          Ersetzt durch Zähler #{successor.id} „{successor.label}"
+                          Ersetzt durch Zähler #{successor.id} „{successor.label}&quot;
                         </p>
                       )}
 
@@ -171,7 +171,7 @@ const MeterList: React.FC = () => {
           <div className="space-y-4">
             <h2 className="text-lg font-semibold">Zähler löschen</h2>
             <p>
-              Bist du sicher, dass du den Zähler <strong>„{deleteMeter.label}"</strong> löschen möchtest?
+              Bist du sicher, dass du den Zähler <strong>„{deleteMeter.label}&quot;</strong> löschen möchtest?
             </p>
             <div className="bg-amber-50 border border-amber-200 rounded p-3 text-sm text-amber-800 flex gap-2 items-start">
               <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />

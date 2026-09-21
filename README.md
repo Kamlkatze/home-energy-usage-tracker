@@ -809,6 +809,7 @@ erDiagram
 
  # Run linting
  cd backend && uv run --extra dev ruff check --fix && uv run --extra dev mypy app/models
+ #   B008 (FastAPI Query/Depends/Body defaults) is ignored per-file in app/api/*.py
 
  # Create migration
  cd backend && uv run alembic revision --autogenerate -m "description"
@@ -827,6 +828,9 @@ cd frontend && npm run build
 
 # Run linting
 cd frontend && npm run lint
+
+# Run linting and auto-fix what is safely auto-fixable
+cd frontend && npm run lint:fix
 ```
 
 ## Project Structure
