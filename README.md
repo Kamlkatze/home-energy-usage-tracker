@@ -615,7 +615,7 @@ The 30 % threshold is a fixed statutory value from EEG 2009 § 33 Abs. 2, not co
 ### Advance Payment Diff (Cost vs. Abschläge)
 - `GET /api/costs/advance-payment-diff?meter_id={id}&year={year}&as_of_date={date}` - Calculate the difference and the estimated or actual annual cost for a meter and year. `as_of_date` is optional (defaults to server date). Returns **200** even with no advance payments or no tariff, **404** if meter not found, **422** for invalid year (outside 2000-2100 range).
 
-**Wastewater mode:** Pass `water_cold_meter_id` (and optionally `water_garden_meter_id`) to compute the diff for the `wastewater` category instead of `meter_id`:
+**Wastewater mode:** Additionally pass `water_cold_meter_id` (and optionally `water_garden_meter_id`) to compute the diff for the `wastewater` category. Note: `meter_id` is still a required query parameter on this endpoint, but its value is ignored in wastewater mode:
 - The annual cost is based on the wastewater consumption `max(0, cold_water_consumption - garden_water_consumption)` (same rules as the wastewater cost endpoint, including meter replacement chains) billed against a `wastewater` tariff attached to the **cold-water** meter
 - `total_advance_payments` sums `category=wastewater` advance payments that reference the cold-water meter via `water_cold_meter_id`
 - If `water_garden_meter_id` is omitted, `garden_consumption = 0` and the entire cold-water consumption counts as wastewater (no subtraction)
@@ -660,7 +660,7 @@ The 30 % threshold is a fixed statutory value from EEG 2009 § 33 Abs. 2, not co
 ```
 
 ### Advance Payment Diff By Category
-- `GET /api/costs/advance-payment-diff-by-category?category={cat}&year={year}&meter_id={id}&water_cold_meter_id={id}` - Thin wrapper around `advance-payment-diff` with category-based parameter validation. Adds a `category` field to the response.
+- `GET /api/costs/advance-payment-diff-by-category?category={cat}&year={year}&meter_id={id}&water_cold_meter_id={id}&as_of_date={date}&water_garden_meter_id={id}` - Thin wrapper around `advance-payment-diff` with category-based parameter validation. Adds a `category` field to the response.
 
 ### Health
 - `GET /health` - Health check endpoint, returns `{"status": "healthy"}`.

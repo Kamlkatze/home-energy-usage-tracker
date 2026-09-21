@@ -1405,24 +1405,19 @@ def _compute_advance_payment_diff(
         actual_meter_id = meter_id
 
     # 1. Estimated/actual annual cost
-    try:
-        if is_wastewater:
-            estimated_or_actual_cost, cost_basis, cost_message = (
-                _compute_yearly_wastewater_cost_for_diff(
-                    db, water_cold_meter_id, year, as_of_date, chain,
-                    water_garden_meter_id=water_garden_meter_id,
-                )
+    if is_wastewater:
+        estimated_or_actual_cost, cost_basis, cost_message = (
+            _compute_yearly_wastewater_cost_for_diff(
+                db, water_cold_meter_id, year, as_of_date, chain,
+                water_garden_meter_id=water_garden_meter_id,
             )
-        else:
-            estimated_or_actual_cost, cost_basis, cost_message = (
-                _compute_yearly_cost_for_diff(
-                    db, meter_id, year, as_of_date, chain,
-                )
+        )
+    else:
+        estimated_or_actual_cost, cost_basis, cost_message = (
+            _compute_yearly_cost_for_diff(
+                db, meter_id, year, as_of_date, chain,
             )
-    except HTTPException as e:
-        if e.status_code == 422 and "Jahr" not in str(e.detail):
-            raise
-        raise
+        )
 
     # 2. Total advance payments overlapping the year
     if is_wastewater:

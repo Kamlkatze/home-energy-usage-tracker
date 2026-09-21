@@ -245,7 +245,7 @@ Compares paid/planned monthly Abschläge against the estimated annual cost:
 2. **Total advance payments** — all `AdvancePayment` records overlapping the year, prorated using calendar-accurate month lengths (full months count as 1, partial months by actual days in that month)
 3. **Difference** — `total_advance_payments - estimated_or_actual_cost` (positive = Guthaben, negative = Nachzahlung)
 
-**Wastewater mode:** Passing `water_cold_meter_id` (and optionally `water_garden_meter_id`) switches to the wastewater diff:
+**Wastewater mode:** Passing `water_cold_meter_id` (and optionally `water_garden_meter_id`) switches to the wastewater diff. `meter_id` is still a required query parameter here, but its value is ignored in wastewater mode:
 - The annual cost is computed from the wastewater consumption `max(0, cold − garden)` (`_compute_wastewater_consumption`, same boundary-reading rules and chain support as the wastewater cost endpoint) billed against a `wastewater` tariff on the cold-water meter
 - Advance payments are matched via `water_cold_meter_id` (only `category=wastewater` records)
 - Omitted `water_garden_meter_id` → `garden_consumption = 0`, the full cold-water consumption counts as wastewater (no subtraction)
@@ -255,7 +255,7 @@ Returns **200** with `total_advance_payments: null` when no advance payment exis
 
 ### Advance Payment Diff By Category
 
-**`GET /api/costs/advance-payment-diff-by-category?category={cat}&year={year}&meter_id={id}&water_cold_meter_id={id}`**
+**`GET /api/costs/advance-payment-diff-by-category?category={cat}&year={year}&meter_id={id}&water_cold_meter_id={id}&as_of_date={date}&water_garden_meter_id={id}`**
 
 Thin wrapper around the `advance-payment-diff` endpoint that adds category-based parameter validation. Internally calls `_compute_advance_payment_diff` (same logic as `advance-payment-diff`). Response is identical to `advance-payment-diff` plus a `category` field.
 
