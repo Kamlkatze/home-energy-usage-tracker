@@ -24,7 +24,7 @@
 | Route | File | Description |
 |---|---|---|
 | `/` | `pages/Home.tsx` | Landing page with description cards (electricity, gas, water) and nav links. Static content only – no live data or summary queries. |
-| `/meters` | `components/MeterList.tsx` | Lists all meters in a card grid. Shows label, type, unit, predecessor/successor chain. Supports **edit** (inline modal) and **delete** (Dialog with confirmation). "Neuer Zähler" link. German UI. |
+| `/meters` | `pages/MeterList.tsx` | Lists all meters in a card grid. Shows label, type, unit, predecessor/successor chain. Supports **edit** (inline modal) and **delete** (Dialog with confirmation). "Neuer Zähler" link. German UI. |
 | `/meters/new` | `pages/MeterForm.tsx` | Create meter form: label, meter number (optional), type (select from server‑fetched types), predecessor (optional, same‑type only). Unit is read-only (server-derived). Submits to `POST /api/meters/`. |
 | `/meters/:id` | `pages/MeterDetail.tsx` | Single meter detail: line chart of readings (recharts), meter info panel (type, unit, number, created date, total count), recent readings table (last 5, newest first). Fetches `GET /api/meters/:id` + `GET /api/meters/:id/readings`. |
 | `/readings/new` | `pages/AddReading.tsx` | Multi-meter reading entry form: single date for all meters, per-meter checkbox + value + optional note + last-reading reference. Shows all meters (replaced ones hidden by default) via `GET /api/meters/` with an "Alte Zähler anzeigen" toggle. Replaced meters are visually marked with an `(ersetzt)` badge and amber border. Checkbox selection persisted in localStorage. Submits `POST /api/readings/` per selected meter with value. Shows success/partial-failure results with ✅/❌ per meter. |
@@ -63,7 +63,6 @@ All follow the shadcn/ui pattern (Tailwind + `cn()` helper, forwardRef, displayN
 ### Business components (`components/`)
 | Component | File | Notes |
 |---|---|---|
-| `MeterList` | `MeterList.tsx` | **Functions as a page** (used as `<Route>` element), not as an embeddable component. |
 | `EditMeterModal` | `EditMeterModal.tsx` | Dialog for editing a meter: name, number, predecessor dropdown. Meter type and unit are read-only. |
 | `ThemeToggle` | `ThemeToggle.tsx` | Dark/light mode toggle button in nav bar. Stores preference in `localStorage.theme`. |
 
@@ -137,7 +136,7 @@ The following backend endpoints/features have **zero** frontend representation:
 
 1. ~~**Mixed language UI:** Several pages (e.g. Home, AddReading) still use English labels — meters pages are fully translated to German.~~ Home page, AddReading, and meters pages are now fully German.
 2. **`select.tsx` dead code:** Unused `SelectTrigger`, `SelectContent`, `SelectValue` exports.
-3. **`MeterList` misplaced:** Lives in `components/` but used as route page.
+3. ~~**`MeterList` misplaced:** Lives in `components/` but used as route page.~~ Moved to `pages/MeterList.tsx`.
 4. ~~**`index.html` language:** `<html lang="en">` doesn't match German UI.~~
 5. **Vite dev proxy target issue:** Default `localhost:8000` won't work from inside frontend container.
 6. ~~**No reading list/edit/delete.**~~

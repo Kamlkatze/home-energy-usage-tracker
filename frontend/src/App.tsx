@@ -2,7 +2,7 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
 import { Button } from './components/ui/button';
 import HomePage from './pages/Home';
-import MeterList from './components/MeterList';
+import MeterList from './pages/MeterList';
 import MeterDetail from './pages/MeterDetail';
 import MeterForm from './pages/MeterForm';
 import AddReading from './pages/AddReading';

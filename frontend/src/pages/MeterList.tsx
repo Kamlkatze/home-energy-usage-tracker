@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Button } from './ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
+import { Button } from '../components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { metersApi } from '../api/client';
 import { meterTypeLabel, useMeterTypes } from '../hooks/useMeterTypes';
 import { Meter } from '../types';
-import { Dialog } from './ui/dialog';
+import { Dialog } from '../components/ui/dialog';
 import { Pencil, Trash2, Loader2, AlertTriangle } from 'lucide-react';
-import EditMeterModal from './EditMeterModal';
+import EditMeterModal from '../components/EditMeterModal';
 
 const MeterList: React.FC = () => {
   const [meters, setMeters] = useState<Meter[]>([]);
