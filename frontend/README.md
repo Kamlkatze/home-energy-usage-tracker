@@ -109,7 +109,6 @@ Defines: `MeterType`, `TariffKind`, `MeterTypeInfo`, `Meter`, `Reading`, `Tariff
 | `advancePaymentsApi` | `GET /`, `GET /:id`, `POST /`, `PUT /:id`, `DELETE /:id` | `AdvancePaymentForm` (POST), `AdvancePaymentList` (GET, PUT) |
 | `costsApi` | `GET /years-overview`, `GET /yearly-projection`, `GET /wastewater/` | `YearsOverview`, `YearDetail` (projections + wastewater) |
 | `electricityApi` | `GET /feed-in-compensation` | `YearDetail` (EEG feed-in compensation) |
-| `healthApi` | `GET /health` | **Not used** anywhere in components |
 
 ## 5. Styling Approach
 
@@ -138,11 +137,9 @@ The following backend endpoints/features have **zero** frontend representation:
 
 1. ~~**Mixed language UI:** Several pages (e.g. Home, AddReading) still use English labels — meters pages are fully translated to German.~~ Home page, AddReading, and meters pages are now fully German.
 2. **`select.tsx` dead code:** Unused `SelectTrigger`, `SelectContent`, `SelectValue` exports.
-3. **`date-fns` not used:** Installed but zero imports.
-4. **`healthApi` dead code:** Defined but never imported.
-5. **`MeterList` misplaced:** Lives in `components/` but used as route page.
-6. ~~**`index.html` language:** `<html lang="en">` doesn't match German UI.~~
-7. **Vite dev proxy target issue:** Default `localhost:8000` won't work from inside frontend container.
-8. ~~**No reading list/edit/delete.**~~
-9. ~~**No dark mode toggle.**~~
-10. ~~**`dist/` directory** present in repository (build artefact).~~
+3. **`MeterList` misplaced:** Lives in `components/` but used as route page.
+4. ~~**`index.html` language:** `<html lang="en">` doesn't match German UI.~~
+5. **Vite dev proxy target issue:** Default `localhost:8000` won't work from inside frontend container.
+6. ~~**No reading list/edit/delete.**~~
+7. ~~**No dark mode toggle.**~~
+8. ~~**`dist/` directory** present in repository (build artefact).~~
