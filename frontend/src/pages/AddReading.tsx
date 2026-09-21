@@ -173,7 +173,7 @@ const AddReading: React.FC = () => {
           meterId,
           meterLabel: meter?.label ?? `#${meterId}`,
           success: false,
-          error: err?.response?.data?.detail ?? err.message ?? 'Unknown error',
+          error: err?.response?.data?.detail ?? err.message ?? 'Unbekannter Fehler',
         });
       }
     }

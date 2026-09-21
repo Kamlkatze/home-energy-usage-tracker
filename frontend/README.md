@@ -136,7 +136,7 @@ The following backend endpoints/features have **zero** frontend representation:
 
 ## 7. Known Issues / TODOs (unchanged)
 
-1. ~~**Mixed language UI:** Several pages (e.g. Home, AddReading) still use English labels — meters pages are fully translated to German.~~ Home page is now fully German; AddReading still has some English labels.
+1. ~~**Mixed language UI:** Several pages (e.g. Home, AddReading) still use English labels — meters pages are fully translated to German.~~ Home page, AddReading, and meters pages are now fully German.
 2. **`select.tsx` dead code:** Unused `SelectTrigger`, `SelectContent`, `SelectValue` exports.
 3. **`date-fns` not used:** Installed but zero imports.
 4. **`healthApi` dead code:** Defined but never imported.
