@@ -143,7 +143,7 @@ The following backend endpoints/features have **zero** frontend representation:
 ## 8. Known Issues / TODOs
 
 1. ~~**Mixed language UI:** Several pages (e.g. Home, AddReading) still use English labels — meters pages are fully translated to German.~~ Home page, AddReading, and meters pages are now fully German.
-2. **`select.tsx` dead code:** Unused `SelectTrigger`, `SelectContent`, `SelectValue` exports.
+2. ~~**`select.tsx` dead code:** Unused `SelectTrigger`, `SelectContent`, `SelectValue` exports.~~ Removed — those three components were unused and now deleted.
 3. ~~**`MeterList` misplaced:** Lives in `components/` but used as route page.~~ Moved to `pages/MeterList.tsx`.
 4. ~~**`index.html` language:** `<html lang="en">` doesn't match German UI.~~
 5. ~~**Vite dev proxy target:** containerized dev sets `VITE_PROXY_TARGET: http://backend:8000` via `docker-compose.dev.yml`; the `vite.config.ts` default of `http://localhost:8000` is only used for native development.~~
