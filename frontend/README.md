@@ -11,24 +11,40 @@
 | HTTP client | axios | ^1.6.0 | single `apiClient` instance |
 | Charting | recharts | ^2.10.0 | `LineChart` on meter detail page |
 | Icons | lucide-react | ^0.303.0 | used in nav, home cards, forms |
-| Date utils | date-fns | ^3.0.0 | installed but **not imported** in any component |
+| Date utils | – | – | not used (`date-fns` was removed in "Removed unused imports and dead code from frontend") |
 | CSS | Tailwind CSS | ^3.3.6 | with `tailwindcss-animate`, `postcss` + `autoprefixer` |
-| UI primitives | shadcn/ui style | – | hand-written, not installed via CLI (button, card, input, label, select, table, textarea) |
+| UI primitives | shadcn/ui style | – | hand-written, not installed via CLI (button, card, checkbox, input, label, select, table, textarea) |
 | Utility | class-variance-authority | ^0.7.0 | used in button variants |
 | Utility | clsx + tailwind-merge | ^2.0.0 | `cn()` helper in `lib/utils.ts` |
+| Linting | ESLint | ^8.53 (legacy `.eslintrc.cjs`) | `typescript-eslint`, `eslint-plugin-react`, `react-hooks`, `react-refresh`, `jsx-a11y`; no Prettier |
 
-**Not used (installed but 0 imports):** `date-fns`.
+**Not used:** no date utility library is installed.
 
 ## 2. Existing Pages / Routes
 
 | Route | File | Description |
 |---|---|---|
 | `/` | `pages/Home.tsx` | Landing page with description cards (electricity, gas, water) and nav links. Static content only – no live data or summary queries. |
-| `/meters` | `components/MeterList.tsx` | Lists all meters in a card grid. Shows label, type, unit, predecessor/successor chain. Supports **delete** (with confirmation). "Add New Meter" link. |
+| `/meters` | `pages/MeterList.tsx` | Lists all meters in a card grid. Shows label, type, unit, predecessor/successor chain. Supports **edit** (inline modal) and **delete** (Dialog with confirmation). "Neuer Zähler" link. German UI. |
 | `/meters/new` | `pages/MeterForm.tsx` | Create meter form: label, meter number (optional), type (select from server‑fetched types), predecessor (optional, same‑type only). Unit is read-only (server-derived). Submits to `POST /api/meters/`. |
 | `/meters/:id` | `pages/MeterDetail.tsx` | Single meter detail: line chart of readings (recharts), meter info panel (type, unit, number, created date, total count), recent readings table (last 5, newest first). Fetches `GET /api/meters/:id` + `GET /api/meters/:id/readings`. |
-| `/readings/new` | `pages/AddReading.tsx` | Create reading form: meter selector, numeric value, date, optional note. Warns if the selected meter has been replaced by a successor. Submits to `POST /api/readings/`. |
-| `/tariffs/new` | `pages/TariffForm.tsx` | Create tariff period form: meter, tariff kind (consumption/feed_in/self_consumption/wastewater), validity range, price per unit, optional base + metering fee. Submits to `POST /api/tariffs/`. Handles empty meter list gracefully. |
+| `/readings/new` | `pages/AddReading.tsx` | Multi-meter reading entry form: single date for all meters, per-meter checkbox + value + optional note + last-reading reference. Shows all meters (replaced ones hidden by default) via `GET /api/meters/` with an "Alte Zähler anzeigen" toggle. Replaced meters are visually marked with an `(ersetzt)` badge and amber border. Checkbox selection persisted in localStorage. Submits `POST /api/readings/` per selected meter with value. Shows success/partial-failure results with ✅/❌ per meter. |
+| `/tariffs` | `pages/TariffList.tsx` | Tariff overview table with all periods: kind label, meter, valid-from/until, price, base fee, metering fee (monthly or yearly), gas factors, optional comment, **comment** column. Category filter buttons (Strom Bezug/Gas/Wasser) above the table — the "Strom Erzeugung" type is excluded. Supports **edit** (inline modal with dynamic tariff-kind fields, optional comment editable) and **delete** (with usage check). |
+| `/tariffs/new` | `pages/TariffForm.tsx` | Create tariff period form: meter selector, tariff kind (consumption/feed_in/self_consumption/wastewater/feed_in_eeg2009), validity range, dynamic fields per kind (price per unit, optional base + metering fees, gas Z-Zahl/Brennwert for gas meters, EEG 2009 block with tier rates + yearly metering fee), optional comment field. German labels/helper text throughout. EEG 2009 meter selection includes a hint to pick the feed-in meter. Handles empty meter list gracefully. |
+| `/advance-payments` | `pages/AdvancePaymentList.tsx` | Advance payment overview with 5 filter buttons (Alle/Gas/Kaltwasser/Abwasser/Strom Bezug). Chronological table per filter: validity period, assigned meter(s), monthly amount, **comment** column. Supports **edit** via inline modal (validity period + monthly amount + optional comment, meter relations read-only). |
+| `/advance-payments/new` | `pages/AdvancePaymentForm.tsx` | Create advance payment form: category selector (4 values), dynamic meter dropdowns per category (gas → gas meter, cold_water → water_cold meter, power_import → electricity_import meter, wastewater → required water_cold + optional water_garden meter), validity range, monthly amount, optional comment. Submits to `POST /api/advance-payments/` with correct payload per category. Shows backend 422 errors. |
+| `/years-overview` | `pages/YearsOverview.tsx` | Year-over-year consumption table + separate line charts per energy type (Strom, Wasser, Gas) for all logical meters (chain-resolved via backend). Years link to `/years/:year`. |
+| `/years/:year` | `pages/YearDetail.tsx` | Year detail page grouped by category (Strom, Wasser, Gas). **Strom** uses MeterBlock per meter + EEG-Einspeisevergütung card. **Wasser** uses combined WaterSection (consumption strip, dual-line chart, paired comparison grids for Frischwasser + Abwasser). **Gas** uses GasSection (consumption strip, chart, readings table, comparison grid per meter). Readings are editable/deletable via inline dialog in all tables. |
+
+**Chart implementation notes (MeterBlock):**
+- **Projection line via `combinedData`:** Dashed projection does NOT use separate `<Line data={...}>` – Recharts only creates tooltip hit targets in the primary `data` array. All points are merged into `combinedData`: main Line uses `dataKey="value"`, projection Line uses `dataKey="projectedValue"`. End-of-year point carries `value: undefined` (invisible) and `isProjectionEnd: true`.
+- **Consumption mode toggle ("seit 01.01."):** New in this iteration. Each chart (MeterBlock, GasMeterView, WaterSection combined chart) has a toggle button to switch between absolute meter readings and cumulative consumption since Jan 1. In consumption mode, every reading value is offset by `start_reading_value` (from the projection response) — the chart starts at 0 and the Y-axis lower bound is fixed at 0. Projection line uses `projected_annual_consumption` instead of `projected_meter_reading_end_of_year`. Default is consumption mode (`useState(true)`).
+- **Nice Y-axis bounds:** New helper `niceAxisBounds()` in `utils.ts` computes data-min/max → even-number axis bounds with a constant step (2, 4, 10, 20, 40, 100, …). The lower bound is never negative. Replaces the old 10 % dynamic padding approach.
+- **Custom tooltip `ChartTooltip`** (module level): dark-mode via `hsl(var(--popover))` / `hsl(var(--popover-foreground))`. "Hochrechnung" only rendered when hovered point is in the future. Values formatted unit-aware: kWh → `Math.round()`, m³ → `toFixed(1)`.
+- **Dark-mode axes:** explicit `stroke`/`tick.fill` using `hsl(var(--muted-foreground))`. YAxis tick values rounded to whole numbers.
+- **Unit-aware formatting:** kWh → integers (`Math.round`), m³ → one decimal (`toFixed(1)`). EEG kWh → `toFixed(0)`. Same in `YearsOverview.tsx`.
+
+**YearsOverview chart split:** The years-overview page shows three separate `ChartCard` components (Strom, Wasser, Gas) instead of a single combined chart. Each card uses the same `ChartTooltip`, dark-mode styling, and unit-aware formatting. Meters are grouped by `meter_type` using `ELECTRIC_TYPES` (electricity_import, electricity_export, electricity_production) and `WATER_TYPES` (water_cold, water_garden). The X-axis is sorted ascending (oldest year first).
 
 ## 3. Existing Components
 
@@ -41,46 +57,66 @@ All follow the shadcn/ui pattern (Tailwind + `cn()` helper, forwardRef, displayN
 | `Card` / `CardHeader` / `CardTitle` / `CardDescription` / `CardContent` / `CardFooter` | `card.tsx` | Standard card composition. |
 | `Input` | `input.tsx` | Wraps `<input>` with base styling. |
 | `Label` | `label.tsx` | Wraps `<label>` with base styling. |
-| `Select` / `SelectItem` (and unused `SelectTrigger` / `SelectContent` / `SelectValue`) | `select.tsx` | Custom native `<select>` wrapper with chevron icon. The shadcn‑style `SelectTrigger`/`SelectContent`/`SelectValue` components are **exported but never imported** in any page – dead code. |
+| `Select` / `SelectItem` | `select.tsx` | Custom native `<select>` wrapper with chevron icon. |
 | `Table` / `TableHeader` / `TableBody` / `TableFooter` / `TableHead` / `TableRow` / `TableCell` / `TableCaption` | `table.tsx` | Full shadcn-style table suite. |
-| `Textarea` | `textarea.tsx` | Wraps `<textarea>` with base styling. |
+| `Checkbox` | `checkbox.tsx` | Simple `<input type="checkbox">` wrapper with Tailwind styling, following shadcn/ui pattern with forwardRef and `cn()`. |
 
 ### Business components (`components/`)
 | Component | File | Notes |
 |---|---|---|
-| `MeterList` | `MeterList.tsx` | **Functions as a page** (used as `<Route>` element), not as an embeddable component. |
+| `EditMeterModal` | `EditMeterModal.tsx` | Dialog for editing a meter: name, number, predecessor dropdown. Meter type and unit are read-only. |
+| `ThemeToggle` | `ThemeToggle.tsx` | Dark/light mode toggle button in nav bar. Stores preference in `localStorage.theme`. |
+
+#### Year Detail (`components/year-detail/`)
+| Module | Description |
+|---|---|
+| `types.ts` | Shared interfaces: `MeterSection`, `AdvancePaymentDiffs` |
+| `utils.ts` | Helpers: `formatEuro()`, `basisLabel()`, `niceAxisBounds()` (even-number axis bounds with constant step, no negative values) |
+| `MeterBlock.tsx` | Single meter card: chart, readings table with edit/delete buttons, projection. Contains all Recharts logic (combinedData, ChartTooltip, dark-mode styling, unit-aware formatting). |
+| `ElectricitySection.tsx` | Strom category: all electricity meters + EEG Einspeisevergütung card. |
+| `WaterSection.tsx` | Wasser category: combined consumption strip (FW/GW/AW actual + projected), dual-line chart (Frischwasser + Gartenwasser with projections), paired 3×2 comparison grids (Frischwasser costs + Abwasserkosten with advance payment diffs), and separate Zählerstände tables for both Frischwasser and Gartenwasser with edit/delete buttons. No longer uses individual MeterBlocks. |
+| `GasSection.tsx` | Gas section: separate consumption strip (Verbrauch tats./prog.), chart + readings table with edit/delete buttons per meter, and comparison grid (Kosten tats./prog. + Abschlagsdifferenz). |
+| `ReadingEditDialog.tsx` | Reusable dialog for editing or deleting a single reading. Opens from pencil/trash icons in any readings table. Contains edit form (date, value, note) and delete confirmation view. Calls `readingsApi.update()` / `readingsApi.delete()`. |
 
 ### Hooks
 | Hook | File | Notes |
 |---|---|---|
 | `useMeterTypes` | `hooks/useMeterTypes.ts` | Fetches meter types from `GET /api/meters/types` once per session (module-level cache). Returns `MeterTypeInfo[]`. Also exports `meterTypeLabel()` helper. |
 
+### Lib
+| File | Description |
+|---|---|
+| `lib/tariffFields.ts` | Shared helper for tariff field visibility/labels per `TariffKind` and meter type. Exports `getTariffFields(kind, meterType, meterUnit)`, `getPriceUnitLabel(kind, meterType, meterUnit)`, `TARIFF_KIND_LABELS`, `TARIFF_KINDS`, and the `FieldConfig` interface. Used by both `TariffForm.tsx` and `TariffList.tsx`. |
+| `lib/advancePaymentFields.ts` | Shared helper for advance payment category labels and meter field visibility. Exports `ADVANCE_PAYMENT_CATEGORY_LABELS`, `ADVANCE_PAYMENT_CATEGORIES`, `getMeterFieldsForCategory(category)` (returns which meter dropdowns to show per category), `filterMetersForCategory(meters, field)`. Used by both `AdvancePaymentForm.tsx` and `AdvancePaymentList.tsx`. |
+| `lib/utils.ts` | `cn()` helper combining `clsx` and `tailwind-merge`. |
+
 ### Types (`types/index.ts`)
-Defines: `MeterType`, `TariffKind`, `MeterTypeInfo`, `Meter`, `Reading`, `TariffPeriod` – aligned with backend schemas.
+Defines: `MeterType`, `TariffKind`, `MeterTypeInfo`, `Meter`, `Reading`, `TariffPeriod` (incl. `comment`), `TariffUsage`, `AdvancePaymentCategory`, `AdvancePayment` (incl. `comment`), `YearEntry`, `YearsOverviewItem`, `YearlyProjection` (incl. `start_reading_value`, `start_reading_date`), `FeedInCompensation`, `WastewaterCosts` — aligned with backend schemas.
 
 ## 4. API Integration
 
 - **Pattern:** Plain axios instance (`api/client.ts`) with module-level API objects (no React Query, no generated client, no custom fetch wrapper).
 - **Base URL:** `import.meta.env.VITE_API_URL || ''` – empty string means same-origin, relying on the Vite dev proxy or nginx reverse proxy in production.
-- **Dev proxy** (`vite.config.ts`): `/api` → `http://localhost:8000`.
+- **Dev proxy** (`vite.config.ts`): `/api` → `process.env.VITE_PROXY_TARGET` (falls back to `http://localhost:8000`). Containerized dev (`docker-compose.dev.yml`) sets `VITE_PROXY_TARGET: http://backend:8000` so the frontend container reaches the backend via its docker-compose service name; the backend mounts routes under `/api`, so the path is passed through without rewriting.
 
 ### API objects and endpoints consumed
 
 | Object | Endpoints | Used in |
 |---|---|---|
-| `metersApi` | `GET /types`, `GET /`, `GET /:id`, `POST /`, `PUT /:id`, `DELETE /:id`, `GET /:id/readings` | `useMeterTypes`, `MeterList`, `MeterDetail`, `MeterForm`, `AddReading`, `TariffForm` |
-| `readingsApi` | `GET /`, `GET /:id`, `POST /`, `PUT /:id`, `DELETE /:id` | `AddReading` (only `POST`) |
-| `tariffsApi` | `GET /`, `GET /:id`, `POST /`, `PUT /:id`, `DELETE /:id` | `TariffForm` (only `POST`) |
-| `healthApi` | `GET /health` | **Not used** anywhere in components |
-
-**Notable:** `metersApi.update` and `readingsApi.update`/`delete` are defined but never called. `healthApi` is defined but never imported.
+| `metersApi` | `GET /types`, `GET /`, `GET /current`, `GET /:id`, `POST /`, `PUT /:id`, `DELETE /:id`, `GET /:id/readings` | `useMeterTypes`, `MeterList`, `EditMeterModal`, `MeterDetail`, `MeterForm`, `AddReading` (uses `getAll` with toggle for replaced meters + `getLastReading`), `TariffForm`, `YearDetail` (chain resolution + readings fetch) |
+| `readingsApi` | `GET /`, `GET /:id`, `POST /`, `PUT /:id`, `DELETE /:id` | `AddReading` (POST), `ReadingEditDialog` in `YearDetail` (PUT, DELETE) |
+| `tariffsApi` | `GET /`, `GET /:id`, `POST /`, `PUT /:id`, `DELETE /:id` | `TariffForm` (POST), `TariffList` (GET, PUT, DELETE) |
+| `advancePaymentsApi` | `GET /`, `GET /:id`, `POST /`, `PUT /:id`, `DELETE /:id` | `AdvancePaymentForm` (POST), `AdvancePaymentList` (GET, PUT) |
+| `costsApi` | `GET /years-overview`, `GET /yearly-projection`, `GET /wastewater/`, `GET /advance-payment-diff-by-category` | `YearsOverview`, `YearDetail` (projections, wastewater + advance payment diffs) |
+| `electricityApi` | `GET /feed-in-compensation`, `GET /feed-in-compensation-projection` | `YearDetail` (EEG feed-in compensation) |
 
 ## 5. Styling Approach
 
 - **Tailwind CSS** exclusively (no plain CSS files, no CSS modules, no styled-components).
 - **shadcn/ui design tokens** via CSS custom properties in `index.css` (──background, --foreground, --primary, --border, --radius, etc.) with a `.dark` variant.
 - **Component compositions:** All UI elements are `className`-styled with Tailwind utilities, composed via `cn()` from `lib/utils.ts`.
-- **Theme:** Light-by-default, dark mode supported via `.dark` class (no toggle component).
+- **Theme:** Dark-first with user-toggleable light/dark mode via `.dark` class on `<html>` (toggle stored in `localStorage.theme`). An inline script in `index.html` applies the saved theme before React mounts to prevent flash of wrong theme.
+- **Favicon:** Custom SVG (`public/favicon.svg`) — stylized house with lightning bolt on dark blue background.
 
 ## 6. Gaps vs. Backend
 
@@ -88,37 +124,34 @@ The following backend endpoints/features have **zero** frontend representation:
 
 | Area | Backend endpoints missing from frontend |
 |---|---|
-| **Advance payments** | `GET/POST/PUT/DELETE /api/advance-payments/` – no list, no create, no detail page |
-| **Cost calculations** | `GET /api/costs/`, `/costs/wastewater`, `/costs/yearly-projection`, `/costs/advance-payment-diff`, `/costs/years-overview` – no UI at all |
-| **Electricity: feed-in compensation** | `GET /api/electricity/feed-in-compensation` – no UI |
-| **Projections** | `GET /api/projections/meters/{meter_id}/projection` – no UI |
-| **Consumption timeseries** | No frontend endpoint consumer for aggregated timeseries data (backend may not even have this endpoint yet) |
-| **Tariff list / edit / delete** | Only `POST /api/tariffs/` is used; no page to view, edit, or delete tariffs |
-| **Reading list / edit / delete** | Only `POST /api/readings/` is used; no reading browse, edit, or delete |
-| **Meter edit** | `PUT /api/meters/` is defined in apiClient but no page uses it |
+| **Cost calculations** | `GET /api/costs/` (general), `/costs/advance-payment-diff` – no UI; `/costs/years-overview` ✅, `/costs/yearly-projection` ✅, `/costs/wastewater/` ✅ (implemented in `YearDetail`) |
+| **Electricity: feed-in compensation** | `GET /api/electricity/feed-in-compensation` — ✅ implemented in `YearDetail` as part of Strom category |
+| **Projections** | `GET /api/meters/{meter_id}/projection` – no UI (separate from `/costs/yearly-projection`) |
+| **Consumption timeseries** | No frontend endpoint consumer for aggregated timeseries data |
+| **Tariff list / edit / delete** | ✅ Implemented – see `/tariffs` route above |
+| **Reading list / edit / delete** | ✅ Implemented – see year detail page tables |
+| **Meter edit** | `PUT /api/meters/` via `EditMeterModal` in `MeterList` |
+| **Advance payment list / create / edit** | ✅ Implemented – see `/advance-payments` and `/advance-payments/new` routes above |
 
-## 7. Known Issues / TODOs
+## 7. Linting (ESLint)
 
-1. **Mixed language UI:** `AddReading.tsx` uses English labels/prompts ("Meter *", "Cancel", "Adding...") while `MeterForm.tsx` and `TariffForm.tsx` use German ("Name *", "Abbrechen", "Speichern..."). The AGENTS.md mandates "UI strings in German".
+- **Config:** Legacy `.eslintrc.cjs` (ESLint 8, not flat config — project uses `"type": "module"`, hence the `.cjs` extension). Plugins: `@typescript-eslint`, `react`, `react-hooks`, `react-refresh`, `jsx-a11y`.
+- **Scripts:** `npm run lint` (fails on warnings via `--max-warnings 0`), `npm run lint:fix` (safe autofix only).
+- **Rule philosophy:** Recommended sets for TS/React/React-hooks/jsx-a11y are enabled. Noisy/strict stylistic rules are relaxed (`explicit-module-boundary-types` off, `no-explicit-any` as warning, `react/prop-types` off since TypeScript validates). `jsx-a11y/recommended` rules are all set to **warn** (not error) so a11y issues don't block the build for a solo dev. There is **no Prettier** in this project.
+- **No autofixer for `react/no-unescaped-entities`:** this rule is not auto-fixable, so `npm run lint:fix` cannot repair it — such occurrences must be escaped manually (e.g. `"` → `&quot;`) in JSX text.
+- **Handling `jsx-a11y` warnings:** fix them in the order below, then confirm `npm run lint` is clean:
+  1. **Prefer a semantic fix** when the element is genuinely misused (e.g. a clickable non-interactive `<div>` → a real `<button type="button">`, as done for the dialog backdrop). This is the durable solution and keeps the markup honest.
+  2. **If the component is a shared primitive** (shadcn-style `forwardRef` that spreads `{...props}`) and the property can only be verified at the caller's site (heading content, label association), the warning is a known false positive. Silence it with a single `// eslint-disable-next-line jsx-a11y/<rule>, jsx-a11y/<rule>` placed immediately above the element, **always** with a one-line comment explaining why the association happens downstream.
+  3. Do not add these rules to a global ignore file or downgrade them further — the explicit inline disable keeps the intent visible and the rest of the repo checked.
 
-2. **`select.tsx` dead code:** The file exports `SelectTrigger`, `SelectContent`, `SelectValue` (shadcn-style custom dropdown components) but none are imported anywhere – only the native `<select>`-based `Select`/`SelectItem` are used. Those unused components have no corresponding Radix UI peer dependency.
+## 8. Known Issues / TODOs
 
-3. **`date-fns` not used:** Installed in package.json but zero imports across all source files.
-
-4. **`healthApi` dead code:** Defined in `client.ts` but never imported or used.
-
-5. **`MeterList` misplaced:** Lives in `components/` but used as a route-level page (`/meters`). Convention suggests it should be in `pages/`.
-
-6. **`index.html` language:** `<html lang="en">` does not match the German-majority UI.
-
-7. **Vite dev proxy target:** Hardcodes `http://localhost:8000` while `docker-compose.dev.yml` serves the backend at `http://backend:8000` inside the Docker network. The env var `VITE_PROXY_TARGET` is read but not propagated correctly – the default `localhost:8000` will not work from inside the frontend container.
-
-8. **No loading states on meter fetch in `MeterForm`:** `metersApi.getAll()` call (line 39) has no loading/error handling (unlike `TariffForm` which does).
-
-9. **No tariff period list page:** The only tariff UI is the create form; users have no way to browse, edit, or delete existing tariffs from the frontend.
-
-10. **No reading list/edit/delete:** Readings are only visible as the last 5 in `MeterDetail`; there is no full reading list, no edit, no delete.
-
-11. **No dark mode toggle:** CSS variables exist for both themes but there is no UI control to switch.
-
-12. **`dist/` directory present** in the repository (build artefact) – should be in `.gitignore` (verify).
+1. ~~**Mixed language UI:** Several pages (e.g. Home, AddReading) still use English labels — meters pages are fully translated to German.~~ Home page, AddReading, and meters pages are now fully German.
+2. ~~**`select.tsx` dead code:** Unused `SelectTrigger`, `SelectContent`, `SelectValue` exports.~~ Removed — those three components were unused and now deleted.
+3. ~~**`MeterList` misplaced:** Lives in `components/` but used as route page.~~ Moved to `pages/MeterList.tsx`.
+4. ~~**`index.html` language:** `<html lang="en">` doesn't match German UI.~~
+5. ~~**Vite dev proxy target:** containerized dev sets `VITE_PROXY_TARGET: http://backend:8000` via `docker-compose.dev.yml`; the `vite.config.ts` default of `http://localhost:8000` is only used for native development.~~
+6. ~~**No reading list/edit/delete.**~~
+7. ~~**No dark mode toggle.**~~
+8. ~~**`dist/` directory** present in repository (build artefact).~~
+9. ~~**jsx-a11y baseline warnings:** `jsx-a11y/recommended` currently reports 5 warnings across `components/ui/`. Resolved in `components/ui/dialog.tsx` (semantic fix), `components/ui/card.tsx` and `components/ui/label.tsx` (justified disable comments).~~ Baseline is now clean — no `jsx-a11y` warnings remain.

@@ -4,7 +4,6 @@ import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
-import { Select, SelectItem } from '../components/ui/select';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '../components/ui/table';
@@ -13,6 +12,7 @@ import { tariffsApi, metersApi } from '../api/client';
 import { Meter, TariffPeriod, TariffUsage } from '../types';
 import { Loader2, Pencil, Trash2, AlertTriangle } from 'lucide-react';
 import { TARIFF_KIND_LABELS, getTariffFields, getPriceUnitLabel } from '../lib/tariffFields';
+import { useMeterTypes, meterTypeLabel } from '../hooks/useMeterTypes';
 
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return 'offen';
@@ -20,12 +20,23 @@ function formatDate(dateStr: string | null): string {
   return `${d}.${m}.${y}`;
 }
 
+interface FilterItem {
+  label: string;
+  meterType: string;
+  tariffKind?: string;
+}
+
 const TariffList: React.FC = () => {
   const [tariffs, setTariffs] = useState<TariffPeriod[]>([]);
   const [meters, setMeters] = useState<Meter[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [meterFilter, setMeterFilter] = useState<string>('');
+  const [activeFilter, setActiveFilter] = useState<{
+    meterType: string;
+    tariffKind?: string;
+  } | null>(null);
+
+  const meterTypes = useMeterTypes();
 
   // Edit modal state
   const [editTariff, setEditTariff] = useState<TariffPeriod | null>(null);
@@ -72,8 +83,14 @@ const TariffList: React.FC = () => {
     return b.valid_from.localeCompare(a.valid_from);
   });
 
-  const filteredTariffs = meterFilter
-    ? sortedTariffs.filter((t) => t.meter_id === parseInt(meterFilter))
+  const filteredTariffs = activeFilter
+    ? sortedTariffs.filter((t) => {
+        const m = metersById.get(t.meter_id);
+        if (!m) return false;
+        if (m.meter_type !== activeFilter.meterType) return false;
+        if (activeFilter.tariffKind && t.tariff_kind !== activeFilter.tariffKind) return false;
+        return true;
+      })
     : sortedTariffs;
 
   const selectedMeter = editTariff
@@ -94,6 +111,7 @@ const TariffList: React.FC = () => {
       eeg_tier1_rate: tariff.eeg_tier1_rate ?? '',
       eeg_tier2_rate: tariff.eeg_tier2_rate ?? '',
       metering_point_fee_yearly: tariff.metering_point_fee_yearly ?? '',
+      comment: tariff.comment ?? '',
     });
     setEditError(null);
   };
@@ -139,6 +157,11 @@ const TariffList: React.FC = () => {
         } else {
           payload[field.name] = null;
         }
+      }
+      if (editFormData.comment) {
+        payload.comment = editFormData.comment;
+      } else {
+        payload.comment = null;
       }
 
       await tariffsApi.update(editTariff.id, payload);
@@ -227,18 +250,43 @@ const TariffList: React.FC = () => {
             </div>
           ) : (
             <>
-              <div className="mb-4">
-                <Select
-                  value={meterFilter}
-                  onChange={(e) => setMeterFilter(e.target.value)}
+              <div className="flex gap-2 mb-6 flex-wrap">
+                <Button
+                  variant={activeFilter === null ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setActiveFilter(null)}
                 >
-                  <SelectItem value="">Alle Zähler</SelectItem>
-                  {meters.map((meter) => (
-                    <SelectItem key={meter.id} value={meter.id.toString()}>
-                      {meter.label}
-                    </SelectItem>
-                  ))}
-                </Select>
+                  Alle
+                </Button>
+                {((): FilterItem[] => {
+                  const items: FilterItem[] = [];
+                  for (const mt of meterTypes) {
+                    if (mt.value === 'electricity_production') continue;
+                    if (mt.value === 'water_cold') {
+                      items.push({ label: 'Kaltwasser', meterType: 'water_cold', tariffKind: 'consumption' });
+                      items.push({ label: 'Abwasser', meterType: 'water_cold', tariffKind: 'wastewater' });
+                    } else {
+                      items.push({ label: meterTypeLabel(meterTypes, mt.value), meterType: mt.value });
+                    }
+                  }
+                  return items;
+                })().map((item) => (
+                  <Button
+                    key={`${item.meterType}-${item.tariffKind ?? ''}`}
+                    variant={
+                      activeFilter?.meterType === item.meterType &&
+                      (activeFilter?.tariffKind ?? '') === (item.tariffKind ?? '')
+                        ? 'default'
+                        : 'outline'
+                    }
+                    size="sm"
+                    onClick={() =>
+                      setActiveFilter({ meterType: item.meterType, tariffKind: item.tariffKind })
+                    }
+                  >
+                    {item.label}
+                  </Button>
+                ))}
               </div>
 
               <div className="overflow-x-auto">
@@ -252,6 +300,7 @@ const TariffList: React.FC = () => {
                       <TableHead>Preis/Einheit</TableHead>
                       <TableHead>Grundpreis</TableHead>
                       <TableHead>Messstellenbetrieb</TableHead>
+                      <TableHead>Kommentar</TableHead>
                       <TableHead>Aktionen</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -287,6 +336,7 @@ const TariffList: React.FC = () => {
                                 ? `${tariff.metering_point_fee_yearly} €/Jahr`
                                 : '–'}
                           </TableCell>
+                          <TableCell>{tariff.comment || '–'}</TableCell>
                           <TableCell>
                             <div className="flex gap-1">
                               <Button
@@ -426,6 +476,18 @@ const TariffList: React.FC = () => {
                   {editError}
                 </div>
               )}
+
+              <div className="space-y-2">
+                <Label htmlFor="edit-comment">Anbieter / Kommentar</Label>
+                <Input
+                  id="edit-comment"
+                  name="comment"
+                  type="text"
+                  value={editFormData.comment}
+                  onChange={handleEditChange}
+                  placeholder="z. B. Stadtwerke Musterstadt"
+                />
+              </div>
 
               <div className="flex justify-end gap-4 pt-2">
                 <Button

@@ -140,6 +140,7 @@ def sample_reading_data():
 def sample_advance_payment_data():
     """Sample advance payment data for testing."""
     return {
+        "category": "gas",
         "meter_id": 1,
         "valid_from": "2024-01-01",
         "valid_to": "2024-12-31",

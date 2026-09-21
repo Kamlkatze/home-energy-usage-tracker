@@ -1,3 +1,4 @@
+from datetime import date
 from decimal import Decimal
 from typing import Literal
 
@@ -11,6 +12,9 @@ class ProjectionResponse(BaseModel):
     actual_consumption_to_date: Decimal | None
     days_elapsed: int | None
     projected_annual_consumption: Decimal | None
+    projected_meter_reading_end_of_year: Decimal | None
+    start_reading_value: Decimal | None
+    start_reading_date: date | None
     basis: Literal[
         "linear_from_prev_year_end",
         "linear_from_first_reading_of_year",

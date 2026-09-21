@@ -14,6 +14,9 @@ class YearlyProjectionWithCostResponse(BaseModel):
     as_of_date: date
     actual_consumption_to_date: Decimal | None
     projected_annual_consumption: Decimal | None
+    projected_meter_reading_end_of_year: Decimal | None
+    start_reading_value: Decimal | None
+    start_reading_date: date | None
     basis: Literal[
         "linear_from_prev_year_end",
         "linear_from_first_reading_of_year",

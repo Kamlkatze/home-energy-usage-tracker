@@ -5,10 +5,10 @@ A simple, local application for tracking electricity, gas, and water consumption
 ## Features
 
 - **Track multiple meters**: Gas, cold/garden water (m³), electricity import/export/production (kWh) — the unit is derived automatically from the meter type
-- **Record readings**: Simple form to add meter readings with dates and optional notes
-- **Visualize consumption**: Line charts showing usage trends over time
-- **Tariff management**: Track price per unit and base fees for different periods
-- **Advance payment management**: Track monthly Abschläge per meter with time-range validity and overlap protection
+- **Record readings**: Simple form to add meter readings with dates and optional notes; edit or delete existing readings directly in the year detail tables via inline dialog. By default only current meters are shown — replaced meters can be displayed via an "Alte Zähler anzeigen" toggle.
+- **Visualize consumption**: Separate line charts per energy type (Strom, Wasser, Gas) on the years-overview page, plus per-meter charts on the year detail page showing usage trends over time, with toggle between absolute meter readings and cumulative consumption since Jan 1 (starts at 0, even-number axis bounds)
+- **Tariff management**: Track price per unit and base fees for different periods, with optional comment field for provider name and category filter buttons (Strom Bezug/Gas/Wasser) in the list view
+- **Advance payment management**: Track monthly Abschläge per meter with category (gas, cold water, wastewater, power import), time-range validity, overlap protection, optional comment field, and an "Alle" button showing all categories at once in the list view
 - **Meter replacement chain**: When a physical meter is swapped, link the new meter to its predecessor via `replaces_meter_id`. Cost calculations automatically follow the chain, summing each meter's contribution — no negative consumption from a counter reset on the new device
 - **Advance payment comparison**: Compare paid/planned monthly Abschläge against the estimated or actual annual cost to see whether you'll receive a refund (Guthaben) or owe a Nachzahlung
 - **Local deployment**: All data stays on your machine, no cloud services
@@ -101,6 +101,10 @@ VITE_API_URL=http://localhost:8000  # only used outside Docker
 - Database URLs (`DATABASE_URL`, `DATABASE_URL_ASYNC`) are automatically constructed from the credentials
 - In production, `VITE_API_URL` is hardcoded to `/api` for nginx proxy routing
 - In development, `VITE_API_URL` is empty for relative API calls through Vite proxy
+- The Vite dev-server proxy (`server.proxy` in `frontend/vite.config.ts`) forwards `/api` using `process.env.VITE_PROXY_TARGET`, falling back to `http://localhost:8000` when unset:
+  - Containerized dev: `docker-compose.dev.yml` sets `VITE_PROXY_TARGET: http://backend:8000` as a container environment variable, so the frontend container reaches the backend via its docker-compose service name (`backend`, port `8000`)
+  - Native dev: the variable is unset, so the proxy falls back to `http://localhost:8000`
+  - The backend mounts its routes under `/api` (`API_V1_PREFIX=/api`), so `/api` is passed through to the backend unchanged (no path rewrite)
 
 ### Native Development (Without Docker)
 
@@ -224,11 +228,10 @@ docker compose -f docker-compose.dev.yml logs -f
 docker ps -a --filter name=home-energy-usage-tracker
 ```
 
-For troubleshooting and advanced shutdown options, see the complete documentation in [DOCKER_SHUTDOWN.md](DOCKER_SHUTDOWN.md).
-
 ## API Endpoints
 
 ### Meters
+- `GET /api/meters/current` - Return only current (non-replaced) meters — newest in each replacement chain plus standalone meters. Used by the frontend to show only active meters (with an optional toggle for replaced meters in the reading form).
 - `GET /api/meters/types` - List all meter types with German label and fixed unit. Example response:
   ```json
   [
@@ -243,9 +246,10 @@ For troubleshooting and advanced shutdown options, see the complete documentatio
 - `GET /api/meters/` - List all meters
 - `POST /api/meters/` - Create a new meter (optional field: `replaces_meter_id` — must reference an existing meter of the same type, self-references return **422**)
 - `GET /api/meters/{id}` - Get meter details
-- `PUT /api/meters/{id}` - Update meter (same validation for `replaces_meter_id` applies)
+- `PUT /api/meters/{id}` - Update meter (same validation for `replaces_meter_id` applies; changing `meter_type` is rejected with **422** when readings exist for this meter)
 - `DELETE /api/meters/{id}` - Delete meter
 - `GET /api/meters/{id}/readings` - Get readings for a meter
+- `GET /api/meters/{id}/projection` - Get annual consumption projection for a meter (see [Projection Endpoint](#projection-endpoint))
 
 ### Readings
 - `GET /api/readings/` - List all readings
@@ -256,9 +260,10 @@ For troubleshooting and advanced shutdown options, see the complete documentatio
 
 ### Tariff Periods
 - `GET /api/tariffs/` - List all tariff periods (optional query parameter: `tariff_kind`)
-- `POST /api/tariffs/` - Create a new tariff period (tariff_kind defaults to "consumption" if omitted)
+- `POST /api/tariffs/` - Create a new tariff period (optional `comment` field for provider name)
 - `GET /api/tariffs/{id}` - Get tariff period details
-- `PUT /api/tariffs/{id}` - Update tariff period
+- `GET /api/tariffs/{tariff_id}/usage` - Get tariff usage info (reading count within validity range, across the full meter chain)
+- `PUT /api/tariffs/{id}` - Update tariff period (including `comment`)
 - `DELETE /api/tariffs/{id}` - Delete tariff period
 
 #### TariffKind Values
@@ -279,7 +284,8 @@ Note: Previously separate `base_fee` and `metering_fee` tariff kinds have been m
   "valid_to": "2024-12-31",
   "price_per_unit": "0.3567",
   "base_fee_monthly": "15.50",
-  "metering_fee_monthly": "5.80"
+  "metering_fee_monthly": "5.80",
+  "comment": "Stadtwerke Musterstadt"
 }
 ```
 
@@ -301,19 +307,42 @@ Note: Previously separate `base_fee` and `metering_fee` tariff kinds have been m
 ```
 
 ### Advance Payments
-- `GET /api/advance-payments/` - List all advance payments (optional query parameter: `meter_id`)
-- `POST /api/advance-payments/` - Create a new advance payment
+- `GET /api/advance-payments/` - List all advance payments (optional query parameters: `meter_id`, `category`)
+- `POST /api/advance-payments/` - Create a new advance payment (optional `comment` field)
 - `GET /api/advance-payments/{id}` - Get advance payment details
-- `PUT /api/advance-payments/{id}` - Update advance payment
+- `PUT /api/advance-payments/{id}` - Update advance payment (including `comment`)
 - `DELETE /api/advance-payments/{id}` - Delete advance payment
 
-#### Example POST /api/advance-payments/ request:
+Each advance payment carries a `category` (`gas`, `cold_water`, `wastewater`, `power_import`) that determines which meter reference is used:
+- **Non-wastewater categories** (`gas`, `cold_water`, `power_import`): reference the meter via `meter_id`. `water_cold_meter_id` and `water_garden_meter_id` must be null (422 otherwise).
+- **`wastewater`**: `meter_id` must be null, `water_cold_meter_id` is required. `water_garden_meter_id` is optional — when omitted, the entire cold-water consumption counts as wastewater.
+
+**DB constraints:**
+- `ck_advance_payment_wastewater`: `NOT (category = 'wastewater') OR (meter_id IS NULL AND water_cold_meter_id IS NOT NULL)`
+- `ck_advance_payment_non_wastewater`: `(category = 'wastewater') OR (meter_id IS NOT NULL AND water_cold_meter_id IS NULL AND water_garden_meter_id IS NULL)`
+- Overlap prevention via partial EXCLUDE constraints: non-wastewater periods must not overlap for the same `(meter_id, category)`; wastewater periods must not overlap for the same `water_cold_meter_id`
+
+#### Example POST /api/advance-payments/ request (non-wastewater):
 ```json
 {
+  "category": "power_import",
   "meter_id": 1,
   "valid_from": "2024-01-01",
   "valid_to": "2024-12-31",
-  "monthly_amount": "120.00"
+  "monthly_amount": "120.00",
+  "comment": "Stadtwerke Musterstadt"
+}
+```
+
+#### Example POST /api/advance-payments/ request (wastewater):
+```json
+{
+  "category": "wastewater",
+  "water_cold_meter_id": 2,
+  "water_garden_meter_id": 3,
+  "valid_from": "2024-01-01",
+  "valid_to": "2024-12-31",
+  "monthly_amount": "85.00"
 }
 ```
 
@@ -322,21 +351,23 @@ Note: Previously separate `base_fee` and `metering_fee` tariff kinds have been m
 [
   {
     "id": 1,
+    "category": "power_import",
     "meter_id": 1,
+    "water_cold_meter_id": null,
+    "water_garden_meter_id": null,
     "valid_from": "2024-01-01",
     "valid_to": "2024-12-31",
     "monthly_amount": "120.00",
+    "comment": null,
     "created_at": "2024-01-01T12:00:00Z"
   }
 ]
 ```
 
-**Constraint:** Overlapping advance payment periods for the same meter are rejected (EXCLUDE USING gist with daterange).
-
 ### Costs
 - `GET /api/costs/?meter_id={id}&from={date}&to={date}` - Calculate the consumption cost for one meter between two dates (query parameters: `meter_id`, `from`, `to`). Returns **404** when no reading or no covering tariff period is found, **422** when `from > to` or the computed consumption is negative.
 
-**Multi-period support:** If the date range spans multiple tariff periods, consumption is allocated proportionally by days in each overlapping period. The `price_per_unit` field in the response shows the first period's price for backward compatibility; the total cost correctly accounts for all periods.
+**Multi-period support:** If the date range spans multiple tariff periods, consumption is allocated proportionally by days in each overlapping period. Base fees are prorated using calendar-accurate month lengths (full months count as 1, partial months by actual days in that month). The `price_per_unit` field in the response shows the first period's price for backward compatibility; the total cost correctly accounts for all periods.
 
 **Meter replacement chain support:** If the requested meter has a `replaces_meter_id` (directly or transitively), the endpoint automatically follows the chain. Consumption is computed as the sum of each meter's contribution over its active segment (determined by the first reading date of the successor). Tariffs are looked up per meter in the chain so a tariff change at the predecessor is fully reflected. Rounding happens only once at the final output boundary — never per segment — to avoid accumulated cent errors.
 
@@ -380,6 +411,7 @@ Note: Previously separate `base_fee` and `metering_fee` tariff kinds have been m
 
 ### EEG 2009 Feed-in Compensation
 - `GET /api/electricity/feed-in-compensation?production_meter_id={id}&export_meter_id={id}&import_meter_id={id}&from={date}&to={date}` - Calculate the feed-in compensation according to EEG 2009 § 33 Abs. 2. Three meter IDs are accepted as query parameters with no fixed DB relationship (analogous to the wastewater endpoint). `import_meter_id` is accepted for future extensibility but currently unused.
+- `GET /api/electricity/feed-in-compensation-projection?production_meter_id={id}&export_meter_id={id}&year={year}` - Projected annual feed-in compensation for a full year, using linear projections for both production and export consumption.
 
 **Calculation (EEG 2009 § 33 Abs. 2):**
   P = production_consumption (total generation)
@@ -434,6 +466,9 @@ The 30 % threshold is a fixed statutory value from EEG 2009 § 33 Abs. 2, not co
   "as_of_date": "2025-06-01",
   "actual_consumption_to_date": "250.500",
   "projected_annual_consumption": "601.447",
+  "projected_meter_reading_end_of_year": "2675.447",
+  "start_reading_value": "2074.000",
+  "start_reading_date": "2024-12-31",
   "basis": "linear_from_prev_year_end",
   "actual_cost_to_date": "92.35",
   "projected_annual_cost": "221.89",
@@ -450,6 +485,9 @@ The 30 % threshold is a fixed statutory value from EEG 2009 § 33 Abs. 2, not co
   "as_of_date": "2025-06-01",
   "actual_consumption_to_date": "250.500",
   "projected_annual_consumption": "601.447",
+  "projected_meter_reading_end_of_year": "2675.447",
+  "start_reading_value": "2074.000",
+  "start_reading_date": "2024-12-31",
   "basis": "linear_from_prev_year_end",
   "actual_cost_to_date": null,
   "projected_annual_cost": null,
@@ -467,12 +505,16 @@ The 30 % threshold is a fixed statutory value from EEG 2009 § 33 Abs. 2, not co
   "as_of_date": "2025-06-01",
   "actual_consumption_to_date": null,
   "projected_annual_consumption": null,
+  "projected_meter_reading_end_of_year": null,
   "basis": "insufficient_data",
   "actual_cost_to_date": null,
   "projected_annual_cost": null,
   "message": "Nicht genügend Zählerstände im Jahr 2025 vorhanden, um eine Hochrechnung zu erstellen."
 }
 ```
+
+### Projection Endpoint
+- `GET /api/meters/{meter_id}/projection?year={year}&as_of_date={date}` - Standalone annual consumption projection for a meter (separate from the combined yearly projection with cost above).
 
 **Calculation Logic:**
 - **Year completed** (year < as_of_date.year): Actual consumption = end.value - start.value (real yearly consumption)
@@ -492,6 +534,9 @@ The 30 % threshold is a fixed statutory value from EEG 2009 § 33 Abs. 2, not co
   "actual_consumption_to_date": "250.500",
   "days_elapsed": 152,
   "projected_annual_consumption": "601.447",
+  "projected_meter_reading_end_of_year": "2675.447",
+  "start_reading_value": "2074.000",
+  "start_reading_date": "2024-12-31",
   "basis": "linear_from_prev_year_end",
   "message": null
 }
@@ -506,6 +551,9 @@ The 30 % threshold is a fixed statutory value from EEG 2009 § 33 Abs. 2, not co
   "actual_consumption_to_date": "850.250",
   "days_elapsed": 366,
   "projected_annual_consumption": "850.250",
+  "projected_meter_reading_end_of_year": "2850.250",
+  "start_reading_value": "2000.000",
+  "start_reading_date": "2024-01-15",
   "basis": "actual_full_year",
   "message": null
 }
@@ -520,6 +568,9 @@ The 30 % threshold is a fixed statutory value from EEG 2009 § 33 Abs. 2, not co
   "actual_consumption_to_date": null,
   "days_elapsed": null,
   "projected_annual_consumption": null,
+  "projected_meter_reading_end_of_year": null,
+  "start_reading_value": null,
+  "start_reading_date": null,
   "basis": "insufficient_data",
   "message": "Nicht genügend Zählerstände im Jahr 2024 vorhanden, um eine Hochrechnung zu erstellen."
 }
@@ -584,14 +635,19 @@ The 30 % threshold is a fixed statutory value from EEG 2009 § 33 Abs. 2, not co
 ```
 
 ### Advance Payment Diff (Cost vs. Abschläge)
-- `GET /api/costs/advance-payment-diff?meter_id={id}&year={year}&as_of_date={date}` - Calculate the difference between paid/planned advance payments and the estimated or actual annual cost for a meter and year. `as_of_date` is optional (defaults to server date). Returns **200** even with no advance payments or no tariff, **404** if meter not found, **422** for invalid year (outside 2000-2100 range).
-- `GET /api/costs/consumption-timeseries?from={date}&to={date}` - Return a reading-by-reading time series with per-delta consumption and cost for every logical meter. Returns **200** always; **422** when `from > to`.
+- `GET /api/costs/advance-payment-diff?meter_id={id}&year={year}&as_of_date={date}` - Calculate the difference and the estimated or actual annual cost for a meter and year. `as_of_date` is optional (defaults to server date). Returns **200** even with no advance payments or no tariff, **404** if meter not found, **422** for invalid year (outside 2000-2100 range).
+
+**Wastewater mode:** Additionally pass `water_cold_meter_id` (and optionally `water_garden_meter_id`) to compute the diff for the `wastewater` category. Note: `meter_id` is still a required query parameter on this endpoint, but its value is ignored in wastewater mode:
+- The annual cost is based on the wastewater consumption `max(0, cold_water_consumption - garden_water_consumption)` (same rules as the wastewater cost endpoint, including meter replacement chains) billed against a `wastewater` tariff attached to the **cold-water** meter
+- `total_advance_payments` sums `category=wastewater` advance payments that reference the cold-water meter via `water_cold_meter_id`
+- If `water_garden_meter_id` is omitted, `garden_consumption = 0` and the entire cold-water consumption counts as wastewater (no subtraction)
+- `meter_id` in the response is the cold-water meter id
 
 **Calculation Logic:**
 1. **Annual cost** — Uses the same logic as `/api/costs/yearly-projection`:
    - Completed year: actual full-year cost from all tariffs covering the year (`cost_basis: "actual"`)
    - Ongoing/future year: projected cost using the tariff active on `as_of_date` (`cost_basis: "projected"`)
-2. **Total advance payments** — Sums all `AdvancePayment` records for the meter that overlap the year, prorated by days (fixed 30-day month, same convention as `base_fee_monthly`). Each period contributes `monthly_amount × overlap_days / 30`.
+2. **Total advance payments** — Sums all `AdvancePayment` records for the meter that overlap the year, prorated using calendar-accurate month lengths (full months count as 1, partial months by actual days in that month). This ensures a full-year payment of e.g. 48€/month yields exactly 576€ (48 × 12), not 584€.
 3. **Difference** — `total_advance_payments - estimated_or_actual_cost` (positive = Guthaben, negative = Nachzahlung)
 
 **Edge cases:**
@@ -625,7 +681,83 @@ The 30 % threshold is a fixed statutory value from EEG 2009 § 33 Abs. 2, not co
 }
 ```
 
+### Advance Payment Diff By Category
+- `GET /api/costs/advance-payment-diff-by-category?category={cat}&year={year}&meter_id={id}&water_cold_meter_id={id}&as_of_date={date}&water_garden_meter_id={id}` - Thin wrapper around `advance-payment-diff` with category-based parameter validation. Adds a `category` field to the response.
+
+### Health
+- `GET /health` - Health check endpoint, returns `{"status": "healthy"}`.
+
 ## Database Schema
+
+<!-- ERD:START -->
+
+<!-- This section is auto-generated by scripts/generate_erd.py. Do not edit by hand. -->
+
+<!-- Auto-generated by scripts/generate_erd.py. Do not edit by hand. -->
+
+```mermaid
+erDiagram
+    advance_payments {
+        int id PK
+        enum category "NOT NULL"
+        int meter_id FK
+        int water_cold_meter_id FK
+        int water_garden_meter_id FK
+        date valid_from "NOT NULL"
+        date valid_to
+        numeric monthly_amount "NOT NULL"
+        string comment
+        datetime created_at "NOT NULL"
+    }
+
+    meters {
+        int id PK
+        enum meter_type "NOT NULL"
+        string label "NOT NULL"
+        string meter_number
+        string unit "NOT NULL"
+        int replaces_meter_id FK
+        datetime created_at "NOT NULL"
+    }
+
+    readings {
+        int id PK
+        int meter_id FK "NOT NULL"
+        numeric value "NOT NULL"
+        date reading_date "NOT NULL"
+        string note
+        datetime created_at "NOT NULL"
+    }
+
+    tariff_periods {
+        int id PK
+        int meter_id FK "NOT NULL"
+        enum tariff_kind "NOT NULL"
+        date valid_from "NOT NULL"
+        date valid_to
+        numeric price_per_unit "NOT NULL"
+        numeric base_fee_monthly
+        numeric metering_fee_monthly
+        numeric gas_z_zahl
+        numeric gas_brennwert
+        numeric eeg_tier1_rate
+        numeric eeg_tier2_rate
+        numeric metering_point_fee_yearly
+        string comment
+        datetime created_at "NOT NULL"
+    }
+
+    meters ||..o{ advance_payments : "meters_advance_payments_fk"
+    meters ||..o{ meters : "meters_meters_fk"
+    meters ||..o{ readings : "meters_readings_fk"
+    meters ||..o{ tariff_periods : "meters_tariff_periods_fk"
+```
+
+<!-- ERD:END -->
+
+> **Note:** The ER diagram (Mermaid block above) is auto-generated from the SQLAlchemy models.  
+> Do not edit the diagram manually — model changes are reflected by running:  
+> `cd backend && uv sync --extra dev && uv run python ../scripts/generate_erd.py --update-readme`.
 
 ### Meter
 - `id` (integer, primary key)
@@ -640,6 +772,7 @@ The 30 % threshold is a fixed statutory value from EEG 2009 § 33 Abs. 2, not co
 - `replaces_meter_id` must reference an existing meter of the **same** `meter_type` (422 otherwise)
 - A meter cannot reference itself (422)
 - No hard DB constraint prevents multiple successors (application logic only)
+- **Changing `meter_type` via PUT is rejected (422) if readings exist for this meter**
 
 ### Reading
 - `id` (integer, primary key)
@@ -653,7 +786,7 @@ The 30 % threshold is a fixed statutory value from EEG 2009 § 33 Abs. 2, not co
 ### TariffPeriod
 - `id` (integer, primary key)
 - `meter_id` (foreign key to Meter)
-- `tariff_kind` (enum: consumption, feed_in, self_consumption, wastewater)
+- `tariff_kind` (enum: consumption, feed_in, feed_in_eeg2009, self_consumption, wastewater)
 - `valid_from` (date)
 - `valid_to` (date, optional, null means "open-ended - valid until today")
 - `price_per_unit` (numeric)
@@ -664,6 +797,7 @@ The 30 % threshold is a fixed statutory value from EEG 2009 § 33 Abs. 2, not co
 - `eeg_tier1_rate` (numeric(10,5), optional, only for feed_in_eeg2009 tariff kind)
 - `eeg_tier2_rate` (numeric(10,5), optional, only for feed_in_eeg2009 tariff kind)
 - `metering_point_fee_yearly` (numeric(10,2), optional, only for feed_in_eeg2009 tariff kind)
+- `comment` (string(500), optional, free text for provider name or notes)
 - `created_at` (datetime)
 - **Constraint**: EXCLUDE USING gist (meter_id WITH =, tariff_kind WITH =, daterange(valid_from, valid_to, '[]') WITH &&)
   - Prevents overlapping periods within same (meter_id, tariff_kind)
@@ -672,14 +806,21 @@ The 30 % threshold is a fixed statutory value from EEG 2009 § 33 Abs. 2, not co
 
 ### AdvancePayment
 - `id` (integer, primary key)
-- `meter_id` (foreign key to Meter, CASCADE delete)
+- `category` (enum: gas, cold_water, wastewater, power_import)
+- `meter_id` (foreign key to Meter, CASCADE delete, nullable — used for non-wastewater categories)
+- `water_cold_meter_id` (foreign key to Meter, CASCADE delete, nullable — required for wastewater category)
+- `water_garden_meter_id` (foreign key to Meter, CASCADE delete, nullable — optional for wastewater category)
 - `valid_from` (date)
 - `valid_to` (date, optional, null means "open-ended")
 - `monthly_amount` (numeric(10,2))
+- `comment` (string(500), optional, free text for provider name or notes)
 - `created_at` (datetime)
-- **Constraint**: EXCLUDE USING gist (meter_id WITH =, daterange(valid_from, valid_to, '[]') WITH &&)
-  - Prevents overlapping advance payment periods for the same meter
-  - Both bounds inclusive
+- **CHECK constraints**:
+  - `ck_advance_payment_wastewater`: `NOT (category = 'wastewater') OR (meter_id IS NULL AND water_cold_meter_id IS NOT NULL)`
+  - `ck_advance_payment_non_wastewater`: `(category = 'wastewater') OR (meter_id IS NOT NULL AND water_cold_meter_id IS NULL AND water_garden_meter_id IS NULL)`
+- **Partial EXCLUDE constraints** (overlap prevention, both bounds inclusive):
+  - `excl_advance_payment_non_wastewater`: no overlapping periods for the same `(meter_id, category)`
+  - `excl_advance_payment_wastewater`: no overlapping periods for the same `water_cold_meter_id`
 
 ## Development Commands
 
@@ -690,6 +831,7 @@ The 30 % threshold is a fixed statutory value from EEG 2009 § 33 Abs. 2, not co
 
  # Run linting
  cd backend && uv run --extra dev ruff check --fix && uv run --extra dev mypy app/models
+ #   B008 (FastAPI Query/Depends/Body defaults) is ignored per-file in app/api/*.py
 
  # Create migration
  cd backend && uv run alembic revision --autogenerate -m "description"
@@ -708,6 +850,9 @@ cd frontend && npm run build
 
 # Run linting
 cd frontend && npm run lint
+
+# Run linting and auto-fix what is safely auto-fixable
+cd frontend && npm run lint:fix
 ```
 
 ## Project Structure
@@ -744,6 +889,7 @@ home-energy-usage-tracker/
 │   │   │   ├── tariff_period.py      # TariffPeriod schemas with TariffKind
 │   │   │   └── yearly_projection_cost.py # Yearly projection with cost response schema
 │   │   ├── services/
+│   │   │   ├── meter_chain.py        # Meter replacement chain resolution
 │   │   │   └── projection.py         # Business logic for projection calculations
 │   │   ├── __init__.py
 │   │   ├── config.py                 # Configuration with pydantic-settings
@@ -760,8 +906,9 @@ home-energy-usage-tracker/
 ├── frontend/
 │   ├── src/
 │   │   ├── api/                      # API client
-│   │   ├── components/               # React components
+│   │   ├── components/               # React components (EditMeterModal, ThemeToggle)
 │   │   ├── components/ui/            # shadcn/ui components
+│   │   ├── components/year-detail/    # Year detail page components (MeterBlock, ElectricitySection, WaterSection, GasSection, ReadingEditDialog)
 │   │   ├── pages/                    # Page components
 │   │   ├── types/                    # TypeScript interfaces
 │   │   ├── hooks/                    # Custom React hooks

@@ -1,16 +1,26 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Button } from './ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
+import { Button } from '../components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { metersApi } from '../api/client';
 import { meterTypeLabel, useMeterTypes } from '../hooks/useMeterTypes';
 import { Meter } from '../types';
+import { Dialog } from '../components/ui/dialog';
+import { Pencil, Trash2, Loader2, AlertTriangle } from 'lucide-react';
+import EditMeterModal from '../components/EditMeterModal';
 
 const MeterList: React.FC = () => {
   const [meters, setMeters] = useState<Meter[]>([]);
   const meterTypes = useMeterTypes();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Edit modal state
+  const [editMeter, setEditMeter] = useState<Meter | null>(null);
+
+  // Delete modal state
+  const [deleteMeter, setDeleteMeter] = useState<Meter | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     fetchMeters();
@@ -23,36 +33,37 @@ const MeterList: React.FC = () => {
       setMeters(data);
       setError(null);
     } catch (err) {
-      setError('Failed to load meters. Please try again.');
+      setError('Fehler beim Laden der Zähler. Bitte erneut versuchen.');
       console.error('Error fetching meters:', err);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleDelete = async (id: number) => {
-    if (window.confirm('Are you sure you want to delete this meter?')) {
-      try {
-        await metersApi.delete(id);
-        await fetchMeters();
-      } catch (err) {
-        console.error('Error deleting meter:', err);
-        alert('Failed to delete meter. Please try again.');
-      }
+  const handleDeleteConfirm = async () => {
+    if (!deleteMeter) return;
+    try {
+      setDeleting(true);
+      await metersApi.delete(deleteMeter.id);
+      setDeleteMeter(null);
+      await fetchMeters();
+    } catch (err) {
+      console.error('Error deleting meter:', err);
+      alert('Fehler beim Löschen des Zählers. Bitte erneut versuchen.');
+    } finally {
+      setDeleting(false);
     }
   };
 
   if (loading) {
-    return <div className="p-8 text-center">Loading meters...</div>;
+    return <div className="p-8 text-center">Lade Zähler...</div>;
   }
 
   if (error) {
     return <div className="p-8 text-center text-destructive">{error}</div>;
   }
 
-  // Build a lookup: which meter is replaced by which successor
   const metersById = new Map(meters.map((m) => [m.id, m]));
-  // successorOf[id] = the meter that replaces meter id
   const successorOf = new Map<number, Meter>();
   for (const m of meters) {
     if (m.replaces_meter_id !== null) {
@@ -65,16 +76,16 @@ const MeterList: React.FC = () => {
       <Card>
         <CardHeader>
           <CardTitle className="flex justify-between items-center">
-            <span>All Meters</span>
+            <span>Alle Zähler</span>
             <Link to="/meters/new">
-              <Button>Add New Meter</Button>
+              <Button>Neuer Zähler</Button>
             </Link>
           </CardTitle>
         </CardHeader>
         <CardContent>
           {meters.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
-              No meters found. Add your first meter!
+              Keine Zähler gefunden. Füge deinen ersten Zähler hinzu!
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -100,34 +111,40 @@ const MeterList: React.FC = () => {
                         </span>
                       </div>
 
-                      {/* Zählerwechsel-Kette anzeigen */}
                       {predecessor && (
                         <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
-                          Ersetzt Zähler #{predecessor.id} „{predecessor.label}"
+                          Ersetzt Zähler #{predecessor.id} „{predecessor.label}&quot;
                         </p>
                       )}
                       {successor && (
                         <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                          Ersetzt durch Zähler #{successor.id} „{successor.label}"
+                          Ersetzt durch Zähler #{successor.id} „{successor.label}&quot;
                         </p>
                       )}
 
                       <div className="flex justify-between items-center mt-4">
                         <div className="text-xs text-muted-foreground">
-                          Created: {new Date(meter.created_at).toLocaleDateString()}
+                          Erstellt: {new Date(meter.created_at).toLocaleDateString()}
                         </div>
                         <div className="flex gap-2">
                           <Link to={`/meters/${meter.id}`}>
                             <Button variant="outline" size="sm">
-                              View
+                              Anzeigen
                             </Button>
                           </Link>
                           <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setEditMeter(meter)}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
                             variant="destructive"
                             size="sm"
-                            onClick={() => handleDelete(meter.id)}
+                            onClick={() => setDeleteMeter(meter)}
                           >
-                            Delete
+                            <Trash2 className="h-4 w-4" />
                           </Button>
                         </div>
                       </div>
@@ -139,6 +156,47 @@ const MeterList: React.FC = () => {
           )}
         </CardContent>
       </Card>
+
+      {/* Edit modal */}
+      <EditMeterModal
+        meter={editMeter}
+        allMeters={meters}
+        onClose={() => setEditMeter(null)}
+        onSaved={() => { setEditMeter(null); fetchMeters(); }}
+      />
+
+      {/* Delete confirmation dialog */}
+      <Dialog open={!!deleteMeter} onOpenChange={(open) => { if (!open) setDeleteMeter(null); }}>
+        {deleteMeter && (
+          <div className="space-y-4">
+            <h2 className="text-lg font-semibold">Zähler löschen</h2>
+            <p>
+              Bist du sicher, dass du den Zähler <strong>„{deleteMeter.label}&quot;</strong> löschen möchtest?
+            </p>
+            <div className="bg-amber-50 border border-amber-200 rounded p-3 text-sm text-amber-800 flex gap-2 items-start">
+              <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+              <span>
+                Dieser Vorgang löscht auch alle zugehörigen Zählerstände, Tarife und Abschläge.
+              </span>
+            </div>
+            <div className="flex justify-end gap-4 pt-2">
+              <Button variant="outline" onClick={() => setDeleteMeter(null)} disabled={deleting}>
+                Abbrechen
+              </Button>
+              <Button variant="destructive" onClick={handleDeleteConfirm} disabled={deleting}>
+                {deleting ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Lösche...
+                  </>
+                ) : (
+                  'Löschen'
+                )}
+              </Button>
+            </div>
+          </div>
+        )}
+      </Dialog>
     </div>
   );
 };

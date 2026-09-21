@@ -129,7 +129,7 @@ const MeterForm: React.FC = () => {
         ) : (
           <Card>
             <CardHeader>
-              <CardTitle>Neuen Zähler hinzufügen</CardTitle>
+              <CardTitle>Neuer Zähler</CardTitle>
             </CardHeader>
             <CardContent>
               <form onSubmit={handleSubmit} className="space-y-6">

@@ -1,5 +1,6 @@
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import exists as sa_exists
 from sqlalchemy.orm import Session
 
 from .. import models, schemas
@@ -69,6 +70,31 @@ def read_meter_types():
     ]
 
 
+@router.get("/current", response_model=list[schemas.Meter])
+def read_current_meters(
+    db: Session = Depends(get_database_session),
+):
+    """Return only current (non-replaced) meters.
+
+    A current meter is the newest meter in a replacement chain (or a standalone
+    meter) — i.e. no other meter's replaces_meter_id points to it.
+    """
+    referenced_ids = (
+        db.query(models.Meter.replaces_meter_id)
+        .filter(models.Meter.replaces_meter_id.isnot(None))
+        .distinct()
+        .subquery()
+    )
+    meters = (
+        db.query(models.Meter)
+        .outerjoin(referenced_ids, models.Meter.id == referenced_ids.c.replaces_meter_id)
+        .filter(referenced_ids.c.replaces_meter_id.is_(None))
+        .order_by(models.Meter.id.asc())
+        .all()
+    )
+    return meters
+
+
 @router.get("/{meter_id}", response_model=schemas.Meter)
 def read_meter(
     meter_id: int,
@@ -111,9 +137,23 @@ def update_meter(
         raise HTTPException(status_code=404, detail="Meter not found")
 
     update_data = meter_update.model_dump(exclude_unset=True)
+
     # The unit is derived from meter_type (never client-settable), so it must
     # be re-derived whenever the meter type changes in an update.
     if "meter_type" in update_data:
+        # Check if the meter_type is actually changing
+        if update_data["meter_type"] != db_meter.meter_type:
+            has_readings = db.query(
+                sa_exists().where(models.Reading.meter_id == meter_id)
+            ).scalar()
+            if has_readings:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "Der Zählertyp kann nicht geändert werden, da bereits "
+                        "Zählerstände für diesen Zähler erfasst wurden."
+                    ),
+                )
         update_data["unit"] = METER_TYPE_UNITS[update_data["meter_type"]]
 
     # Determine effective meter_type and replaces_meter_id after update

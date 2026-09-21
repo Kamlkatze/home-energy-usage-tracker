@@ -21,7 +21,7 @@ const MeterDetail: React.FC = () => {
     if (id) {
       const meterId = parseInt(id);
       if (isNaN(meterId)) {
-        setError('Invalid meter ID');
+        setError('Ungültige Zähler-ID');
         setLoading(false);
         return;
       }
@@ -34,12 +34,12 @@ const MeterDetail: React.FC = () => {
       setLoading(true);
       const meterData = await metersApi.getById(meterId);
       const readingsData = await metersApi.getReadings(meterId);
-      
+
       setMeter(meterData);
       setReadings(readingsData);
       setError(null);
     } catch (err) {
-      setError('Failed to load meter data. Please try again.');
+      setError('Fehler beim Laden der Zählerdaten. Bitte erneut versuchen.');
       console.error('Error fetching meter data:', err);
     } finally {
       setLoading(false);
@@ -53,7 +53,7 @@ const MeterDetail: React.FC = () => {
   }));
 
   if (loading) {
-    return <div className="p-8 text-center">Loading meter details...</div>;
+    return <div className="p-8 text-center">Lade Zählerdetails...</div>;
   }
 
   if (error || !meter) {
@@ -62,12 +62,12 @@ const MeterDetail: React.FC = () => {
         <Link to="/meters">
           <Button variant="outline" className="mb-4 gap-2">
             <ArrowLeft className="h-4 w-4" />
-            Back to Meters
+            Zurück zu den Zählern
           </Button>
         </Link>
         <Card>
           <CardContent className="p-8 text-center text-destructive">
-            {error || 'Meter not found'}
+            {error || 'Zähler nicht gefunden'}
           </CardContent>
         </Card>
       </div>
@@ -80,19 +80,19 @@ const MeterDetail: React.FC = () => {
         <Link to="/meters">
           <Button variant="outline" className="gap-2">
             <ArrowLeft className="h-4 w-4" />
-            Back to Meters
+            Zurück zu den Zählern
           </Button>
         </Link>
         <h1 className="text-2xl font-bold">{meter.label}</h1>
         <span className="text-sm font-medium bg-primary/10 text-primary px-3 py-1 rounded-full">
-          {meterTypeLabel(meterTypes, meter.meter_type)} • {meter.unit}
+          {meterTypeLabel(meterTypes, meter.meter_type)} &bull; {meter.unit}
         </span>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle>Consumption Chart</CardTitle>
+            <CardTitle>Verbrauchsdiagramm</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="h-80">
@@ -103,8 +103,8 @@ const MeterDetail: React.FC = () => {
                     <XAxis dataKey="date" />
                     <YAxis label={{ value: meter.unit, angle: -90, position: 'insideLeft' }} />
                     <Tooltip
-                      formatter={(value) => [`${value} ${meter.unit}`, 'Value']}
-                      labelFormatter={(label) => `Date: ${label}`}
+                      formatter={(value) => [`${value} ${meter.unit}`, 'Wert']}
+                      labelFormatter={(label) => `Datum: ${label}`}
                     />
                     <Line
                       type="monotone"
@@ -118,7 +118,7 @@ const MeterDetail: React.FC = () => {
                 </ResponsiveContainer>
               ) : (
                 <div className="h-full flex items-center justify-center text-muted-foreground">
-                  No readings available. Add your first reading to see the chart.
+                  Keine Zählerstände vorhanden. Füge den ersten Zählerstand hinzu, um das Diagramm zu sehen.
                 </div>
               )}
             </div>
@@ -127,30 +127,30 @@ const MeterDetail: React.FC = () => {
 
         <Card>
           <CardHeader>
-            <CardTitle>Meter Details</CardTitle>
+            <CardTitle>Zählerdetails</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
               <div>
-                <h3 className="text-sm font-medium text-muted-foreground">Type</h3>
+                <h3 className="text-sm font-medium text-muted-foreground">Typ</h3>
                 <p className="text-lg">{meterTypeLabel(meterTypes, meter.meter_type)}</p>
               </div>
               <div>
-                <h3 className="text-sm font-medium text-muted-foreground">Unit</h3>
+                <h3 className="text-sm font-medium text-muted-foreground">Einheit</h3>
                 <p className="text-lg">{meter.unit}</p>
               </div>
               {meter.meter_number && (
                 <div>
-                  <h3 className="text-sm font-medium text-muted-foreground">Meter Number</h3>
+                  <h3 className="text-sm font-medium text-muted-foreground">Zählernummer</h3>
                   <p className="text-lg font-mono">{meter.meter_number}</p>
                 </div>
               )}
               <div>
-                <h3 className="text-sm font-medium text-muted-foreground">Created</h3>
+                <h3 className="text-sm font-medium text-muted-foreground">Erstellt</h3>
                 <p className="text-lg">{new Date(meter.created_at).toLocaleDateString()}</p>
               </div>
               <div>
-                <h3 className="text-sm font-medium text-muted-foreground">Total Readings</h3>
+                <h3 className="text-sm font-medium text-muted-foreground">Zählerstände</h3>
                 <p className="text-lg">{readings.length}</p>
               </div>
             </div>
@@ -160,9 +160,9 @@ const MeterDetail: React.FC = () => {
         <Card>
           <CardHeader>
             <CardTitle className="flex justify-between items-center">
-              <span>Recent Readings</span>
+              <span>Letzte Zählerstände</span>
               <Link to="/readings/new">
-                <Button size="sm">Add Reading</Button>
+                <Button size="sm">Zählerstand erfassen</Button>
               </Link>
             </CardTitle>
           </CardHeader>
@@ -171,9 +171,9 @@ const MeterDetail: React.FC = () => {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Value ({meter.unit})</TableHead>
-                    <TableHead>Note</TableHead>
+                    <TableHead>Datum</TableHead>
+                    <TableHead>Wert ({meter.unit})</TableHead>
+                    <TableHead>Notiz</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -188,7 +188,7 @@ const MeterDetail: React.FC = () => {
               </Table>
             ) : (
               <div className="text-center py-8 text-muted-foreground">
-                No readings yet. Add your first reading!
+                Noch keine Zählerstände. Erfasse den ersten Zählerstand!
               </div>
             )}
           </CardContent>

@@ -33,6 +33,8 @@ uv run --extra dev pytest
 # Run linting
 uv run --extra dev ruff check --fix
 uv run --extra dev mypy app/models
+# Note: Ruff ignores B008 per-file in app/api/*.py — FastAPI's Query/Depends/Body
+# function-call-in-default pattern is an accepted false positive for that rule.
 
 # Database migrations
 uv run alembic revision --autogenerate -m "description"
@@ -54,13 +56,14 @@ uv run --extra dev pytest tests/test_costs.py
 uv run --extra dev pytest tests/test_meter_replacement.py
 uv run --extra dev pytest tests/test_advance_payments.py
 uv run --extra dev pytest tests/test_advance_payment_diff.py
+uv run --extra dev pytest tests/test_advance_payment_diff.py -k "by_category"
 uv run --extra dev pytest tests/test_consumption_timeseries.py
 
 # Run with verbose output
 uv run --extra dev pytest -v
 ```
 
-**Test Coverage (184 tests, all passing):**
+**Test Coverage:**
 - CRUD operations for meters, readings, tariff periods, and advance payments
 - Database constraint validation (foreign keys, uniqueness, EXCLUDE overlap)
 - Advance payment overlap prevention (EXCLUDE USING gist with daterange)
@@ -71,10 +74,11 @@ uv run --extra dev pytest -v
 - Annual consumption projection
 - Yearly projection with cost
 - Years overview (logical meter resolution, chain-aware yearly consumption/cost across all years with readings)
-- Consumption timeseries (reading-by-reading time series with per-delta consumption and cost, chain-aware)
-- Advance payment diff (cost vs. Abschläge comparison)
+- Advance payment diff (cost vs. Abschläge comparison), incl. wastewater diff with and without garden meter (full cold-water consumption when `water_garden_meter_id` is omitted)
+- Advance payment diff by category (wrapper with category validation for all 4 `AdvancePaymentCategory` values: `gas`, `cold_water`, `power_import`, `wastewater`) — success paths and 422 validation errors
 - EEG 2009 feed-in compensation calculation
 - Decimal serialization as strings
+- **Current meters** (`GET /api/meters/current`): empty DB, standalone meters, replacement chain filtering, mixed chain + standalone
 
 ## Data Model
 
@@ -95,6 +99,36 @@ The cost and projection services follow this chain automatically when computing 
 Validation (enforced at API level, not DB level):
 - Must reference an existing meter of the **same** `meter_type` (422 otherwise)
 - Self-reference is rejected (422)
+
+### Current Meters
+
+**`GET /api/meters/current`**
+
+Returns only the newest meter in each replacement chain (plus standalone meters). A meter is "current" if no other meter's `replaces_meter_id` points to it. Used by the frontend multi-reading form to show only active meters. Same LEFT OUTER JOIN anti-pattern as `GET /api/costs/years-overview`.
+
+Response (200):
+```json
+[
+  {
+    "id": 3,
+    "meter_type": "gas",
+    "label": "New Gas Meter",
+    "meter_number": "GM12345",
+    "unit": "m³",
+    "replaces_meter_id": 1,
+    "created_at": "2025-01-15T10:00:00"
+  },
+  {
+    "id": 2,
+    "meter_type": "electricity_import",
+    "label": "Main Electricity Meter",
+    "meter_number": null,
+    "unit": "kWh",
+    "replaces_meter_id": null,
+    "created_at": "2024-06-01T08:00:00"
+  }
+]
+```
 
 ### Reading (`app/models/reading.py`)
 
@@ -126,6 +160,7 @@ Validation (enforced at API level, not DB level):
 | `eeg_tier1_rate` | numeric(10,5) nullable | only meaningful for `feed_in_eeg2009` tariffs |
 | `eeg_tier2_rate` | numeric(10,5) nullable | only meaningful for `feed_in_eeg2009` tariffs |
 | `metering_point_fee_yearly` | numeric(10,2) nullable | only meaningful for `feed_in_eeg2009` tariffs |
+| `comment` | string(500) nullable | optional, free text for provider name or notes |
 | `created_at` | datetime | |
 
 **Constraint:** `EXCLUDE USING gist (meter_id WITH =, tariff_kind WITH =, daterange(valid_from, valid_to, '[]') WITH &&)` — overlapping periods within the same `(meter_id, tariff_kind)` are rejected. Different `tariff_kind` values may overlap.
@@ -157,27 +192,44 @@ Response (200):
 | Column | Type | Notes |
 |---|---|---|
 | `id` | integer PK | |
-| `meter_id` | integer FK → meters.id | CASCADE delete |
+| `category` | enum | `gas`, `cold_water`, `wastewater`, `power_import` |
+| `meter_id` | integer nullable FK → meters.id | CASCADE delete; used for non-wastewater categories |
+| `water_cold_meter_id` | integer nullable FK → meters.id | CASCADE delete; required for `wastewater` |
+| `water_garden_meter_id` | integer nullable FK → meters.id | CASCADE delete; optional for `wastewater` |
 | `valid_from` | date | inclusive lower bound |
 | `valid_to` | date nullable | inclusive upper bound; `null` = open-ended |
 | `monthly_amount` | numeric(10,2) | vereinbarter monatlicher Abschlag |
+| `comment` | string(500) nullable | optional, free text for provider name or notes |
 | `created_at` | datetime | |
 
-**Constraint:** `EXCLUDE USING gist (meter_id WITH =, daterange(valid_from, valid_to, '[]') WITH &&)` — overlapping advance payment periods for the same meter are rejected. Both bounds inclusive.
+**Category rules** (validated in the Pydantic schema and enforced by CHECK constraints):
+- `wastewater`: `meter_id` must be null, `water_cold_meter_id` required, `water_garden_meter_id` optional (when null, the full cold-water consumption counts as wastewater)
+- Other categories (`gas`, `cold_water`, `power_import`): `meter_id` required, `water_cold_meter_id`/`water_garden_meter_id` must be null
+
+**Constraints:**
+- `ck_advance_payment_wastewater`: `NOT (category = 'wastewater') OR (meter_id IS NULL AND water_cold_meter_id IS NOT NULL)`
+- `ck_advance_payment_non_wastewater`: `(category = 'wastewater') OR (meter_id IS NOT NULL AND water_cold_meter_id IS NULL AND water_garden_meter_id IS NULL)`
+- Partial EXCLUDE constraints (both bounds inclusive) prevent overlapping periods:
+  - `excl_advance_payment_non_wastewater` (WHERE `category != 'wastewater'`): no overlap for the same `(meter_id, category)`
+  - `excl_advance_payment_wastewater` (WHERE `category = 'wastewater'`): no overlap for the same `water_cold_meter_id`
+
+> Note: `Meter.advance_payments` (relationship) explicitly sets `foreign_keys="AdvancePayment.meter_id"` and uses `cascade="all"` because `advance_payments` now has three FKs pointing to `meters.id`.
 
 ## Cost Calculation
 
 **`app/api/costs.py`**
 
 ### Single meter
-Consumption = `end_reading.value − start_reading.value`. Base fee is prorated by days
-(fixed 30-day month). Multi-period ranges allocate consumption proportionally by overlapping days.
-Gas meters convert m³ → kWh per-period via `gas_z_zahl × gas_brennwert`.
+Consumption = `end_reading.value − start_reading.value`. Base fee is prorated using
+calendar-accurate month lengths (full months count as 1, partial months by actual
+days in that month). Multi-period ranges allocate consumption proportionally by
+overlapping days. Gas meters convert m³ → kWh per-period via
+`gas_z_zahl × gas_brennwert`.
 
 ### Meter replacement chain
 When the requested meter has a `replaces_meter_id` (or a chain of them), the endpoint:
 
-1. Builds the chain oldest→newest via `_build_meter_chain()`.
+1. Builds the chain oldest→newest via `get_meter_chain()` (in `app/services/meter_chain.py`).
 2. Determines the transition date between each pair of meters = first reading date of the successor.
 3. Computes each meter's consumption over its own active segment (`_get_chain_consumption()`).
 4. Looks up tariffs **per meter** in the chain and accumulates costs **without intermediate rounding** (`_compute_cost_fields_multiperiod_raw()`).
@@ -193,10 +245,55 @@ applies any tariff changes that happened during the period.
 Compares paid/planned monthly Abschläge against the estimated annual cost:
 
 1. **Annual cost** — same logic as `/api/costs/yearly-projection` (actual for completed years, projected for ongoing/future)
-2. **Total advance payments** — all `AdvancePayment` records overlapping the year, prorated by days (`monthly_amount × overlap_days / 30`, same 30-day-month convention as base fee)
+2. **Total advance payments** — all `AdvancePayment` records overlapping the year, prorated using calendar-accurate month lengths (full months count as 1, partial months by actual days in that month)
 3. **Difference** — `total_advance_payments - estimated_or_actual_cost` (positive = Guthaben, negative = Nachzahlung)
 
+**Wastewater mode:** Passing `water_cold_meter_id` (and optionally `water_garden_meter_id`) switches to the wastewater diff. `meter_id` is still a required query parameter here, but its value is ignored in wastewater mode:
+- The annual cost is computed from the wastewater consumption `max(0, cold − garden)` (`_compute_wastewater_consumption`, same boundary-reading rules and chain support as the wastewater cost endpoint) billed against a `wastewater` tariff on the cold-water meter
+- Advance payments are matched via `water_cold_meter_id` (only `category=wastewater` records)
+- Omitted `water_garden_meter_id` → `garden_consumption = 0`, the full cold-water consumption counts as wastewater (no subtraction)
+- `meter_id` in the response is the cold-water meter id
+
 Returns **200** with `total_advance_payments: null` when no advance payment exists. Returns **404** when meter not found, **422** for invalid year (outside 2000–2100).
+
+### Advance Payment Diff By Category
+
+**`GET /api/costs/advance-payment-diff-by-category?category={cat}&year={year}&meter_id={id}&water_cold_meter_id={id}&as_of_date={date}&water_garden_meter_id={id}`**
+
+Thin wrapper around the `advance-payment-diff` endpoint that adds category-based parameter validation. Internally calls `_compute_advance_payment_diff` (same logic as `advance-payment-diff`). Response is identical to `advance-payment-diff` plus a `category` field.
+
+**Query Parameters:**
+| Parameter | Required | Description |
+|---|---|---|
+| `category` | ✅ | Enum: `gas`, `cold_water`, `power_import`, `wastewater` |
+| `year` | ✅ | Target year (2000–2100) |
+| `as_of_date` | optional | Reference date (default: server date). Determines `actual` vs `projected` cost basis |
+| `meter_id` | ✅ (non-wastewater) | Meter ID for categories `gas`, `cold_water`, `power_import`. Must not be set for `wastewater` |
+| `water_cold_meter_id` | ✅ (wastewater) | Cold water meter ID for `wastewater` category. Must not be set for non-wastewater |
+| `water_garden_meter_id` | optional | Garden water meter ID (only for `wastewater`). When omitted, full cold-water consumption counts as wastewater |
+
+**Validation:**
+- `wastewater`: `water_cold_meter_id` required, `meter_id` must be null → 422 otherwise
+- Other categories: `meter_id` required, `water_cold_meter_id`/`water_garden_meter_id` must be null → 422 otherwise
+
+**Example Request:**
+```
+GET /api/costs/advance-payment-diff-by-category?category=power_import&year=2023&meter_id=1&as_of_date=2024-01-15
+```
+
+**Response (200):**
+```json
+{
+  "meter_id": 1,
+  "year": 2023,
+  "estimated_or_actual_cost": "845.30",
+  "cost_basis": "projected",
+  "total_advance_payments": "800.00",
+  "difference": "-45.30",
+  "message": null,
+  "category": "power_import"
+}
+```
 
 ### Years Overview
 
@@ -239,6 +336,17 @@ Returns **200** always; **422** when `from > to`.
 entire chain, and consumption is summed segment-by-segment — consistent with the cost
 calculation chain logic.
 
+**New in this iteration:** The response now includes `start_reading_value` (the meter reading used as the baseline, typically from Dec 31 of the previous year or the first reading of the target year) and `start_reading_date` — consumed by the frontend to draw a cumulative consumption chart starting at 0 on Jan 1.
+
+**Response field `projected_meter_reading_end_of_year`** (Decimal string | null): the
+projected absolute meter reading at the end of the target year, used by the frontend chart
+to draw the dashed projection line as an absolute reading instead of a delta.
+- `actual_full_year` basis → `end_reading.value`
+- `insufficient_data` → `null`
+- linear bases (`linear_from_prev_year_end`, `linear_from_first_reading_of_year`) → `start_reading.value + projected_annual`
+
+The field is forwarded by the `/api/costs/yearly-projection` response schema (`YearlyProjectionWithCostResponse`).
+
 ## Migrations
 
 All migrations live in `alembic/versions/`. IDs are 12-character MD5 hashes.
@@ -255,3 +363,5 @@ All migrations live in `alembic/versions/`. IDs are 12-character MD5 hashes.
 | `12182ced0bb9` | Add replaces_meter_id to meters (self-referencing FK, ON DELETE SET NULL) |
 | `d7b063605e01` | Add advance_payments table (EXCLUDE USING gist for overlap prevention) |
 | `b65e5e4f6fbc` | Add `feed_in_eeg2009` to TariffKind enum; add eeg_tier1_rate, eeg_tier2_rate, metering_point_fee_yearly columns |
+| `60757ca5eeef` | Add category to advance payments (AdvancePaymentCategory enum, water_cold_meter_id/water_garden_meter_id columns, CHECK + partial EXCLUDE constraints) |
+| `3d6f19fc27d2` | Add optional `comment` column to tariff_periods and advance_payments |

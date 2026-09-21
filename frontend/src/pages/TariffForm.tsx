@@ -32,6 +32,7 @@ const TariffForm: React.FC = () => {
     eeg_tier1_rate: '',
     eeg_tier2_rate: '',
     metering_point_fee_yearly: '',
+    comment: '',
   });
 
   useEffect(() => {
@@ -117,6 +118,9 @@ const TariffForm: React.FC = () => {
       }
       if (formData.metering_point_fee_yearly) {
         payload.metering_point_fee_yearly = formData.metering_point_fee_yearly;
+      }
+      if (formData.comment) {
+        payload.comment = formData.comment;
       }
 
       await tariffsApi.create(payload);
@@ -313,6 +317,18 @@ const TariffForm: React.FC = () => {
                     </div>
                   </div>
                 )}
+
+                <div className="space-y-2">
+                  <Label htmlFor="comment">Anbieter / Kommentar</Label>
+                  <Input
+                    id="comment"
+                    name="comment"
+                    type="text"
+                    value={formData.comment}
+                    onChange={handleChange}
+                    placeholder="z. B. Stadtwerke Musterstadt"
+                  />
+                </div>
 
                 <div className="flex justify-end gap-4 pt-6">
                   <Button

@@ -26,3 +26,6 @@ dist-ssr/
 *.swp
 *.swo
 *~
+
+# Dockerdata
+.dockerdata/

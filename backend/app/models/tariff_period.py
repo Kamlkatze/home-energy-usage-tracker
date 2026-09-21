@@ -3,7 +3,7 @@ from datetime import date
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Date, Enum, ForeignKey, Numeric
+from sqlalchemy import Date, Enum, ForeignKey, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, TimestampMixin
@@ -67,5 +67,6 @@ class TariffPeriod(Base, TimestampMixin):
     eeg_tier1_rate: Mapped[Decimal | None] = mapped_column(Numeric(10, 5))
     eeg_tier2_rate: Mapped[Decimal | None] = mapped_column(Numeric(10, 5))
     metering_point_fee_yearly: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
-    
+    comment: Mapped[str | None] = mapped_column(String(500))
+
     meter: Mapped["Meter"] = relationship(back_populates="tariff_periods")

@@ -2,13 +2,18 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
 import { Button } from './components/ui/button';
 import HomePage from './pages/Home';
-import MeterList from './components/MeterList';
+import MeterList from './pages/MeterList';
 import MeterDetail from './pages/MeterDetail';
 import MeterForm from './pages/MeterForm';
 import AddReading from './pages/AddReading';
 import TariffForm from './pages/TariffForm';
 import TariffList from './pages/TariffList';
-import { Home, BarChart2, FileText, Settings, Euro } from 'lucide-react';
+import AdvancePaymentList from './pages/AdvancePaymentList';
+import AdvancePaymentForm from './pages/AdvancePaymentForm';
+import YearsOverview from './pages/YearsOverview';
+import YearDetail from './pages/YearDetail';
+import { Home, BarChart2, FileText, Settings, Euro, CalendarDays } from 'lucide-react';
+import ThemeToggle from './components/ThemeToggle';
 
 const App: React.FC = () => {
   return (
@@ -28,16 +33,16 @@ const App: React.FC = () => {
                     Home
                   </Button>
                 </Link>
-                <Link to="/meters">
+                <Link to="/years-overview">
                   <Button variant="ghost" size="sm" className="gap-2">
-                    <Settings className="h-4 w-4" />
-                    Meters
+                    <CalendarDays className="h-4 w-4" />
+                    Jahresübersicht
                   </Button>
                 </Link>
                 <Link to="/readings/new">
                   <Button variant="ghost" size="sm" className="gap-2">
                     <FileText className="h-4 w-4" />
-                    Add Reading
+                    Zählerstände
                   </Button>
                 </Link>
                 <Link to="/tariffs">
@@ -46,6 +51,19 @@ const App: React.FC = () => {
                     Tarife
                   </Button>
                 </Link>
+                <Link to="/advance-payments">
+                  <Button variant="ghost" size="sm" className="gap-2">
+                    <Euro className="h-4 w-4" />
+                    Abschläge
+                  </Button>
+                </Link>
+                <Link to="/meters">
+                  <Button variant="ghost" size="sm" className="gap-2">
+                    <Settings className="h-4 w-4" />
+                    Zähler
+                  </Button>
+                </Link>
+                <ThemeToggle />
               </nav>
             </div>
           </div>
@@ -60,6 +78,10 @@ const App: React.FC = () => {
             <Route path="/readings/new" element={<AddReading />} />
             <Route path="/tariffs" element={<TariffList />} />
             <Route path="/tariffs/new" element={<TariffForm />} />
+            <Route path="/advance-payments" element={<AdvancePaymentList />} />
+            <Route path="/advance-payments/new" element={<AdvancePaymentForm />} />
+            <Route path="/years-overview" element={<YearsOverview />} />
+            <Route path="/years/:year" element={<YearDetail />} />
           </Routes>
         </main>
         

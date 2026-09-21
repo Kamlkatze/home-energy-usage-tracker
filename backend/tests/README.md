@@ -78,3 +78,4 @@ Tests verify:
 - Database constraints
 - API error handling
 - Decimal serialization as strings
+- Current meters endpoint (`GET /api/meters/current`): empty, standalone, chain filtering, mixed scenarios
