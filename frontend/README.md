@@ -139,6 +139,10 @@ The following backend endpoints/features have **zero** frontend representation:
 - **Scripts:** `npm run lint` (fails on warnings via `--max-warnings 0`), `npm run lint:fix` (safe autofix only).
 - **Rule philosophy:** Recommended sets for TS/React/React-hooks/jsx-a11y are enabled. Noisy/strict stylistic rules are relaxed (`explicit-module-boundary-types` off, `no-explicit-any` as warning, `react/prop-types` off since TypeScript validates). `jsx-a11y/recommended` rules are all set to **warn** (not error) so a11y issues don't block the build for a solo dev. There is **no Prettier** in this project.
 - **No autofixer for `react/no-unescaped-entities`:** this rule is not auto-fixable, so `npm run lint:fix` cannot repair it — such occurrences must be escaped manually (e.g. `"` → `&quot;`) in JSX text.
+- **Handling `jsx-a11y` warnings:** fix them in the order below, then confirm `npm run lint` is clean:
+  1. **Prefer a semantic fix** when the element is genuinely misused (e.g. a clickable non-interactive `<div>` → a real `<button type="button">`, as done for the dialog backdrop). This is the durable solution and keeps the markup honest.
+  2. **If the component is a shared primitive** (shadcn-style `forwardRef` that spreads `{...props}`) and the property can only be verified at the caller's site (heading content, label association), the warning is a known false positive. Silence it with a single `// eslint-disable-next-line jsx-a11y/<rule>, jsx-a11y/<rule>` placed immediately above the element, **always** with a one-line comment explaining why the association happens downstream.
+  3. Do not add these rules to a global ignore file or downgrade them further — the explicit inline disable keeps the intent visible and the rest of the repo checked.
 
 ## 8. Known Issues / TODOs
 
@@ -150,4 +154,4 @@ The following backend endpoints/features have **zero** frontend representation:
 6. ~~**No reading list/edit/delete.**~~
 7. ~~**No dark mode toggle.**~~
 8. ~~**`dist/` directory** present in repository (build artefact).~~
-9. **jsx-a11y baseline warnings:** `jsx-a11y/recommended` currently reports 5 warnings across `components/ui/`: `heading-has-content` (card.tsx), `click-events-have-key-events` + `no-static-element-interactions` (dialog.tsx), `label-has-associated-control` + `label-has-for` (label.tsx). These are intentionally left unfixed to lock in a baseline; resolving them is a separate follow-up.
+9. ~~**jsx-a11y baseline warnings:** `jsx-a11y/recommended` currently reports 5 warnings across `components/ui/`. Resolved in `components/ui/dialog.tsx` (semantic fix), `components/ui/card.tsx` and `components/ui/label.tsx` (justified disable comments).~~ Baseline is now clean — no `jsx-a11y` warnings remain.

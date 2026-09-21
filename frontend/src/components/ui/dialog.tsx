@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect } from 'react';
 import { cn } from '../../lib/utils';
 import { X } from 'lucide-react';
 
@@ -10,8 +10,6 @@ interface DialogProps {
 }
 
 const Dialog: React.FC<DialogProps> = ({ open, onOpenChange, children, className }) => {
-  const overlayRef = useRef<HTMLDivElement>(null);
-
   useEffect(() => {
     if (open) {
       document.body.style.overflow = 'hidden';
@@ -32,19 +30,23 @@ const Dialog: React.FC<DialogProps> = ({ open, onOpenChange, children, className
   if (!open) return null;
 
   return (
-    <div
-      ref={overlayRef}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-      onClick={(e) => { if (e.target === overlayRef.current) onOpenChange(false); }}
-    >
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <button
+        type="button"
+        aria-hidden="true"
+        tabIndex={-1}
+        onClick={() => onOpenChange(false)}
+        className="absolute inset-0 bg-black/50 cursor-default"
+      />
       <div
         className={cn(
-          'relative w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-lg border bg-background p-6 shadow-lg',
+          'relative z-10 w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-lg border bg-background p-6 shadow-lg',
           className
         )}
       >
         <button
           onClick={() => onOpenChange(false)}
+          aria-label="Close"
           className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100"
         >
           <X className="h-4 w-4" />
