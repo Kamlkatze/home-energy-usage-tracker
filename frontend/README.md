@@ -11,14 +11,14 @@
 | HTTP client | axios | ^1.6.0 | single `apiClient` instance |
 | Charting | recharts | ^2.10.0 | `LineChart` on meter detail page |
 | Icons | lucide-react | ^0.303.0 | used in nav, home cards, forms |
-| Date utils | date-fns | ^3.0.0 | installed but **not imported** in any component |
+| Date utils | – | – | not used (`date-fns` was removed in "Removed unused imports and dead code from frontend") |
 | CSS | Tailwind CSS | ^3.3.6 | with `tailwindcss-animate`, `postcss` + `autoprefixer` |
-| UI primitives | shadcn/ui style | – | hand-written, not installed via CLI (button, card, input, label, select, table, textarea) |
+| UI primitives | shadcn/ui style | – | hand-written, not installed via CLI (button, card, checkbox, input, label, select, table, textarea) |
 | Utility | class-variance-authority | ^0.7.0 | used in button variants |
 | Utility | clsx + tailwind-merge | ^2.0.0 | `cn()` helper in `lib/utils.ts` |
 | Linting | ESLint | ^8.53 (legacy `.eslintrc.cjs`) | `typescript-eslint`, `eslint-plugin-react`, `react-hooks`, `react-refresh`, `jsx-a11y`; no Prettier |
 
-**Not used (installed but 0 imports):** `date-fns`.
+**Not used:** no date utility library is installed.
 
 ## 2. Existing Pages / Routes
 
@@ -57,7 +57,7 @@ All follow the shadcn/ui pattern (Tailwind + `cn()` helper, forwardRef, displayN
 | `Card` / `CardHeader` / `CardTitle` / `CardDescription` / `CardContent` / `CardFooter` | `card.tsx` | Standard card composition. |
 | `Input` | `input.tsx` | Wraps `<input>` with base styling. |
 | `Label` | `label.tsx` | Wraps `<label>` with base styling. |
-| `Select` / `SelectItem` (and unused `SelectTrigger` / `SelectContent` / `SelectValue`) | `select.tsx` | Custom native `<select>` wrapper with chevron icon. |
+| `Select` / `SelectItem` | `select.tsx` | Custom native `<select>` wrapper with chevron icon. |
 | `Table` / `TableHeader` / `TableBody` / `TableFooter` / `TableHead` / `TableRow` / `TableCell` / `TableCaption` | `table.tsx` | Full shadcn-style table suite. |
 | `Checkbox` | `checkbox.tsx` | Simple `<input type="checkbox">` wrapper with Tailwind styling, following shadcn/ui pattern with forwardRef and `cn()`. |
 
@@ -107,8 +107,8 @@ Defines: `MeterType`, `TariffKind`, `MeterTypeInfo`, `Meter`, `Reading`, `Tariff
 | `readingsApi` | `GET /`, `GET /:id`, `POST /`, `PUT /:id`, `DELETE /:id` | `AddReading` (POST), `ReadingEditDialog` in `YearDetail` (PUT, DELETE) |
 | `tariffsApi` | `GET /`, `GET /:id`, `POST /`, `PUT /:id`, `DELETE /:id` | `TariffForm` (POST), `TariffList` (GET, PUT, DELETE) |
 | `advancePaymentsApi` | `GET /`, `GET /:id`, `POST /`, `PUT /:id`, `DELETE /:id` | `AdvancePaymentForm` (POST), `AdvancePaymentList` (GET, PUT) |
-| `costsApi` | `GET /years-overview`, `GET /yearly-projection`, `GET /wastewater/` | `YearsOverview`, `YearDetail` (projections + wastewater) |
-| `electricityApi` | `GET /feed-in-compensation` | `YearDetail` (EEG feed-in compensation) |
+| `costsApi` | `GET /years-overview`, `GET /yearly-projection`, `GET /wastewater/`, `GET /advance-payment-diff-by-category` | `YearsOverview`, `YearDetail` (projections, wastewater + advance payment diffs) |
+| `electricityApi` | `GET /feed-in-compensation`, `GET /feed-in-compensation-projection` | `YearDetail` (EEG feed-in compensation) |
 
 ## 5. Styling Approach
 

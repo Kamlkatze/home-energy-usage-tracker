@@ -229,7 +229,7 @@ overlapping days. Gas meters convert m³ → kWh per-period via
 ### Meter replacement chain
 When the requested meter has a `replaces_meter_id` (or a chain of them), the endpoint:
 
-1. Builds the chain oldest→newest via `_build_meter_chain()`.
+1. Builds the chain oldest→newest via `get_meter_chain()` (in `app/services/meter_chain.py`).
 2. Determines the transition date between each pair of meters = first reading date of the successor.
 3. Computes each meter's consumption over its own active segment (`_get_chain_consumption()`).
 4. Looks up tariffs **per meter** in the chain and accumulates costs **without intermediate rounding** (`_compute_cost_fields_multiperiod_raw()`).

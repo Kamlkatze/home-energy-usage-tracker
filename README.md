@@ -228,8 +228,6 @@ docker compose -f docker-compose.dev.yml logs -f
 docker ps -a --filter name=home-energy-usage-tracker
 ```
 
-For troubleshooting and advanced shutdown options, see the complete documentation in [DOCKER_SHUTDOWN.md](DOCKER_SHUTDOWN.md).
-
 ## API Endpoints
 
 ### Meters
@@ -891,6 +889,7 @@ home-energy-usage-tracker/
 │   │   │   ├── tariff_period.py      # TariffPeriod schemas with TariffKind
 │   │   │   └── yearly_projection_cost.py # Yearly projection with cost response schema
 │   │   ├── services/
+│   │   │   ├── meter_chain.py        # Meter replacement chain resolution
 │   │   │   └── projection.py         # Business logic for projection calculations
 │   │   ├── __init__.py
 │   │   ├── config.py                 # Configuration with pydantic-settings
