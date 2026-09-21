@@ -96,7 +96,7 @@ Defines: `MeterType`, `TariffKind`, `MeterTypeInfo`, `Meter`, `Reading`, `Tariff
 
 - **Pattern:** Plain axios instance (`api/client.ts`) with module-level API objects (no React Query, no generated client, no custom fetch wrapper).
 - **Base URL:** `import.meta.env.VITE_API_URL || ''` – empty string means same-origin, relying on the Vite dev proxy or nginx reverse proxy in production.
-- **Dev proxy** (`vite.config.ts`): `/api` → `http://localhost:8000`.
+- **Dev proxy** (`vite.config.ts`): `/api` → `process.env.VITE_PROXY_TARGET` (falls back to `http://localhost:8000`). Containerized dev (`docker-compose.dev.yml`) sets `VITE_PROXY_TARGET: http://backend:8000` so the frontend container reaches the backend via its docker-compose service name; the backend mounts routes under `/api`, so the path is passed through without rewriting.
 
 ### API objects and endpoints consumed
 
@@ -138,7 +138,7 @@ The following backend endpoints/features have **zero** frontend representation:
 2. **`select.tsx` dead code:** Unused `SelectTrigger`, `SelectContent`, `SelectValue` exports.
 3. ~~**`MeterList` misplaced:** Lives in `components/` but used as route page.~~ Moved to `pages/MeterList.tsx`.
 4. ~~**`index.html` language:** `<html lang="en">` doesn't match German UI.~~
-5. **Vite dev proxy target issue:** Default `localhost:8000` won't work from inside frontend container.
+5. ~~**Vite dev proxy target:** containerized dev sets `VITE_PROXY_TARGET: http://backend:8000` via `docker-compose.dev.yml`; the `vite.config.ts` default of `http://localhost:8000` is only used for native development.~~
 6. ~~**No reading list/edit/delete.**~~
 7. ~~**No dark mode toggle.**~~
 8. ~~**`dist/` directory** present in repository (build artefact).~~

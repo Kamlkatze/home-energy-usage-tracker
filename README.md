@@ -101,6 +101,10 @@ VITE_API_URL=http://localhost:8000  # only used outside Docker
 - Database URLs (`DATABASE_URL`, `DATABASE_URL_ASYNC`) are automatically constructed from the credentials
 - In production, `VITE_API_URL` is hardcoded to `/api` for nginx proxy routing
 - In development, `VITE_API_URL` is empty for relative API calls through Vite proxy
+- The Vite dev-server proxy (`server.proxy` in `frontend/vite.config.ts`) forwards `/api` using `process.env.VITE_PROXY_TARGET`, falling back to `http://localhost:8000` when unset:
+  - Containerized dev: `docker-compose.dev.yml` sets `VITE_PROXY_TARGET: http://backend:8000` as a container environment variable, so the frontend container reaches the backend via its docker-compose service name (`backend`, port `8000`)
+  - Native dev: the variable is unset, so the proxy falls back to `http://localhost:8000`
+  - The backend mounts its routes under `/api` (`API_V1_PREFIX=/api`), so `/api` is passed through to the backend unchanged (no path rewrite)
 
 ### Native Development (Without Docker)
 
