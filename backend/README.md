@@ -57,6 +57,7 @@ uv run --extra dev pytest tests/test_meter_replacement.py
 uv run --extra dev pytest tests/test_advance_payments.py
 uv run --extra dev pytest tests/test_advance_payment_diff.py
 uv run --extra dev pytest tests/test_advance_payment_diff.py -k "by_category"
+uv run --extra dev pytest tests/test_consumption_timeseries.py
 
 # Run with verbose output
 uv run --extra dev pytest -v
@@ -307,6 +308,24 @@ Returns yearly consumption, cost, and cost basis for every logical meter (standa
 **Per-year calculation:** Reuses the same projection-with-cost logic as `/api/costs/yearly-projection`. Completed years get `cost_basis: "actual"`, ongoing/future years get `cost_basis: "projected"`. Missing tariffs or insufficient data result in `null` cost fields (the year entry still appears with consumption if calculable).
 
 Returns **200** always (per-year failures are surfaced as null fields, never as HTTP errors).
+
+### Consumption Timeseries
+
+**`GET /api/costs/consumption-timeseries?from={date}&to={date}`**
+
+Returns a time series of individual readings for every logical meter, each enriched with consumption and cost since the chronologically previous reading. The previous reading may lie outside the requested range or in a predecessor meter of the replacement chain.
+
+**Chain resolution:** Same as years-overview — only meters NOT referenced by any other meter's `replaces_meter_id` are top-level entries.
+
+**Per-point calculation:**
+- `consumption_since_previous = current_reading.value - previous_reading.value` (null if no previous reading exists or delta is negative)
+- `cost_since_previous` computed via multi-period cost logic over `[previous_reading_date, current_reading_date)` (null if no tariff covers that sub-period, or on gas conversion factor errors). Reuses `_get_overlapping_tariffs` and `_compute_cost_fields_multiperiod`.
+- Gas consumption is converted m³→kWh per tariff period using `gas_z_zahl × gas_brennwert`.
+- Missing tariffs or negative consumption per point result in null fields (never fail the whole request).
+
+**Omission:** Meters/chain with zero readings in `[from, to]` are omitted from the response.
+
+Returns **200** always; **422** when `from > to`.
 
 ## Projection Service
 

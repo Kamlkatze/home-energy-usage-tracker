@@ -86,3 +86,18 @@ class YearsOverviewItem(BaseModel):
     meter_type: str
     unit: str
     years: list[YearEntry]
+
+
+class ConsumptionTimeseriesPoint(BaseModel):
+    date: date
+    value: str
+    consumption_since_previous: str | None = None
+    cost_since_previous: str | None = None
+
+
+class ConsumptionTimeseriesItem(BaseModel):
+    meter_id: int
+    meter_label: str
+    meter_type: str
+    unit: str
+    points: list[ConsumptionTimeseriesPoint]
