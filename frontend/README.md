@@ -17,6 +17,7 @@
 | Utility | class-variance-authority | ^0.7.0 | used in button variants |
 | Utility | clsx + tailwind-merge | ^2.0.0 | `cn()` helper in `lib/utils.ts` |
 | Linting | ESLint | ^8.53 (legacy `.eslintrc.cjs`) | `typescript-eslint`, `eslint-plugin-react`, `react-hooks`, `react-refresh`, `jsx-a11y`; no Prettier |
+| Testing | Vitest | ^2.0.0 | + `@testing-library/react` + `jsdom`; smoke tests only (see section 8) |
 
 **Not used:** no date utility library is installed.
 
@@ -144,7 +145,53 @@ The following backend endpoints/features have **zero** frontend representation:
   2. **If the component is a shared primitive** (shadcn-style `forwardRef` that spreads `{...props}`) and the property can only be verified at the caller's site (heading content, label association), the warning is a known false positive. Silence it with a single `// eslint-disable-next-line jsx-a11y/<rule>, jsx-a11y/<rule>` placed immediately above the element, **always** with a one-line comment explaining why the association happens downstream.
   3. Do not add these rules to a global ignore file or downgrade them further — the explicit inline disable keeps the intent visible and the rest of the repo checked.
 
-## 8. Known Issues / TODOs
+## 8. Tests (Vitest)
+
+Vitest is configured as a **safety net for the upcoming dependency migration** (Vite 7, Tailwind 4, React 19, react-router 7, Recharts 3). The suite's only job is to detect *"the app no longer renders"* — nothing more. It is deliberately minimal.
+
+**Stack (versions pinned for Vite 5):** `vitest ^2`, `@vitest/ui ^2`, `@testing-library/react ^16`, `@testing-library/jest-dom ^6`, `@testing-library/user-event ^14`, `jsdom ^25`. Do **not** upgrade Vitest to 3+ here, since it requires Vite 6+.
+
+**Config:** Lives in the `test` block of `vite.config.ts` (no separate `vitest.config.ts`): `environment: 'jsdom'`, `globals: true`, `setupFiles: ['./src/test/setup.ts']`, `css: false`.
+
+### Commands
+
+| Command | What it does |
+|---|---|
+| `npm run test` | Run the full suite once (CI-friendly). |
+| `npm run test:watch` | Watch mode, re-runs on file changes. |
+| `npm run test:ui` | Interactive browser UI (via `@vitest/ui`). |
+
+Currently: **11 smoke tests across `src/test/smoke/`, one per top-level route component — all green.**
+
+### How the suite is organised
+
+```
+src/test/
+├── setup.ts          # jest-dom matchers + global API mocks (+ per-test reset)
+├── mocks/
+│   └── api.ts        # mock implementations of all API client objects
+├── utils.tsx         # renderWithProviders() helper
+└── smoke/            # one *.test.tsx per route component
+```
+
+- **`setup.ts`** imports `@testing-library/jest-dom/vitest` and registers `vi.mock(...)` for `src/api/client` and `src/api/advancePaymentsApi` **globally**, so no route component ever hits the network. A global `beforeEach` resets every mock to its default implementation for isolation.
+- **`mocks/api.ts`** implements every function of `metersApi`, `readingsApi`, `tariffsApi`, `costsApi`, `electricityApi`, and `advancePaymentsApi` as `vi.fn()`. Defaults resolve to empty/minimal data so pages render their empty state (and Recharts never mounts, since it renders poorly in jsdom). `resetApiMocks()` restores these defaults before each test.
+- **`utils.tsx`** exports `renderWithProviders(ui, { path, initialEntries })`. The app's only global provider (besides `React.StrictMode` in `main.tsx`) is the router — there is no QueryClient or custom context — so the helper wraps the component in a `MemoryRouter` (with `Routes` + a matching `path`) so `useParams`/`useNavigate` work.
+
+### Writing a new test
+
+1. Import the real component from `pages/` and use `renderWithProviders`.
+2. Assert **only** that the component renders without throwing and that **one stable element** is present (a heading, landmark, or role). For route-parameterised pages, pass `path` and `initialEntries` (e.g. `{ path: '/years/:year', initialEntries: ['/years/2024'] }`).
+3. Use `findBy*` (async) when the page has a loading gate, `getBy*` when it renders synchronously.
+4. Prefer exact heading names when the title text is the whole accessible name. For `CardTitle` headings that also embed an action link (e.g. `MeterList`'s "Alle Zähler" + "Neuer Zähler"), match the name with a regex (`{ name: /Alle Zähler/ }`).
+
+**Constraints that must hold:**
+- Do **not** assert on specific numbers, formatted values, dates, currency, or Tailwind classes — these are expected to change during the migration.
+- Do **not** assert on chart internals; if Recharts data is involved, assert on the surrounding container instead.
+- If data is needed beyond the defaults, override a mock per-test via `vi.mocked(metersApi.getById).mockResolvedValue(...)` importable from `src/test/mocks/api`.
+- Do not modify application source code to make a test pass. If a route cannot be tested without refactoring app code, skip it and note why instead.
+
+## 9. Known Issues / TODOs
 
 1. ~~**Mixed language UI:** Several pages (e.g. Home, AddReading) still use English labels — meters pages are fully translated to German.~~ Home page, AddReading, and meters pages are now fully German.
 2. ~~**`select.tsx` dead code:** Unused `SelectTrigger`, `SelectContent`, `SelectValue` exports.~~ Removed — those three components were unused and now deleted.
