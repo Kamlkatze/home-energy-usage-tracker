@@ -1,4 +1,4 @@
-FROM python:3.11-slim AS builder
+FROM python:3.11.9-slim AS builder
 
 RUN pip install uv
 WORKDIR /app
@@ -7,7 +7,7 @@ COPY pyproject.toml uv.lock ./
 COPY app ./app
 RUN uv sync --frozen
 
-FROM python:3.11-slim
+FROM python:3.11.9-slim
 
 WORKDIR /app
 
@@ -18,4 +18,4 @@ COPY . .
 
 EXPOSE 8000
 
-CMD ["/opt/venv/bin/python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["/bin/sh", "-c", "/opt/venv/bin/python -m alembic upgrade head && exec /opt/venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000"]
