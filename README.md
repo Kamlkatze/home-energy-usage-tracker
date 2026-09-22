@@ -56,15 +56,24 @@ A simple, local application for tracking electricity, gas, and water consumption
    cp .env.example .env
    ```
 
-3. Start all services:
+3. **Create the Docker network once** (only needed the first time; the compose file references the pre-existing `energy-net` network):
+   ```bash
+   docker network create energy-net
+   ```
+
+4. Start all services:
    ```bash
    docker compose up -d
    ```
 
-4. Access the application:
-    - Frontend: http://localhost:3000
-    - Backend API: http://localhost:8000
-    - API Documentation: http://localhost:8000/docs
+5. Access the application:
+   - Frontend: http://localhost:3500
+
+> **Note:** The backend exposes no host port and is **not** reachable from outside the Docker network — the frontend (nginx) proxies `/api` to it internally. The API docs are therefore only available from inside the backend container and not from your browser.
+
+**Network exposure of the database:** The `db` service binds PostgreSQL only to `127.0.0.1:5432`, so you can reach it from the host via `psql -h localhost -p 5432 -U postgres`, but it is **not** exposed to the outside network.
+
+**Required password:** `POSTGRES_PASSWORD` must be set (no default fallback). If it is missing or empty, `docker compose up` fails with an error instead of running with a weak default password.
 
 ### Environment Configuration
 
@@ -88,7 +97,7 @@ DATABASE_PORT=5432
 ```bash
 API_V1_PREFIX=/api
 PROJECT_NAME=Home Energy Usage Tracker
-CORS_ORIGINS=["http://localhost:3000", "http://localhost:5173"]
+CORS_ORIGINS=["http://localhost:3500", "http://localhost:5173"]
 ```
 
 **Frontend Configuration (native development only):**
@@ -98,8 +107,9 @@ VITE_API_URL=http://localhost:8000  # only used outside Docker
 
 **How it works:**
 - Docker Compose files use `${VARNAME:-default}` substitution to load values from `.env`
+- `POSTGRES_PASSWORD` is required (no default) in production — the compose file fails fast if it is not set
 - Database URLs (`DATABASE_URL`, `DATABASE_URL_ASYNC`) are automatically constructed from the credentials
-- In production, `VITE_API_URL` is hardcoded to `/api` for nginx proxy routing
+- In production, `VITE_API_URL` is passed as a build argument and defaults to `/api` for nginx proxy routing
 - In development, `VITE_API_URL` is empty for relative API calls through Vite proxy
 - The Vite dev-server proxy (`server.proxy` in `frontend/vite.config.ts`) forwards `/api` using `process.env.VITE_PROXY_TARGET`, falling back to `http://localhost:8000` when unset:
   - Containerized dev: `docker-compose.dev.yml` sets `VITE_PROXY_TARGET: http://backend:8000` as a container environment variable, so the frontend container reaches the backend via its docker-compose service name (`backend`, port `8000`)
@@ -168,7 +178,7 @@ For full Docker development (hot-reload for both frontend and backend):
   - Proxy Configuration:
     - Docker dev: API calls go through Vite proxy to `backend:8000`
     - Native dev: API calls go directly to `localhost:8000` (no Vite proxy)
-    - Production: API calls go through nginx proxy to `backend:8000`
+    - Production: API calls go through nginx proxy (on port 3500) to `backend:8000`
 
 #### Backend Setup
 
@@ -208,6 +218,8 @@ docker compose down
 # Stop containers without removing
 docker compose stop
 ```
+
+> **Note:** The Prod Stack uses the pre-defined external network `energy-net`, which must be created once before the first start (`docker network create energy-net`). Containers reference the database only on `127.0.0.1:5432` (host-reachable, not exposed externally); the backend publishes no host port at all.
 
 **⚠️ Data Loss Warning:** `docker compose down` **removes containers but keeps volumes**. `docker compose down -v` removes volumes and all data!
 
@@ -975,13 +987,23 @@ If you encounter `type "metertype" already exists` errors:
 - If you see duplicate type creation errors, check that the migration doesn't create the enum both explicitly and implicitly
 - To reset: `docker compose down --volumes` (⚠️ **deletes all data**)
 
-### Podman-Specific Issues
+### External Network Not Found
 
-This project works with both Docker and Podman. On Linux with Podman:
+The Prod Stack references the pre-existing Docker network `energy-net`. On a fresh machine you get `network energy-net was found but has incorrect label` or `network energy-net not found`:
+
+```bash
+# Create the network once (idempotent — rerunning reports it already exists)
+docker network create energy-net
+```
+
+### Container/Engine-Specific Issues
+
+This project works with both Docker and Podman.
 
 - Containers may be managed via systemd: `systemctl --user status podman-compose@home-energy-usage-tracker.service`
-- If containers hang, check podman logs: `podman logs <container_name>`
-- For rootful podman, you may need `sudo` for socket access
+- If containers hang, check the logs: `docker logs <container_name>`
+- For rootful Podman, you may need `sudo` for socket access
+- On Podman, `DOCKER_HOST` must point at the Podman socket, e.g. `DOCKER_HOST=unix:///run/user/1000/podman/podman.sock`
 
 ### API Endpoints Return 500 with Enum Errors
 
@@ -1003,10 +1025,10 @@ To export your energy tracking data (schema is created via Alembic on the target
 
 ```bash
 # Find your database container name
-podman ps | grep postgres
+docker ps | grep postgres
 
 # Export data only (schema comes from Alembic on the target system)
-podman exec <db-container> pg_dump -U postgres -d energy_tracker \
+docker exec <db-container> pg_dump -U postgres -d energy_tracker \
   --data-only --column-inserts > energy_data_backup.sql
 ```
 
@@ -1015,10 +1037,10 @@ To import data on the target system (after `alembic upgrade head` has run there)
 
 ```bash
 # Find your database container name on the target system
-podman ps | grep postgres
+docker ps | grep postgres
 
 # Import the backup
-cat energy_data_backup.sql | podman exec -i <db-container> \
+cat energy_data_backup.sql | docker exec -i <db-container> \
   psql -U postgres -d energy_tracker
 ```
 
