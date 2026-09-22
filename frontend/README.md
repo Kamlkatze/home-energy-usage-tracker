@@ -5,8 +5,8 @@
 | Layer | Technology | Version | Notes |
 |---|---|---|---|
 | Framework | React | ^18.2.0 | SPA, no SSR/Next.js |
-| Build tool | Vite | ^5.0.0 | + `@vitejs/plugin-react` |
-| Language | TypeScript | ^5.2.2 | strict mode via tsconfig |
+| Build tool | Vite | ^7.3.6 | + `@vitejs/plugin-react` |
+| Language | TypeScript | ^5.9.3 | strict mode via tsconfig |
 | Routing | react-router-dom | ^6.20.1 | `<BrowserRouter>` with `<Routes>` |
 | HTTP client | axios | ^1.6.0 | single `apiClient` instance |
 | Charting | recharts | ^2.10.0 | `LineChart` on meter detail page |
@@ -16,8 +16,8 @@
 | UI primitives | shadcn/ui style | – | hand-written, not installed via CLI (button, card, checkbox, input, label, select, table, textarea) |
 | Utility | class-variance-authority | ^0.7.0 | used in button variants |
 | Utility | clsx + tailwind-merge | ^2.0.0 | `cn()` helper in `lib/utils.ts` |
-| Linting | ESLint | ^8.53 (legacy `.eslintrc.cjs`) | `typescript-eslint`, `eslint-plugin-react`, `react-hooks`, `react-refresh`, `jsx-a11y`; no Prettier |
-| Testing | Vitest | ^2.0.0 | + `@testing-library/react` + `jsdom`; smoke tests only (see section 8) |
+| Linting | ESLint | ^9.39.5 (flat config `eslint.config.js`) | Uses `@eslint/js`, `typescript-eslint`, `eslint-plugin-react`, `react-hooks@7.x`, `react-refresh`, `jsx-a11y`; no Prettier; see **ESLint React Hooks Status** below |
+| Testing | Vitest | ^3.2.7 | + `@testing-library/react` + `jsdom` 30+; smoke tests only (see section 8) |
 
 **Not used:** no date utility library is installed.
 
@@ -191,7 +191,50 @@ src/test/
 - If data is needed beyond the defaults, override a mock per-test via `vi.mocked(metersApi.getById).mockResolvedValue(...)` importable from `src/test/mocks/api`.
 - Do not modify application source code to make a test pass. If a route cannot be tested without refactoring app code, skip it and note why instead.
 
-## 9. Known Issues / TODOs
+## 9. ESLint React Hooks Status (Sept 2026)
+
+**Toolchain Upgrade (Sept 22, 2026):**
+- Upgraded Vite: 5.0.0 → 7.3.6
+- Upgraded Vitest: 2.0.0 → 3.2.7
+- Upgraded TypeScript: 5.2.2 → 5.9.3
+- Upgraded ESLint: 8.53.0 → 9.39.5 with **flat config format** (`eslint.config.js`)
+- Upgraded `eslint-plugin-react-hooks`: 4.6.0 → 7.1.1 (multiple new strict rules)
+- Added new dependencies: `@eslint/js@9.39.5`, `globals@17.12.0`, `typescript-eslint@8.70.1`
+- Removed old `.eslintrc.cjs` file
+
+**ESLint Configuration Correction (Sept 22, 2026):**
+
+The migration to `eslint-plugin-react-hooks` 7.x introduced four new strict rules:
+- `react-hooks/set-state-in-effect`: Detects synchronous `setState()` calls in effect bodies (performance anti-pattern)
+- `react-hooks/immutability`: Detects variable mutations and functions accessed before declaration
+- `react-hooks/refs`: Detects ref mutations or accesses during render
+- `react-hooks/purity`: Detects pure function violations in effects
+
+**Current Status:** These four rules are now **enabled** (using their default severity from the plugin's recommended config). They report **18 errors** across 8 pages in `src/pages/`:
+
+| Rule | Count | Pattern |
+|------|-------|---------|
+| `react-hooks/set-state-in-effect` | 7 | `setState()` called synchronously in effect bodies (should be deferred or memoized) |
+| `react-hooks/immutability` | 6 | Functions declared after `useEffect` that calls them; 1 ref mutation during render |
+| `react-hooks/refs` | 1 | Ref mutation (`current =`) during render |
+
+**Affected Pages:** AddReading, AdvancePaymentForm, AdvancePaymentList, MeterDetail, MeterForm, MeterList, TariffForm, TariffList, YearDetail, YearsOverview.
+
+**Baseline Warnings (Preserved):** 59 pre-existing warnings remain unchanged:
+- `no-console`: 16 (unrelated to React hooks)
+- `react-hooks/exhaustive-deps`: 3 (pre-existing, legitimate in context)
+- `@typescript-eslint/no-explicit-any`: 40 (type safety flags, unrelated to React hooks)
+
+**Total ESLint Status:** `npm run lint` reports **77 problems (18 errors, 59 warnings)** — the errors block CI/CD.
+
+**Next Step:** These pattern violations require refactoring to fix properly (e.g., moving `setState` out of effect bodies, moving function declarations before `useEffect` calls, or restructuring with `useCallback`). This will be addressed as part of the **upcoming React 18 → 19 upgrade**, which requires similar effect/hook refactoring anyway.
+
+**Configuration Files:**
+- `eslint.config.js`: Flat config format for ESLint 9+ (replaces `.eslintrc.cjs`)
+- `vite.config.ts`: Includes test globals for Vitest (describe, it, expect, etc.)
+- `tsconfig.json`: Unchanged, compatible with TypeScript 5.9.3
+
+## 10. Known Issues / TODOs
 
 1. ~~**Mixed language UI:** Several pages (e.g. Home, AddReading) still use English labels — meters pages are fully translated to German.~~ Home page, AddReading, and meters pages are now fully German.
 2. ~~**`select.tsx` dead code:** Unused `SelectTrigger`, `SelectContent`, `SelectValue` exports.~~ Removed — those three components were unused and now deleted.

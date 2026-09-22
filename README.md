@@ -26,10 +26,12 @@ A simple, local application for tracking electricity, gas, and water consumption
 
 ### Frontend
 - **React 18** with TypeScript
-- **Vite** for build tooling
+- **Vite 7** for build tooling (upgraded from 5, Sept 2026)
 - **shadcn/ui** for UI components
 - **Recharts** for data visualization
 - **Tailwind CSS** for styling
+- **Vitest 3** for testing with jsdom (upgraded from 2, Sept 2026)
+- **ESLint 9** with flat config (upgraded from 8, Sept 2026) — see `frontend/README.md` for React Hooks status
 
 ### Deployment
 - **Docker Compose** with 3 services
@@ -865,7 +867,20 @@ cd frontend && npm run lint
 
 # Run linting and auto-fix what is safely auto-fixable
 cd frontend && npm run lint:fix
+
+# Run tests
+cd frontend && npm run test
+
+# Run tests in watch mode
+cd frontend && npm run test:watch
 ```
+
+**Note on ESLint Status:** The September 2026 toolchain upgrade (Vite 5→7, Vitest 2→3, ESLint 8→9) enabled four new strict rules from `eslint-plugin-react-hooks@7.1.1`:
+- `react-hooks/set-state-in-effect` (7 errors)
+- `react-hooks/immutability` (6 errors)
+- `react-hooks/refs` (1 error)
+
+These errors block CI/CD and require refactoring React hooks patterns. See `frontend/README.md` section 9 for detailed status and affected pages. This will be addressed as part of the upcoming React 18→19 upgrade.
 
 ## Project Structure
 
