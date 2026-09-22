@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -10,6 +10,7 @@ import {
 import { Dialog } from '../components/ui/dialog';
 import { advancePaymentsApi } from '../api/advancePaymentsApi';
 import { metersApi } from '../api/client';
+import { useFetch } from '../hooks/useFetch';
 import { AdvancePayment, AdvancePaymentCategory, Meter } from '../types';
 import { ADVANCE_PAYMENT_CATEGORY_LABELS, ADVANCE_PAYMENT_CATEGORIES, getMeterFieldsForCategory } from '../lib/advancePaymentFields';
 import { Loader2, Pencil } from 'lucide-react';
@@ -26,10 +27,26 @@ function getMeterLabel(metersById: Map<number, Meter>, id: number | null): strin
 }
 
 const AdvancePaymentList: React.FC = () => {
-  const [advancePayments, setAdvancePayments] = useState<AdvancePayment[]>([]);
-  const [meters, setMeters] = useState<Meter[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // Bumping reloadKey re-triggers the useFetch effect to refetch after mutations.
+  const [reloadKey, setReloadKey] = useState(0);
+  const {
+    data,
+    loading,
+    error,
+  } = useFetch<{ payments: AdvancePayment[]; meters: Meter[] }>(async () => {
+    try {
+      const [paymentsData, metersData] = await Promise.all([
+        advancePaymentsApi.getAll(),
+        metersApi.getAll(),
+      ]);
+      return { payments: paymentsData, meters: metersData };
+    } catch {
+      throw new Error('Fehler beim Laden der Abschlagszahlungen');
+    }
+  }, [reloadKey]);
+
+  const advancePayments = data?.payments ?? [];
+  const meters = data?.meters ?? [];
   const [activeTab, setActiveTab] = useState<AdvancePaymentCategory | null>(null);
 
   // Edit modal state
@@ -37,28 +54,6 @@ const AdvancePaymentList: React.FC = () => {
   const [editFormData, setEditFormData] = useState<Record<string, string>>({});
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
-
-  const fetchData = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const [paymentsData, metersData] = await Promise.all([
-        advancePaymentsApi.getAll(),
-        metersApi.getAll(),
-      ]);
-      setAdvancePayments(paymentsData);
-      setMeters(metersData);
-    } catch (err) {
-      setError('Fehler beim Laden der Abschlagszahlungen');
-      console.error('Error fetching advance payments:', err);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
 
   const metersById = new Map(meters.map((m) => [m.id, m]));
 
@@ -109,7 +104,7 @@ const AdvancePaymentList: React.FC = () => {
 
       await advancePaymentsApi.update(editPayment.id, payload);
       setEditPayment(null);
-      await fetchData();
+      setReloadKey((k) => k + 1);
     } catch (err) {
       const detail = (err as { response?: { data?: { detail?: string } } })
         ?.response?.data?.detail;

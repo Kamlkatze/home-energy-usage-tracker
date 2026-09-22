@@ -9,9 +9,14 @@ import {
 } from 'recharts';
 import ReadingEditDialog from './ReadingEditDialog';
 
+// Read once at module load instead of calling Date.now() during render
+// (forbidden by react-hooks/purity): "future" data points are relative
+// to the time the chart module was loaded with the page.
+const LOAD_TIME_MS = Date.now();
+
 const ChartTooltip: React.FC<{ active?: boolean; payload?: any[]; label?: any; unit: string; showConsumption?: boolean }> = ({ active, payload, label, unit }) => {
   if (!active || !payload || payload.length === 0) return null;
-  const isFuture = typeof label === 'number' ? label > Date.now() : false;
+  const isFuture = typeof label === 'number' ? label > LOAD_TIME_MS : false;
   const filteredPayload = isFuture
     ? payload
     : payload.filter((p: any) => p.name !== 'Hochrechnung');

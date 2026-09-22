@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React from 'react';
 import { Link } from 'react-router-dom';
 import { costsApi } from '../api/client';
+import { useFetch } from '../hooks/useFetch';
 import { YearsOverviewItem } from '../types';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '../components/ui/table';
@@ -113,28 +114,21 @@ const ChartCard: React.FC<ChartCardProps> = ({ title, items, chartData }) => {
 };
 
 const YearsOverview: React.FC = () => {
-  const [items, setItems] = useState<YearsOverviewItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchData = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const {
+    data,
+    loading,
+    error,
+  } = useFetch<YearsOverviewItem[]>(async () => {
     try {
-      const data = await costsApi.getYearsOverview();
-      setItems(data);
+      return await costsApi.getYearsOverview();
     } catch (err: any) {
-      setError(
+      throw new Error(
         err?.response?.data?.detail || err?.message || 'Fehler beim Laden der Jahresübersicht.'
       );
-    } finally {
-      setLoading(false);
     }
   }, []);
 
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+  const items = data ?? [];
 
   const allYears = [...new Set(items.flatMap((item) => item.years.map((y) => y.year)))].sort(
     (a, b) => a - b

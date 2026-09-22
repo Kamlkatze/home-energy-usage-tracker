@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { costsApi, metersApi, electricityApi } from '../api/client';
+import { useFetch } from '../hooks/useFetch';
 import { Meter, Reading, YearsOverviewItem, FeedInCompensation, FeedInCompensationProjection, WastewaterCosts, AdvancePaymentDiffByCategory } from '../types';
 import { Card, CardContent } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -30,8 +31,6 @@ const YearDetail: React.FC = () => {
   const { year: yearParam } = useParams<{ year: string }>();
   const year = parseInt(yearParam || '', 10);
   const [sections, setSections] = useState<MeterSection[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [eegData, setEegData] = useState<FeedInCompensation | null>(null);
   const [eegLoading, setEegLoading] = useState(false);
   const [eegError, setEegError] = useState<string | null>(null);
@@ -43,7 +42,11 @@ const YearDetail: React.FC = () => {
   const [wastewaterError, setWastewaterError] = useState<string | null>(null);
 
   const sectionsRef = React.useRef(sections);
-  sectionsRef.current = sections;
+  // Keep the ref in sync after commit (assigning a ref during render is
+  // not allowed, see react-hooks/refs).
+  useEffect(() => {
+    sectionsRef.current = sections;
+  }, [sections]);
 
   const refreshSection = useCallback(async (meterId: number) => {
     const currentSections = sectionsRef.current;
@@ -99,17 +102,12 @@ const YearDetail: React.FC = () => {
     power_import: null,
   });
 
-  const fetchData = useCallback(async () => {
-    if (isNaN(year)) {
-      setError('Ungültiges Jahr.');
-      setLoading(false);
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-
+  const { loading, error } = useFetch<null>(async () => {
     try {
+      if (isNaN(year)) {
+        throw new Error('Ungültiges Jahr.');
+      }
+
       const [overviewData, allMeters] = await Promise.all([
         costsApi.getYearsOverview() as Promise<YearsOverviewItem[]>,
         metersApi.getAll() as Promise<Meter[]>,
@@ -121,8 +119,7 @@ const YearDetail: React.FC = () => {
 
       if (relevantItems.length === 0) {
         setSections([]);
-        setLoading(false);
-        return;
+        return null;
       }
 
       const meterSections: MeterSection[] = [];
@@ -158,7 +155,6 @@ const YearDetail: React.FC = () => {
       }
 
       setSections(meterSections);
-      setLoading(false);
 
       // Fetch yearly projections in parallel
       const updatedSections = await Promise.all(
@@ -341,19 +337,16 @@ const YearDetail: React.FC = () => {
       );
 
       setAdvancePaymentDiffs(diffs as Record<'gas' | 'cold_water' | 'wastewater' | 'power_import', AdvancePaymentDiffByCategory | null>);
+      return null;
     } catch (err: any) {
-      setError(
+      // Surface the error via useFetch's error state (and its central log).
+      throw new Error(
         err?.response?.data?.detail ||
         err?.message ||
         'Fehler beim Laden der Jahresdaten.'
       );
-      setLoading(false);
     }
-}, [year]);
-
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+  }, [year]);
 
   if (loading && sections.length === 0) {
     return (

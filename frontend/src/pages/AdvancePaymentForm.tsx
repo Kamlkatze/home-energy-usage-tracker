@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -7,15 +7,13 @@ import { Label } from '../components/ui/label';
 import { Select, SelectItem } from '../components/ui/select';
 import { advancePaymentsApi } from '../api/advancePaymentsApi';
 import { metersApi } from '../api/client';
-import { Meter, AdvancePaymentCategory } from '../types';
+import { useFetch } from '../hooks/useFetch';
+import { AdvancePaymentCategory, Meter } from '../types';
 import { ADVANCE_PAYMENT_CATEGORY_LABELS, ADVANCE_PAYMENT_CATEGORIES, getMeterFieldsForCategory, filterMetersForCategory } from '../lib/advancePaymentFields';
 import { ArrowLeft, CheckCircle, Loader2 } from 'lucide-react';
 
 const AdvancePaymentForm: React.FC = () => {
   const navigate = useNavigate();
-  const [meters, setMeters] = useState<Meter[]>([]);
-  const [metersLoading, setMetersLoading] = useState(true);
-  const [metersError, setMetersError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -24,43 +22,48 @@ const AdvancePaymentForm: React.FC = () => {
   const [validTo, setValidTo] = useState('');
   const [monthlyAmount, setMonthlyAmount] = useState('');
   const [comment, setComment] = useState('');
-  const [meterSelections, setMeterSelections] = useState<Record<string, string>>({});
+  // Per-field user selections; un-overridden fields fall back to defaults below.
+  const [meterSelectionOverrides, setMeterSelectionOverrides] = useState<Record<string, string>>({});
 
-  useEffect(() => {
-    fetchMeters();
-  }, []);
-
-  const fetchMeters = async () => {
+  const {
+    data: metersData,
+    loading: metersLoading,
+    error: metersError,
+  } = useFetch<Meter[]>(async () => {
     try {
-      setMetersLoading(true);
-      setMetersError(null);
-      const data = await metersApi.getAll();
-      setMeters(data);
-    } catch (err) {
-      console.error('Error fetching meters:', err);
-      setMetersError('Fehler beim Laden der Zähler');
-    } finally {
-      setMetersLoading(false);
+      return await metersApi.getAll();
+    } catch {
+      throw new Error('Fehler beim Laden der Zähler');
     }
-  };
+  }, []);
+  const meters = metersData ?? [];
 
   const fields = getMeterFieldsForCategory(category);
 
-  useEffect(() => {
-    const initial: Record<string, string> = {};
-    for (const f of fields) {
-      const filtered = filterMetersForCategory(meters, f);
-      if (filtered.length > 0 && !initial[f.name]) {
-        initial[f.name] = f.allowNull ? '' : filtered[0].id.toString();
-      } else if (!initial[f.name]) {
-        initial[f.name] = '';
-      }
-    }
-    setMeterSelections((prev) => ({ ...prev, ...initial }));
-  }, [category, meters]);
+  // Default meter preselection per field: the first matching meter for
+  // required fields, empty for fields that allow no selection. Derived
+  // during render instead of synced via an effect (react-hooks rule
+  // set-state-in-effect). Switching the category clears the overrides so
+  // the new category's fields show their defaults, matching the previous
+  // effect behavior.
+  const defaultSelections: Record<string, string> = {};
+  for (const f of fields) {
+    const filtered = filterMetersForCategory(meters, f);
+    defaultSelections[f.name] =
+      filtered.length > 0 && !f.allowNull ? filtered[0].id.toString() : '';
+  }
+  const meterSelections: Record<string, string> = {
+    ...defaultSelections,
+    ...meterSelectionOverrides,
+  };
+
+  const handleCategoryChange = (next: AdvancePaymentCategory) => {
+    setCategory(next);
+    setMeterSelectionOverrides({});
+  };
 
   const handleMeterChange = (fieldName: string, value: string) => {
-    setMeterSelections((prev) => ({ ...prev, [fieldName]: value }));
+    setMeterSelectionOverrides((prev) => ({ ...prev, [fieldName]: value }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -156,7 +159,7 @@ const AdvancePaymentForm: React.FC = () => {
                   <Select
                     id="category"
                     value={category}
-                    onChange={(e) => setCategory(e.target.value as AdvancePaymentCategory)}
+                    onChange={(e) => handleCategoryChange(e.target.value as AdvancePaymentCategory)}
                   >
                     {ADVANCE_PAYMENT_CATEGORIES.map((cat) => (
                       <SelectItem key={cat} value={cat}>

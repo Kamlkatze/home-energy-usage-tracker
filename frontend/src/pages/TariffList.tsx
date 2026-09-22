@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -9,6 +9,7 @@ import {
 } from '../components/ui/table';
 import { Dialog } from '../components/ui/dialog';
 import { tariffsApi, metersApi } from '../api/client';
+import { useFetch } from '../hooks/useFetch';
 import { Meter, TariffPeriod, TariffUsage } from '../types';
 import { Loader2, Pencil, Trash2, AlertTriangle } from 'lucide-react';
 import { TARIFF_KIND_LABELS, getTariffFields, getPriceUnitLabel } from '../lib/tariffFields';
@@ -27,10 +28,26 @@ interface FilterItem {
 }
 
 const TariffList: React.FC = () => {
-  const [tariffs, setTariffs] = useState<TariffPeriod[]>([]);
-  const [meters, setMeters] = useState<Meter[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // Bumping reloadKey re-triggers the useFetch effect to refetch after mutations.
+  const [reloadKey, setReloadKey] = useState(0);
+  const {
+    data,
+    loading,
+    error,
+  } = useFetch<{ tariffs: TariffPeriod[]; meters: Meter[] }>(async () => {
+    try {
+      const [tariffsData, metersData] = await Promise.all([
+        tariffsApi.getAll(),
+        metersApi.getAll(),
+      ]);
+      return { tariffs: tariffsData, meters: metersData };
+    } catch {
+      throw new Error('Fehler beim Laden der Tarife');
+    }
+  }, [reloadKey]);
+
+  const tariffs = data?.tariffs ?? [];
+  const meters = data?.meters ?? [];
   const [activeFilter, setActiveFilter] = useState<{
     meterType: string;
     tariffKind?: string;
@@ -50,28 +67,6 @@ const TariffList: React.FC = () => {
   const [usageLoading, setUsageLoading] = useState(false);
   const [usageError, setUsageError] = useState(false);
   const [deleting, setDeleting] = useState(false);
-
-  const fetchData = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const [tariffsData, metersData] = await Promise.all([
-        tariffsApi.getAll(),
-        metersApi.getAll(),
-      ]);
-      setTariffs(tariffsData);
-      setMeters(metersData);
-    } catch (err) {
-      setError('Fehler beim Laden der Tarife');
-      console.error('Error fetching tariffs:', err);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
 
   // Sort: by meter label, then valid_from descending
   const metersById = new Map(meters.map((m) => [m.id, m]));
@@ -166,7 +161,7 @@ const TariffList: React.FC = () => {
 
       await tariffsApi.update(editTariff.id, payload);
       setEditTariff(null);
-      await fetchData();
+      setReloadKey((k) => k + 1);
     } catch (err) {
       const detail = (err as { response?: { data?: { detail?: string } } })
         ?.response?.data?.detail;
@@ -198,7 +193,7 @@ const TariffList: React.FC = () => {
       setDeleting(true);
       await tariffsApi.delete(deleteTariff.id);
       setDeleteTariff(null);
-      await fetchData();
+      setReloadKey((k) => k + 1);
     } catch (err) {
       console.error('Error deleting tariff:', err);
       alert('Fehler beim Löschen des Tarifs');

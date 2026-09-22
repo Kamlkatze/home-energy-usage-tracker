@@ -25,8 +25,9 @@ A simple, local application for tracking electricity, gas, and water consumption
 - **uv** as package manager
 
 ### Frontend
-- **React 18** with TypeScript
+- **React 19** with TypeScript (upgraded from 18, Sept 2026)
 - **Vite 7** for build tooling (upgraded from 5, Sept 2026)
+- **Custom `useFetch` hook** (`src/hooks/useFetch.ts`) for all page data loading — React 19 lint-compliant (no setState-in-effect), see `frontend/README.md` section 11
 - **shadcn/ui** for UI components
 - **Recharts** for data visualization
 - **Tailwind CSS** for styling
@@ -875,12 +876,7 @@ cd frontend && npm run test
 cd frontend && npm run test:watch
 ```
 
-**Note on ESLint Status:** The September 2026 toolchain upgrade (Vite 5→7, Vitest 2→3, ESLint 8→9) enabled four new strict rules from `eslint-plugin-react-hooks@7.1.1`:
-- `react-hooks/set-state-in-effect` (7 errors)
-- `react-hooks/immutability` (6 errors)
-- `react-hooks/refs` (1 error)
-
-These errors block CI/CD and require refactoring React hooks patterns. See `frontend/README.md` section 9 for detailed status and affected pages. This will be addressed as part of the upcoming React 18→19 upgrade.
+**Note on ESLint Status:** The four strict rules from `eslint-plugin-react-hooks@7.1.1` that reported 18 errors after the September 2026 toolchain upgrade (`react-hooks/set-state-in-effect`, `react-hooks/immutability`, `react-hooks/refs`, `react-hooks/purity`) are **resolved** via the React 19 upgrade + `useFetch` migration (Sept 22, 2026): **0 errors, 50 warnings** (41 `no-explicit-any`, 8 `no-console`, 1 `react-refresh` – pre-existing, out of scope). `npm run lint` exits non-zero only because of the `--max-warnings 0` flag. Details: `frontend/README.md` section 11.
 
 ## Project Structure
 
@@ -1032,6 +1028,12 @@ If POST requests fail with `invalid input value for enum metertype: "ELECTRICITY
 If TypeScript errors appear during frontend build:
 - Ensure `frontend/src/vite-env.d.ts` exists with `/// <reference types="vite/client" />`
 - Check for missing dependencies: `cd frontend && npm install`
+
+If `docker compose build` (dev or prod) fails at `RUN npm ci` with `ERESOLVE could not resolve peer react@...`:
+- `npm ci` in the container runs with **strict** peer-dependency resolution — a package whose peer range excludes the installed React version breaks the build (e.g. `lucide-react@0.303` only allowed React ≤18)
+- Local `npm install --legacy-peer-deps` **masks** this error — after any React major upgrade, run `npm ci` in a scratch copy of `package.json` + `package-lock.json` before building containers
+- Fix: upgrade the offending dependency (lucide-react ≥1.x declares React 19 as peer), not by adding `--legacy-peer-deps` to the Dockerfile
+- Also check `package.json` and `package-lock.json` are in sync (`npm ci` refuses an out-of-sync lock)
 
 ## Backup & Restore
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -6,6 +6,7 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Select, SelectItem } from '../components/ui/select';
 import { tariffsApi, metersApi } from '../api/client';
+import { useFetch } from '../hooks/useFetch';
 import { meterTypeLabel, useMeterTypes } from '../hooks/useMeterTypes';
 import { Meter, TariffKind } from '../types';
 import { ArrowLeft, CheckCircle, Loader2 } from 'lucide-react';
@@ -13,9 +14,6 @@ import { getTariffFields, TARIFF_KIND_LABELS, TARIFF_KINDS } from '../lib/tariff
 
 const TariffForm: React.FC = () => {
   const navigate = useNavigate();
-  const [meters, setMeters] = useState<Meter[]>([]);
-  const [metersLoading, setMetersLoading] = useState(true);
-  const [metersError, setMetersError] = useState<string | null>(null);
   const meterTypes = useMeterTypes();
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -35,26 +33,24 @@ const TariffForm: React.FC = () => {
     comment: '',
   });
 
-  useEffect(() => {
-    fetchMeters();
-  }, []);
-
-  const fetchMeters = async () => {
+  const {
+    data: metersData,
+    loading: metersLoading,
+    error: metersError,
+  } = useFetch<Meter[]>(async () => {
     try {
-      setMetersLoading(true);
-      setMetersError(null);
-      const data = await metersApi.getAll();
-      setMeters(data);
-      if (data.length > 0 && !formData.meter_id) {
-        setFormData(prev => ({ ...prev, meter_id: data[0].id.toString() }));
-      }
-    } catch (err) {
-      console.error('Error fetching meters:', err);
-      setMetersError('Fehler beim Laden der Zähler');
-    } finally {
-      setMetersLoading(false);
+      return await metersApi.getAll();
+    } catch {
+      throw new Error('Fehler beim Laden der Zähler');
     }
-  };
+  }, []);
+  const meters = metersData ?? [];
+
+  // The first meter is preselected as soon as the list has loaded (and no
+  // other meter was picked by the user). Derived during render instead of
+  // set inside the fetch callback, to avoid a state update from the effect.
+  const effectiveMeterId =
+    formData.meter_id !== '' ? formData.meter_id : meters[0]?.id.toString() ?? '';
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -72,12 +68,12 @@ const TariffForm: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!formData.meter_id || !formData.valid_from || !formData.price_per_unit) {
+    if (!effectiveMeterId || !formData.valid_from || !formData.price_per_unit) {
       alert('Bitte alle Pflichtfelder ausfüllen');
       return;
     }
 
-    const selectedMeter = meters.find(m => m.id.toString() === formData.meter_id);
+    const selectedMeter = meters.find(m => m.id.toString() === effectiveMeterId);
     const fields = getTariffFields(formData.tariff_kind, selectedMeter?.meter_type, selectedMeter?.unit);
 
     const requiredFields = fields.filter(f => f.required);
@@ -90,7 +86,7 @@ const TariffForm: React.FC = () => {
     try {
       setLoading(true);
       const payload: Record<string, string | number> = {
-        meter_id: parseInt(formData.meter_id),
+        meter_id: parseInt(effectiveMeterId, 10),
         tariff_kind: formData.tariff_kind,
         valid_from: formData.valid_from,
         price_per_unit: formData.price_per_unit,
@@ -139,7 +135,7 @@ const TariffForm: React.FC = () => {
     }
   };
 
-  const selectedMeter = meters.find(m => m.id.toString() === formData.meter_id);
+  const selectedMeter = meters.find(m => m.id.toString() === effectiveMeterId);
   const fields = getTariffFields(
     formData.tariff_kind,
     selectedMeter?.meter_type,
@@ -193,7 +189,7 @@ const TariffForm: React.FC = () => {
                     <>
                       <Select
                         id="meter_id"
-                        value={formData.meter_id}
+                        value={effectiveMeterId}
                         onChange={handleMeterChange}
                       >
                         {meters.map((meter) => (
