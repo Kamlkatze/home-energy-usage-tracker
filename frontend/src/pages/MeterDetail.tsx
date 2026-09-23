@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { metersApi } from '../api/client';
+import { useFetch } from '../hooks/useFetch';
 import { meterTypeLabel, useMeterTypes } from '../hooks/useMeterTypes';
 import { Meter, Reading } from '../types';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
@@ -11,40 +12,29 @@ import { ArrowLeft } from 'lucide-react';
 
 const MeterDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
-  const [meter, setMeter] = useState<Meter | null>(null);
-  const [readings, setReadings] = useState<Reading[]>([]);
   const meterTypes = useMeterTypes();
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (id) {
-      const meterId = parseInt(id);
-      if (isNaN(meterId)) {
-        setError('Ungültige Zähler-ID');
-        setLoading(false);
-        return;
-      }
-      fetchData(meterId);
+  const {
+    data,
+    loading,
+    error,
+  } = useFetch<{ meterData: Meter; readingsData: Reading[] }>(async () => {
+    const meterId = id !== undefined ? parseInt(id, 10) : NaN;
+    if (isNaN(meterId)) {
+      throw new Error('Ungültige Zähler-ID');
+    }
+    try {
+      const meterData = await metersApi.getById(meterId);
+      const readingsData = await metersApi.getReadings(meterId);
+      return { meterData, readingsData };
+    } catch {
+      throw new Error('Fehler beim Laden der Zählerdaten. Bitte erneut versuchen.');
     }
   }, [id]);
 
-  const fetchData = async (meterId: number) => {
-    try {
-      setLoading(true);
-      const meterData = await metersApi.getById(meterId);
-      const readingsData = await metersApi.getReadings(meterId);
+  const meter = data?.meterData ?? null;
+  const readings = data?.readingsData ?? [];
 
-      setMeter(meterData);
-      setReadings(readingsData);
-      setError(null);
-    } catch (err) {
-      setError('Fehler beim Laden der Zählerdaten. Bitte erneut versuchen.');
-      console.error('Error fetching meter data:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const chartData = readings.map(reading => ({
     date: new Date(reading.reading_date).toLocaleDateString(),

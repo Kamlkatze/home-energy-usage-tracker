@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -6,6 +6,7 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Select, SelectItem } from '../components/ui/select';
 import { metersApi } from '../api/client';
+import { useFetch } from '../hooks/useFetch';
 import { useMeterTypes } from '../hooks/useMeterTypes';
 import { Meter, MeterType } from '../types';
 import { ArrowLeft, CheckCircle } from 'lucide-react';
@@ -13,7 +14,6 @@ import { ArrowLeft, CheckCircle } from 'lucide-react';
 const MeterForm: React.FC = () => {
   const navigate = useNavigate();
   const meterTypes = useMeterTypes();
-  const [allMeters, setAllMeters] = useState<Meter[]>([]);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [formData, setFormData] = useState({
@@ -23,24 +23,31 @@ const MeterForm: React.FC = () => {
     replaces_meter_id: '' as string, // empty string = keine Auswahl
   });
 
-  // Select the first meter type once the types have loaded
-  useEffect(() => {
-    if (meterTypes.length > 0) {
-      setFormData((prev) =>
-        prev.meter_type === ''
-          ? { ...prev, meter_type: meterTypes[0].value }
-          : prev
-      );
-    }
-  }, [meterTypes]);
-
   // Load all meters for the "Ersetzt Zähler" dropdown
-  useEffect(() => {
-    metersApi.getAll().then(setAllMeters).catch(() => {});
+  const { data: allMetersData } = useFetch<Meter[]>(async () => {
+    try {
+      return await metersApi.getAll();
+    } catch {
+      throw new Error('Fehler beim Laden der Zähler');
+    }
   }, []);
+  const allMeters = allMetersData ?? [];
+
+  // The first meter type is selected as soon as the types have loaded.
+  // Derived during render instead of the previous setState-in-effect, so
+  // no state update is triggered by an effect. (Explicit length check:
+  // indexing alone keeps TS from widening the type with ''.)
+  const firstType: MeterType | '' =
+    meterTypes.length > 0 ? meterTypes[0].value : '';
+  const effectiveMeterType: MeterType | '' =
+    formData.meter_type !== '' ? formData.meter_type : firstType;
+
+  // Computed up front: the equality checks below narrow effectiveMeterType
+  // away from '' (const closure narrowing), so this flag is derived here.
+  const hasMeterType = effectiveMeterType !== '';
 
   const selectedType = meterTypes.find(
-    (type) => type.value === formData.meter_type
+    (type) => type.value === effectiveMeterType
   );
 
   // Meters eligible as predecessors:
@@ -52,7 +59,7 @@ const MeterForm: React.FC = () => {
       .map((m) => m.replaces_meter_id as number)
   );
   const eligiblePredecessors = allMeters.filter(
-    (m) => m.meter_type === formData.meter_type && !replacedMeterIds.has(m.id)
+    (m) => m.meter_type === effectiveMeterType && !replacedMeterIds.has(m.id)
   );
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -75,7 +82,7 @@ const MeterForm: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!formData.meter_type || !formData.label.trim()) {
+    if (!hasMeterType || !formData.label.trim()) {
       alert('Bitte alle Pflichtfelder ausfüllen');
       return;
     }
@@ -84,7 +91,7 @@ const MeterForm: React.FC = () => {
       setLoading(true);
       // No "unit" field: the unit is derived server-side from meter_type
       const payload: Record<string, unknown> = {
-        meter_type: formData.meter_type,
+        meter_type: effectiveMeterType,
         label: formData.label.trim(),
         meter_number: formData.meter_number.trim() || null,
       };
@@ -171,7 +178,7 @@ const MeterForm: React.FC = () => {
                     <Label htmlFor="meter_type">Zählertyp *</Label>
                     <Select
                       id="meter_type"
-                      value={formData.meter_type}
+                      value={effectiveMeterType}
                       onChange={handleTypeChange}
                     >
                       {meterTypes.map((type) => (
@@ -217,7 +224,7 @@ const MeterForm: React.FC = () => {
                     Optional: der Vorgänger-Zähler, den dieser neue Zähler physisch ersetzt.
                     Die Verbrauchshistorie bleibt dann erhalten.
                   </p>
-                  {eligiblePredecessors.length === 0 && formData.meter_type !== '' && (
+                  {eligiblePredecessors.length === 0 && hasMeterType && (
                     <p className="text-sm text-muted-foreground italic">
                       Keine austauschbaren Zähler dieses Typs gefunden.
                     </p>

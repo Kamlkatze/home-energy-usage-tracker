@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -7,6 +7,7 @@ import { Label } from '../components/ui/label';
 import { Textarea } from '../components/ui/textarea';
 import { Checkbox } from '../components/ui/checkbox';
 import { readingsApi, metersApi } from '../api/client';
+import { useFetch } from '../hooks/useFetch';
 import { meterTypeLabel, useMeterTypes } from '../hooks/useMeterTypes';
 import { Meter, Reading } from '../types';
 import { ArrowLeft, CheckCircle, XCircle, Loader2 } from 'lucide-react';
@@ -27,6 +28,12 @@ interface SubmitResult {
   error?: string;
 }
 
+interface MetersLoadResult {
+  meters: Meter[];
+  baseEntries: Record<number, MeterEntry>;
+  lastReadings: Record<number, Reading | null>;
+}
+
 const formatDate = (dateStr: string): string => {
   const d = new Date(dateStr);
   return d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
@@ -34,35 +41,22 @@ const formatDate = (dateStr: string): string => {
 
 const AddReading: React.FC = () => {
   const navigate = useNavigate();
-  const [meters, setMeters] = useState<Meter[]>([]);
   const meterTypes = useMeterTypes();
   const [readingDate, setReadingDate] = useState(new Date().toISOString().split('T')[0]);
-  const [entries, setEntries] = useState<Record<number, MeterEntry>>({});
-  const [lastReadings, setLastReadings] = useState<Record<number, Reading | null>>({});
-  const [loadingMeters, setLoadingMeters] = useState(true);
+  // User edits on top of the base entries built when the meters loaded.
+  const [entryOverrides, setEntryOverrides] = useState<Record<number, Partial<MeterEntry>>>({});
   const [submitting, setSubmitting] = useState(false);
   const [results, setResults] = useState<SubmitResult[] | null>(null);
 
   const [showReplaced, setShowReplaced] = useState(false);
 
-  useEffect(() => {
-    fetchMeters();
-  }, []);
+  const {
+    data: metersLoad,
+    loading: loadingMeters,
+  } = useFetch<MetersLoadResult>(async () => {
 
-  const loadLastReading = useCallback(async (meterId: number) => {
     try {
-      const reading = await metersApi.getLastReading(meterId);
-      setLastReadings(prev => ({ ...prev, [meterId]: reading }));
-    } catch {
-      // silently ignore — last reading is optional info
-    }
-  }, []);
-
-  const fetchMeters = async () => {
-    try {
-      setLoadingMeters(true);
       const data = await metersApi.getAll();
-      setMeters(data);
 
       // Load localStorage: selectedIds = meters checked last time,
       // seenIds = all meter IDs that have ever been displayed on this page.
@@ -81,33 +75,52 @@ const AddReading: React.FC = () => {
         // ignore invalid localStorage data
       }
 
-      // Build entries:
+      // Build base entries:
       // - New meters (not in seenIds) default to checked
       // - Previously seen meters follow the saved selection
-      const initialEntries: Record<number, MeterEntry> = {};
+      const baseEntries: Record<number, MeterEntry> = {};
       data.forEach((meter: Meter) => {
         const isNew = !seenIds.includes(meter.id);
-        initialEntries[meter.id] = {
+        baseEntries[meter.id] = {
           checked: isNew || selectedIds.includes(meter.id),
           value: '',
           note: '',
         };
       });
-      setEntries(initialEntries);
 
       // Persist updated seenIds
       const currentIds = data.map((m: Meter) => m.id);
       const mergedSeen = Array.from(new Set([...seenIds, ...currentIds]));
       localStorage.setItem(LS_SEEN_KEY, JSON.stringify(mergedSeen));
 
-      // Fetch last reading for each meter
-      await Promise.all(data.map((meter: Meter) => loadLastReading(meter.id)));
+      // Fetch last reading for each meter (optional info, failures ignored)
+      const lastReadings: Record<number, Reading | null> = {};
+      await Promise.all(
+        data.map(async (meter: Meter) => {
+          try {
+            lastReadings[meter.id] = await metersApi.getLastReading(meter.id);
+          } catch {
+            // silently ignore — last reading is optional info
+          }
+        })
+      );
+
+      return { meters: data, baseEntries, lastReadings };
     } catch (err) {
-      console.error('Error fetching meters:', err);
-    } finally {
-      setLoadingMeters(false);
+      throw new Error(err instanceof Error ? err.message : 'Fehler beim Laden der Zähler');
     }
-  };
+  }, []);
+
+  const meters = metersLoad?.meters ?? [];
+  const baseEntries = metersLoad?.baseEntries ?? {};
+  const lastReadings = metersLoad?.lastReadings ?? {};
+
+  // Effective entries: base entries from the load + the user's edits.
+  const entries: Record<number, MeterEntry> = {};
+  for (const idStr of Object.keys(baseEntries)) {
+    const id = Number(idStr);
+    entries[id] = { ...baseEntries[id], ...(entryOverrides[id] ?? {}) };
+  }
 
   const persistSelection = (updatedEntries: Record<number, MeterEntry>) => {
     const selectedIds = Object.entries(updatedEntries)
@@ -117,22 +130,20 @@ const AddReading: React.FC = () => {
   };
 
   const handleCheckChange = (meterId: number, checked: boolean) => {
-    setEntries(prev => {
-      const updated = {
-        ...prev,
-        [meterId]: { ...prev[meterId], checked },
-      };
-      persistSelection(updated);
-      return updated;
-    });
+    const updated: Record<number, MeterEntry> = {
+      ...entries,
+      [meterId]: { ...entries[meterId], checked },
+    };
+    persistSelection(updated);
+    setEntryOverrides(prev => ({ ...prev, [meterId]: { ...prev[meterId], checked } }));
   };
 
   const handleValueChange = (meterId: number, value: string) => {
-    setEntries(prev => ({ ...prev, [meterId]: { ...prev[meterId], value } }));
+    setEntryOverrides(prev => ({ ...prev, [meterId]: { ...prev[meterId], value } }));
   };
 
   const handleNoteChange = (meterId: number, note: string) => {
-    setEntries(prev => ({ ...prev, [meterId]: { ...prev[meterId], note } }));
+    setEntryOverrides(prev => ({ ...prev, [meterId]: { ...prev[meterId], note } }));
   };
 
   const hasValidEntries = Object.values(entries).some(
@@ -205,10 +216,11 @@ const AddReading: React.FC = () => {
               <div className="flex justify-center gap-4">
                 <Button onClick={() => {
                   setResults(null);
-                  setEntries(prev => {
-                    const reset = Object.fromEntries(
-                      Object.entries(prev).map(([id, entry]) => [id, { ...entry, value: '', note: '' }])
-                    );
+                  setEntryOverrides(prev => {
+                    const reset: Record<number, Partial<MeterEntry>> = {};
+                    for (const [idStr, override] of Object.entries(prev)) {
+                      reset[Number(idStr)] = { ...override, value: '', note: '' };
+                    }
                     return reset;
                   });
                   setReadingDate(new Date().toISOString().split('T')[0]);

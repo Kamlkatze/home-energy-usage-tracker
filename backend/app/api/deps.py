@@ -8,5 +8,5 @@ from ..database import get_db
 
 def get_database_session(
     db: Session = Depends(get_db)
-) -> Generator[Session, None, None]:
+) -> Generator[Session]:
     yield db

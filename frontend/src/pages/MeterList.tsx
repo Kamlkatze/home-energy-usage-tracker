@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { metersApi } from '../api/client';
+import { useFetch } from '../hooks/useFetch';
 import { meterTypeLabel, useMeterTypes } from '../hooks/useMeterTypes';
 import { Meter } from '../types';
 import { Dialog } from '../components/ui/dialog';
@@ -10,10 +11,22 @@ import { Pencil, Trash2, Loader2, AlertTriangle } from 'lucide-react';
 import EditMeterModal from '../components/EditMeterModal';
 
 const MeterList: React.FC = () => {
-  const [meters, setMeters] = useState<Meter[]>([]);
+  // Bumping reloadKey re-triggers the useFetch effect to refetch after mutations.
+  const [reloadKey, setReloadKey] = useState(0);
+  const {
+    data,
+    loading,
+    error,
+  } = useFetch<Meter[]>(async () => {
+    try {
+      return await metersApi.getAll();
+    } catch {
+      throw new Error('Fehler beim Laden der Zähler. Bitte erneut versuchen.');
+    }
+  }, [reloadKey]);
+
+  const meters = data ?? [];
   const meterTypes = useMeterTypes();
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   // Edit modal state
   const [editMeter, setEditMeter] = useState<Meter | null>(null);
@@ -22,31 +35,13 @@ const MeterList: React.FC = () => {
   const [deleteMeter, setDeleteMeter] = useState<Meter | null>(null);
   const [deleting, setDeleting] = useState(false);
 
-  useEffect(() => {
-    fetchMeters();
-  }, []);
-
-  const fetchMeters = async () => {
-    try {
-      setLoading(true);
-      const data = await metersApi.getAll();
-      setMeters(data);
-      setError(null);
-    } catch (err) {
-      setError('Fehler beim Laden der Zähler. Bitte erneut versuchen.');
-      console.error('Error fetching meters:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleDeleteConfirm = async () => {
     if (!deleteMeter) return;
     try {
       setDeleting(true);
       await metersApi.delete(deleteMeter.id);
       setDeleteMeter(null);
-      await fetchMeters();
+      setReloadKey((k) => k + 1);
     } catch (err) {
       console.error('Error deleting meter:', err);
       alert('Fehler beim Löschen des Zählers. Bitte erneut versuchen.');
@@ -162,7 +157,7 @@ const MeterList: React.FC = () => {
         meter={editMeter}
         allMeters={meters}
         onClose={() => setEditMeter(null)}
-        onSaved={() => { setEditMeter(null); fetchMeters(); }}
+        onSaved={() => { setEditMeter(null); setReloadKey((k) => k + 1); }}
       />
 
       {/* Delete confirmation dialog */}
