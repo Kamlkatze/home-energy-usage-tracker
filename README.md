@@ -17,7 +17,7 @@ A simple, local application for tracking electricity, gas, and water consumption
 ## Tech Stack
 
 ### Backend
-- **Python 3.11** with FastAPI
+- **Python 3.13** with FastAPI
 - **SQLAlchemy 2.0** with mapped_column syntax
 - **PostgreSQL 16** database
 - **Pydantic v2** for data validation
@@ -44,7 +44,7 @@ A simple, local application for tracking electricity, gas, and water consumption
 
 ### Prerequisites
 - Docker and Docker Compose
-- (Optional) Node.js 18+ and Python 3.11+ for local development
+- (Optional) Node.js 18+ and Python 3.13 for local development (uv provisions a managed CPython automatically if none is installed)
 
 ### Quick Start with Docker
 

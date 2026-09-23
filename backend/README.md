@@ -4,6 +4,11 @@ FastAPI backend for tracking home energy usage.
 
 ## Installation
 
+Requires Python 3.13 (`requires-python = ">=3.13,<3.14"` in `pyproject.toml`);
+uv provisions a managed CPython automatically if none is installed. All
+dependencies are pinned with lower and upper bounds (`>=MIN,<NEXT_MAJOR`) and
+locked in `uv.lock` — run `uv lock --upgrade` to re-resolve deliberately.
+
 **With uv:**
 ```bash
 uv sync --extra dev  # Includes development dependencies (pytest, ruff, mypy)
