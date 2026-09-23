@@ -6,18 +6,18 @@ build-backend = "hatchling.build"
 name = "home-energy-tracker"
 version = "0.1.0"
 description = "Home Energy Usage Tracker API"
-requires-python = ">=3.11"
+requires-python = ">=3.13,<3.14"
 dependencies = [
-    "fastapi>=0.104.0",
-    "uvicorn[standard]>=0.24.0",
-    "sqlalchemy>=2.0.0",
-    "alembic>=1.13.0",
-    "psycopg2-binary>=2.9.0",
-    "pydantic>=2.5.0",
-    "pydantic-settings>=2.1.0",
-    "python-dotenv>=1.0.0",
-    "python-multipart>=0.0.6",
-    "asyncpg>=0.30.0",
+    "fastapi>=0.115,<1.0",
+    "uvicorn[standard]>=0.30,<1.0",
+    "sqlalchemy>=2.0,<2.1",
+    "alembic>=1.13,<2.0",
+    "psycopg2-binary>=2.9.0,<3.0",
+    "pydantic>=2.9,<3.0",
+    "pydantic-settings>=2.1.0,<3.0",
+    "python-dotenv>=1.0.0,<2.0",
+    "python-multipart>=0.0.6,<1.0.0",
+    "asyncpg>=0.30.0,<1.0",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -34,21 +34,21 @@ features = ["test"]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=7.4.0",
-    "pytest-asyncio>=0.21.0",
-    "httpx>=0.25.0",
-    "ruff>=0.1.0",
-    "mypy>=1.7.0",
-    "eralchemy2>=1.4.1",
+    "pytest>=8.3,<10.0",
+    "pytest-asyncio>=0.21.0,<2.0",
+    "httpx>=0.25.0,<1.0",
+    "ruff>=0.1.0,<1.0",
+    "mypy>=1.7.0,<3.0",
+    "eralchemy2>=1.4.1,<2.0",
 ]
 test = [
-    "pytest>=7.4.0",
-    "pytest-asyncio>=0.21.0",
-    "httpx>=0.25.0",
+    "pytest>=8.3,<10.0",
+    "pytest-asyncio>=0.21.0,<2.0",
+    "httpx>=0.25.0,<1.0",
 ]
 
 [tool.ruff]
-target-version = "py311"
+target-version = "py313"
 line-length = 88
 
 [tool.ruff.lint]
@@ -61,7 +61,7 @@ ignore = ["E501"]
 "app/api/*.py" = ["B008"]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.13"
 ignore_missing_imports = true
 warn_return_any = true
 warn_unused_configs = true
