@@ -1688,6 +1688,7 @@ def get_years_overview(
 def get_consumption_timeseries(
     from_: date = Query(..., alias="from"),
     to: date = Query(...),
+    meter_type: models.MeterType | None = Query(default=None),
     db: Session = Depends(get_database_session),
 ):
     """Return a time series of actual readings for every logical meter.
@@ -1695,6 +1696,9 @@ def get_consumption_timeseries(
     Each reading is enriched with consumption and cost since the
     chronologically previous reading (which may lie outside the requested
     range or in a predecessor meter of the replacement chain).
+
+    When ``meter_type`` is given, only logical meters of that type are
+    returned; otherwise all types are returned (previous behaviour).
     """
     _raise_if_from_after_to(from_, to)
 
@@ -1712,6 +1716,11 @@ def get_consumption_timeseries(
         .order_by(models.Meter.id.asc())
         .all()
     )
+
+    if meter_type is not None:
+        logical_meters = [
+            meter for meter in logical_meters if meter.meter_type == meter_type
+        ]
 
     results: list[schemas.ConsumptionTimeseriesItem] = []
     for meter in logical_meters:

@@ -55,10 +55,13 @@ def _create_tariff(client, meter_id, valid_from, valid_to, price_per_unit,
     assert response.status_code == 200, response.text
 
 
-def _get_timeseries(client, from_, to):
+def _get_timeseries(client, from_, to, meter_type=None):
+    params = {"from": from_, "to": to}
+    if meter_type is not None:
+        params["meter_type"] = meter_type
     return client.get(
         "/api/costs/consumption-timeseries",
-        params={"from": from_, "to": to},
+        params=params,
     )
 
 
@@ -290,3 +293,82 @@ def test_empty_database(client):
     response = _get_timeseries(client, "2024-01-01", "2024-12-31")
     assert response.status_code == 200
     assert response.json() == []
+
+
+def test_no_meter_type_filter_returns_all(client):
+    """Without `meter_type`, meters of all types are returned (previous
+    behaviour)."""
+    gas_id = _create_meter(client, meter_type="gas", label="Gas")
+    water_id = _create_meter(client, meter_type="water_cold", label="Wasser")
+    elec_id = _create_meter(client, meter_type="electricity_import", label="Strom")
+    for mid in (gas_id, water_id, elec_id):
+        _create_reading(client, mid, "100.000", "2024-06-01")
+
+    response = _get_timeseries(client, "2024-01-01", "2024-12-31")
+    assert response.status_code == 200
+    data = response.json()
+    assert {entry["meter_id"] for entry in data} == {gas_id, water_id, elec_id}
+
+
+def test_meter_type_filter_gas(client):
+    """Filtering by `meter_type=gas` returns only gas meters."""
+    gas_id = _create_meter(client, meter_type="gas", label="Gas")
+    elec_id = _create_meter(client, meter_type="electricity_import", label="Strom")
+    for mid in (gas_id, elec_id):
+        _create_reading(client, mid, "100.000", "2024-06-01")
+
+    response = _get_timeseries(client, "2024-01-01", "2024-12-31",
+                               meter_type="gas")
+    assert response.status_code == 200
+    data = response.json()
+    assert {entry["meter_id"] for entry in data} == {gas_id}
+
+
+def test_meter_type_filter_water(client):
+    """Filtering by `meter_type=water_cold` returns only water meters."""
+    water_id = _create_meter(client, meter_type="water_cold", label="Wasser")
+    garden_id = _create_meter(client, meter_type="water_garden", label="Garten")
+    for mid in (water_id, garden_id):
+        _create_reading(client, mid, "100.000", "2024-06-01")
+
+    response = _get_timeseries(client, "2024-01-01", "2024-12-31",
+                               meter_type="water_cold")
+    assert response.status_code == 200
+    data = response.json()
+    assert {entry["meter_id"] for entry in data} == {water_id}
+
+
+def test_meter_type_filter_electricity(client):
+    """Filtering by `meter_type=electricity_import` returns only electricity
+    import meters."""
+    elec_id = _create_meter(client, meter_type="electricity_import", label="Strom")
+    export_id = _create_meter(client, meter_type="electricity_export", label="Einspeisung")
+    for mid in (elec_id, export_id):
+        _create_reading(client, mid, "100.000", "2024-06-01")
+
+    response = _get_timeseries(client, "2024-01-01", "2024-12-31",
+                               meter_type="electricity_import")
+    assert response.status_code == 200
+    data = response.json()
+    assert {entry["meter_id"] for entry in data} == {elec_id}
+
+
+def test_meter_type_filter_no_match_returns_empty(client):
+    """Filtering by a valid type with no matching meters → empty list."""
+    elec_id = _create_meter(client, meter_type="electricity_import", label="Strom")
+    _create_reading(client, elec_id, "100.000", "2024-06-01")
+
+    response = _get_timeseries(client, "2024-01-01", "2024-12-31",
+                               meter_type="gas")
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_invalid_meter_type_422(client):
+    """Invalid `meter_type` value → 422 validation error."""
+    meter_id = _create_meter(client)
+    _create_reading(client, meter_id, "1000.000", "2024-01-01")
+
+    response = _get_timeseries(client, "2024-01-01", "2024-12-31",
+                               meter_type="invalid_type")
+    assert response.status_code == 422
