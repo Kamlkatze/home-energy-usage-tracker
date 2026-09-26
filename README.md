@@ -625,7 +625,7 @@ The 30 % threshold is a fixed statutory value from EEG 2009 § 33 Abs. 2, not co
 ]
 ```
 
-- `GET /api/costs/consumption-timeseries?from={date}&to={date}` - Return a time series of actual readings (not calendar-aggregated) for every logical meter. Each reading is enriched with consumption and cost since the chronologically previous reading (which may lie outside the requested range or in a predecessor meter of the replacement chain). Returns **200** always; **422** when `from > to`.
+- `GET /api/costs/consumption-timeseries?from={date}&to={date}&meter_type={type}` - Return a time series of actual readings (not calendar-aggregated) for every logical meter. Each reading is enriched with consumption and cost since the chronologically previous reading (which may lie outside the requested range or in a predecessor meter of the replacement chain). The optional `meter_type` query parameter (one of the values from the `GET /api/meters/types` endpoint, e.g. `electricity_import`, `water_cold`, `gas`) restricts the result to logical meters of that type; when omitted, all types are returned (previous behaviour). Returns **200** always; **422** when `from > to` or `meter_type` is not a valid type.
 
 **Chain resolution:** Same logical meter identification as `/api/costs/years-overview` — only meters NOT referenced by any other meter's `replaces_meter_id` are top-level entries. Predecessor readings count toward the logical meter's history.
 
