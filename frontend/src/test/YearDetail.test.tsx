@@ -118,6 +118,7 @@ const EEG: FeedInCompensation = {
   to_date: '2024-12-31', production_consumption: '4500.000',
   export_consumption: '2800.000', self_consumption: '1700.000',
   tier1_kwh: '1350.000', tier2_kwh: '350.000', total_compensation: '987.65',
+  gross_compensation: '995.87', metering_point_fee_deducted: '8.22',
 };
 
 const WASTEWATER: WastewaterCosts = {
@@ -244,9 +245,10 @@ describe('YearDetail', () => {
         within(card).getByText('Tier 1: 1350.0 • Tier 2: 350 kWh'),
       ).toBeInTheDocument();
       expect(within(card).getByText('987.65 €')).toBeInTheDocument();  // total compensation
-
-      // Messstellenbetrieb / metering fee is intentionally not surfaced here.
-      expect(screen.queryByText(/Messstellenbetrieb/i)).not.toBeInTheDocument();
+      expect(within(card).getByText('Vergütung (brutto): 995.87 €')).toBeInTheDocument();  // gross
+      expect(
+        within(card).getByText('abzüglich Messstellenbetrieb: −8.22 €'),  // metering fee deduction
+      ).toBeInTheDocument();
     });
   });
 

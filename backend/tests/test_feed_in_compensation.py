@@ -8,10 +8,9 @@ EEG 2009 § 33 Abs. 2 formula (see Anforderungen.md):
   S = max(0, P - E)  (self-consumption)
   tier1_kwh = min(S, 0.3 * P)
   tier2_kwh = max(0, S - 0.3 * P)
-  Total = P * price_per_unit
-          - tier1_kwh * eeg_tier1_rate
-          - tier2_kwh * eeg_tier2_rate
-          - days * metering_point_fee_yearly / 365
+  gross_compensation = P * price_per_unit - tier1_kwh * eeg_tier1_rate - tier2_kwh * eeg_tier2_rate
+  metering_point_fee_deducted = days * metering_point_fee_yearly / 365
+  Total = gross_compensation - metering_point_fee_deducted
 """
 from decimal import Decimal
 
@@ -104,6 +103,12 @@ def test_feed_in_compensation_self_consumption_under_30_percent(client):
     assert Decimal(data["tier1_kwh"]) == Decimal("200.000")
     assert Decimal(data["tier2_kwh"]) == Decimal("0.000")
     assert Decimal(data["total_compensation"]) == Decimal("206.08")
+    assert Decimal(data["gross_compensation"]) == Decimal("214.30")
+    assert Decimal(data["metering_point_fee_deducted"]) == Decimal("8.22")
+    assert (
+        Decimal(data["total_compensation"])
+        == Decimal(data["gross_compensation"]) - Decimal(data["metering_point_fee_deducted"])
+    )
 
 
 def test_feed_in_compensation_self_consumption_over_30_percent(client):
@@ -140,6 +145,12 @@ def test_feed_in_compensation_self_consumption_over_30_percent(client):
     assert Decimal(data["tier1_kwh"]) == Decimal("300.000")
     assert Decimal(data["tier2_kwh"]) == Decimal("300.000")
     assert Decimal(data["total_compensation"]) == Decimal("161.08")
+    assert Decimal(data["gross_compensation"]) == Decimal("169.30")
+    assert Decimal(data["metering_point_fee_deducted"]) == Decimal("8.22")
+    assert (
+        Decimal(data["total_compensation"])
+        == Decimal(data["gross_compensation"]) - Decimal(data["metering_point_fee_deducted"])
+    )
 
 
 def test_feed_in_compensation_self_consumption_exactly_30_percent(client):
@@ -172,6 +183,13 @@ def test_feed_in_compensation_self_consumption_exactly_30_percent(client):
     assert Decimal(data["self_consumption"]) == Decimal("300.000")
     assert Decimal(data["tier1_kwh"]) == Decimal("300.000")
     assert Decimal(data["tier2_kwh"]) == Decimal("0.000")
+    assert Decimal(data["total_compensation"]) == Decimal("191.08")
+    assert Decimal(data["gross_compensation"]) == Decimal("199.30")
+    assert Decimal(data["metering_point_fee_deducted"]) == Decimal("8.22")
+    assert (
+        Decimal(data["total_compensation"])
+        == Decimal(data["gross_compensation"]) - Decimal(data["metering_point_fee_deducted"])
+    )
 
 
 def test_feed_in_compensation_no_tariff_returns_404(client):
@@ -260,7 +278,14 @@ def test_feed_in_compensation_with_import_meter_id(client):
         import_meter_id=imp_id,
     )
     assert response.status_code == 200
-    assert Decimal(response.json()["total_compensation"]) == Decimal("206.08")
+    data = response.json()
+    assert Decimal(data["total_compensation"]) == Decimal("206.08")
+    assert Decimal(data["gross_compensation"]) == Decimal("214.30")
+    assert Decimal(data["metering_point_fee_deducted"]) == Decimal("8.22")
+    assert (
+        Decimal(data["total_compensation"])
+        == Decimal(data["gross_compensation"]) - Decimal(data["metering_point_fee_deducted"])
+    )
 
 
 def test_feed_in_compensation_query_parameter_alias(client):

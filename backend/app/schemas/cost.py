@@ -57,6 +57,8 @@ class FeedInCompensationResponse(BaseModel):
     tier1_kwh: Decimal
     tier2_kwh: Decimal
     total_compensation: Decimal
+    gross_compensation: Decimal
+    metering_point_fee_deducted: Decimal
 
 
 class FeedInCompensationProjectionResponse(BaseModel):

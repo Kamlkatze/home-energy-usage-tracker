@@ -69,6 +69,12 @@ const ElectricitySection: React.FC<ElectricitySectionProps> = ({
               <div className="bg-muted rounded p-2">
                 <p className="text-[10px] text-muted-foreground">Vergütung</p>
                 <p className="text-sm font-semibold">{formatEuro(eegData.total_compensation)}</p>
+                {eegData.gross_compensation != null && eegData.metering_point_fee_deducted != null && (
+                  <div className="text-[10px] text-muted-foreground mt-0.5">
+                    <p>Vergütung (brutto): {formatEuro(eegData.gross_compensation)}</p>
+                    <p>abzüglich Messstellenbetrieb: −{formatEuro(eegData.metering_point_fee_deducted)}</p>
+                  </div>
+                )}
               </div>
             </div>
           </div>

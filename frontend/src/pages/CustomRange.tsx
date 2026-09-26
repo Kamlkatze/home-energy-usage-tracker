@@ -305,36 +305,44 @@ const CustomRange: React.FC = () => {
                   <div className="text-xs text-destructive">{eegError}</div>
                 )}
                 {eeg && (
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                    <div className="bg-muted rounded p-2">
-                      <p className="text-[10px] text-muted-foreground">Erzeugung (P)</p>
-                      <p className="text-sm font-semibold">
-                        {parseFloat(eeg.production_consumption).toFixed(0)} kWh
-                      </p>
+                  <>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      <div className="bg-muted rounded p-2">
+                        <p className="text-[10px] text-muted-foreground">Erzeugung (P)</p>
+                        <p className="text-sm font-semibold">
+                          {parseFloat(eeg.production_consumption).toFixed(0)} kWh
+                        </p>
+                      </div>
+                      <div className="bg-muted rounded p-2">
+                        <p className="text-[10px] text-muted-foreground">Einspeisung (E)</p>
+                        <p className="text-sm font-semibold">
+                          {parseFloat(eeg.export_consumption).toFixed(0)} kWh
+                        </p>
+                      </div>
+                      <div className="bg-muted rounded p-2">
+                        <p className="text-[10px] text-muted-foreground">Eigenverbrauch</p>
+                        <p className="text-sm font-semibold">
+                          {parseFloat(eeg.self_consumption).toFixed(0)} kWh
+                        </p>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">
+                          Tier 1: {parseFloat(eeg.tier1_kwh).toFixed(1)} &bull; Tier 2:{' '}
+                          {parseFloat(eeg.tier2_kwh).toFixed(0)} kWh
+                        </p>
+                      </div>
+                      <div className="bg-muted rounded p-2">
+                        <p className="text-[10px] text-muted-foreground">Vergütung</p>
+                        <p className="text-sm font-semibold">
+                          {formatEuro(eeg.total_compensation)}
+                        </p>
+                        {eeg.gross_compensation != null && eeg.metering_point_fee_deducted != null && (
+                          <div className="text-[10px] text-muted-foreground mt-0.5">
+                            <p>Vergütung (brutto): {formatEuro(eeg.gross_compensation)}</p>
+                            <p>abzüglich Messstellenbetrieb: −{formatEuro(eeg.metering_point_fee_deducted)}</p>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                    <div className="bg-muted rounded p-2">
-                      <p className="text-[10px] text-muted-foreground">Einspeisung (E)</p>
-                      <p className="text-sm font-semibold">
-                        {parseFloat(eeg.export_consumption).toFixed(0)} kWh
-                      </p>
-                    </div>
-                    <div className="bg-muted rounded p-2">
-                      <p className="text-[10px] text-muted-foreground">Eigenverbrauch</p>
-                      <p className="text-sm font-semibold">
-                        {parseFloat(eeg.self_consumption).toFixed(0)} kWh
-                      </p>
-                      <p className="text-[10px] text-muted-foreground mt-0.5">
-                        Tier 1: {parseFloat(eeg.tier1_kwh).toFixed(1)} &bull; Tier 2:{' '}
-                        {parseFloat(eeg.tier2_kwh).toFixed(0)} kWh
-                      </p>
-                    </div>
-                    <div className="bg-muted rounded p-2">
-                      <p className="text-[10px] text-muted-foreground">Vergütung</p>
-                      <p className="text-sm font-semibold">
-                        {formatEuro(eeg.total_compensation)}
-                      </p>
-                    </div>
-                  </div>
+                  </>
                 )}
               </CardContent>
             </Card>

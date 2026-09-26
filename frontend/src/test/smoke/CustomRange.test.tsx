@@ -48,6 +48,8 @@ describe('CustomRange page', () => {
       tier1_kwh: '270.000',
       tier2_kwh: '330.000',
       total_compensation: '50.25',
+      gross_compensation: '54.50',
+      metering_point_fee_deducted: '4.25',
     });
 
     renderWithProviders(<CustomRange />);
@@ -64,5 +66,7 @@ describe('CustomRange page', () => {
     ).toHaveLength(2);
     expect(screen.getByText('EEG-Einspeiseverg\u00fctung (EEG 2009)')).toBeInTheDocument();
     expect(await screen.findByText('50.25 \u20AC')).toBeInTheDocument();
+    expect(screen.getByText('Verg\u00fctung (brutto): 54.50 \u20AC')).toBeInTheDocument();
+    expect(screen.getByText('abz\u00fcglich Messstellenbetrieb: \u22124.25 \u20AC')).toBeInTheDocument();
   });
 });

@@ -184,11 +184,24 @@ def calculate_feed_in_compensation(
         else Decimal(0)
     )
 
-    # Total compensation:
+    # Gross compensation (before the metering point fee deduction):
     #   P × price_per_unit (full production paid at feed-in rate)
     #   − tier1_kwh × eeg_tier1_rate (repayment for tier-1 self-consumption)
     #   − tier2_kwh × eeg_tier2_rate (repayment for tier-2 self-consumption)
-    #   − days × metering_point_fee_yearly / 365 (prorated annual fee)
+    gross_compensation = (
+        P * tariff.price_per_unit
+        - tier1_kwh * tier1_rate
+        - tier2_kwh * tier2_rate
+    ).quantize(_CENT, rounding=ROUND_HALF_UP)
+
+    # Metering point fee, prorated for the period (annual fee × days / 365).
+    metering_point_fee_deducted = (
+        days * metering_point_fee / Decimal(365)
+    ).quantize(_CENT, rounding=ROUND_HALF_UP)
+
+    # Total compensation:
+    #   gross_compensation (before the fee deduction)
+    #   − metering_point_fee_deducted (prorated annual fee)
     total_raw = (
         P * tariff.price_per_unit
         - tier1_kwh * tier1_rate
@@ -209,6 +222,8 @@ def calculate_feed_in_compensation(
         tier1_kwh=tier1_kwh,
         tier2_kwh=tier2_kwh,
         total_compensation=total_compensation,
+        gross_compensation=gross_compensation,
+        metering_point_fee_deducted=metering_point_fee_deducted,
     )
 
 

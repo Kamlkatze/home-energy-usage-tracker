@@ -127,6 +127,8 @@ export interface FeedInCompensation {
   tier1_kwh: string;
   tier2_kwh: string;
   total_compensation: string;
+  gross_compensation: string;
+  metering_point_fee_deducted: string;
 }
 
 export interface FeedInCompensationProjection {

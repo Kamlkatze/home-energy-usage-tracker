@@ -7,7 +7,7 @@ A simple, local application for tracking electricity, gas, and water consumption
 - **Track multiple meters**: Gas, cold/garden water (m³), electricity import/export/production (kWh) — the unit is derived automatically from the meter type
 - **Record readings**: Simple form to add meter readings with dates and optional notes; edit or delete existing readings directly in the year detail tables via inline dialog. By default only current meters are shown — replaced meters can be displayed via an "Alte Zähler anzeigen" toggle.
 - **Visualize consumption**: Separate line charts per energy type (Strom, Wasser, Gas) on the years-overview page, plus per-meter charts on the year detail page showing usage trends over time, with toggle between absolute meter readings and cumulative consumption since Jan 1 (starts at 0, even-number axis bounds)
-- **Custom time-range analysis**: The `/custom-range` page ("Zeitraum" in the main nav, directly after "Jahresübersicht") lets you pick any from/to date (default: current year) and filter by energy type (Strom/Wasser/Gas). Each active area shows a combined multi-line chart and real readings in per-meter tables side-by-side, with consumption and value between readings (no projections), fetched via `GET /api/costs/consumption-timeseries`. The value column is labelled "Vergütung" for Einspeisung/Erzeugung and "Kosten" otherwise. When production + export meters exist, a summary card additionally shows the **EEG-2009-Einspeisevergütung** for the selected period (reusing `GET /api/electricity/feed-in-compensation` with the `feed_in_eeg2009` tariff).
+- **Custom time-range analysis**: The `/custom-range` page ("Zeitraum" in the main nav, directly after "Jahresübersicht") lets you pick any from/to date (default: current year) and filter by energy type (Strom/Wasser/Gas). Each active area shows a combined multi-line chart and real readings in per-meter tables side-by-side, with consumption and value between readings (no projections), fetched via `GET /api/costs/consumption-timeseries`. The value column is labelled "Vergütung" for Einspeisung/Erzeugung and "Kosten" otherwise. When production + export meters exist, a summary card additionally shows the **EEG-2009-Einspeisevergütung** for the selected period (reusing `GET /api/electricity/feed-in-compensation` with the `feed_in_eeg2009` tariff), broken down into gross compensation and the deducted metering point fee.
 - **Tariff management**: Track price per unit and base fees for different periods, with optional comment field for provider name and category filter buttons (Strom Bezug/Gas/Wasser) in the list view
 - **Advance payment management**: Track monthly Abschläge per meter with category (gas, cold water, wastewater, power import), time-range validity, overlap protection, optional comment field, and an "Alle" button showing all categories at once in the list view
 - **Meter replacement chain**: When a physical meter is swapped, link the new meter to its predecessor via `replaces_meter_id`. Cost calculations automatically follow the chain, summing each meter's contribution — no negative consumption from a counter reset on the new device. The edit dialog only proposes same-type meters as predecessors and excludes the meter being edited itself (a meter can never be its own predecessor), while keeping an already-selected predecessor selectable. Meter types are editable via forms but changing a meter with existing readings is rejected by the API.
@@ -435,7 +435,9 @@ Each advance payment carries a `category` (`gas`, `cold_water`, `wastewater`, `p
   S = max(0, P − E) (self-consumption)
   tier1_kwh = min(S, 0.3 × P)
   tier2_kwh = max(0, S − 0.3 × P)
-  Total = P × price_per_unit − tier1_kwh × eeg_tier1_rate − tier2_kwh × eeg_tier2_rate − days × metering_point_fee_yearly / 365
+  gross_compensation = P × price_per_unit − tier1_kwh × eeg_tier1_rate − tier2_kwh × eeg_tier2_rate
+  metering_point_fee_deducted = days × metering_point_fee_yearly / 365
+  Total = gross_compensation − metering_point_fee_deducted
 
 The 30 % threshold is a fixed statutory value from EEG 2009 § 33 Abs. 2, not configurable. The tariff is attached to the **export meter** (`tariff_kind=feed_in_eeg2009`). Returns **404** when a meter does not exist, has no readings in the range, or no active EEG 2009 feed-in tariff is found. Returns **422** when `from > to` or consumption is negative.
 
@@ -453,7 +455,9 @@ The 30 % threshold is a fixed statutory value from EEG 2009 § 33 Abs. 2, not co
   "self_consumption": "1700.000",
   "tier1_kwh": "1350.000",
   "tier2_kwh": "350.000",
-  "total_compensation": "987.65"
+  "total_compensation": "987.65",
+  "gross_compensation": "995.87",
+  "metering_point_fee_deducted": "8.22"
 }
 ```
 
