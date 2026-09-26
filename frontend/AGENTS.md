@@ -25,6 +25,25 @@ Applies to everything under `frontend/`, **in addition to** the root `AGENTS.md`
 - Refetch after mutations: bump a `reloadKey` state passed in deps
 - Details in `frontend/README.md` section 11
 
+## Sortable / searchable tables
+
+- Reuse the shared building blocks instead of reimplementing per page:
+  `hooks/useColumnSort.ts` (`useColumnSort` + pure `sortRows`) and
+  `components/SortableHeader.tsx` / `components/TableSearch.tsx` (used by `TariffList`
+  and `AdvancePaymentList`).
+- `SortableHeader` renders a real `<button type="button">` (a11y rule: no clickable
+  `<th>` without a button); pass the active sort via `sort={{ key, dir }}` and add an
+  arrow icon (`ArrowUp`/`ArrowDown` when active, dimmed `ArrowUpDown` otherwise).
+- `getValue(row, key)` must return `string | number | null` (dates as `YYYY-MM-DD`
+  string, amounts via `parseFloat`) so `sortRows` compares never-mixed types; `null`
+  sorts last.
+- Default sort convention (user-facing): **newest / currently valid first** —
+  `valid_from` descending. UIs that display validity periods show them as **two
+  separate columns** ("Gültig von" / "Gültig bis"), each independently sortable, and
+  keep the meter column leftmost. Example: both `/tariffs` and `/advance-payments`.
+- Free-text search matches the human-readable fields (meter label/number, comment,
+  category/kind label), lowercased, via `haystack.includes(query)`.
+
 ## Charts (Recharts 2.15)
 
 - A separate `<Line data={projectionData}>` only creates tooltip hit targets at points of the

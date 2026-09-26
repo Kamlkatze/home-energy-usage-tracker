@@ -10,10 +10,13 @@ import {
 import { Dialog } from '../components/ui/dialog';
 import { tariffsApi, metersApi } from '../api/client';
 import { useFetch } from '../hooks/useFetch';
+import { sortRows, type ColumnSort } from '../hooks/useColumnSort';
 import { Meter, TariffPeriod, TariffUsage } from '../types';
 import { Loader2, Pencil, Trash2, AlertTriangle } from 'lucide-react';
 import { TARIFF_KIND_LABELS, getTariffFields, getPriceUnitLabel } from '../lib/tariffFields';
 import { useMeterTypes, meterTypeLabel } from '../hooks/useMeterTypes';
+import { SortableHeader } from '../components/SortableHeader';
+import { TableSearch } from '../components/TableSearch';
 
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return 'offen';
@@ -53,6 +56,17 @@ const TariffList: React.FC = () => {
     tariffKind?: string;
   } | null>(null);
 
+  // Sort + search. Default keeps the original grouping (by meter, then
+  // newest valid_from first); a chosen column overrides it.
+  const [searchQuery, setSearchQuery] = useState('');
+  const [manualSort, setManualSort] = useState<ColumnSort | null>(null);
+  const handleSort = (key: string) =>
+    setManualSort((prev) =>
+      prev && prev.key === key
+        ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' }
+        : { key, dir: 'desc' }
+    );
+
   const meterTypes = useMeterTypes();
 
   // Edit modal state
@@ -87,6 +101,50 @@ const TariffList: React.FC = () => {
         return true;
       })
     : sortedTariffs;
+
+  const getTariffValue = (t: TariffPeriod, key: string): string | number | null => {
+    const meter = metersById.get(t.meter_id);
+    switch (key) {
+      case 'meter':
+        return meter?.label ?? '';
+      case 'kind':
+        return TARIFF_KIND_LABELS[t.tariff_kind] ?? t.tariff_kind;
+      case 'valid_from':
+        return t.valid_from;
+      case 'valid_to':
+        return t.valid_to;
+      case 'price':
+        return t.price_per_unit ? parseFloat(t.price_per_unit) : null;
+      case 'base_fee':
+        return t.base_fee_monthly ? parseFloat(t.base_fee_monthly) : null;
+      case 'metering': {
+        if (t.metering_fee_monthly) return parseFloat(t.metering_fee_monthly);
+        if (t.metering_point_fee_yearly) return parseFloat(t.metering_point_fee_yearly);
+        return null;
+      }
+      case 'comment':
+        return t.comment ?? '';
+      default:
+        return t.valid_from;
+    }
+  };
+
+  const searchedTariffs = searchQuery
+    ? filteredTariffs.filter((t) => {
+        const m = metersById.get(t.meter_id);
+        const haystack = [
+          m?.label ?? '',
+          m?.meter_number ?? '',
+          t.comment ?? '',
+          TARIFF_KIND_LABELS[t.tariff_kind] ?? t.tariff_kind,
+        ].join(' ').toLowerCase();
+        return haystack.includes(searchQuery.toLowerCase());
+      })
+    : filteredTariffs;
+
+  const displayedTariffs = manualSort
+    ? sortRows(searchedTariffs, manualSort, getTariffValue)
+    : searchedTariffs;
 
   const selectedMeter = editTariff
     ? meters.find((m) => m.id === editTariff.meter_id)
@@ -245,62 +303,71 @@ const TariffList: React.FC = () => {
             </div>
           ) : (
             <>
-              <div className="flex gap-2 mb-6 flex-wrap">
-                <Button
-                  variant={activeFilter === null ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setActiveFilter(null)}
-                >
-                  Alle
-                </Button>
-                {((): FilterItem[] => {
-                  const items: FilterItem[] = [];
-                  for (const mt of meterTypes) {
-                    if (mt.value === 'electricity_production') continue;
-                    if (mt.value === 'water_cold') {
-                      items.push({ label: 'Kaltwasser', meterType: 'water_cold', tariffKind: 'consumption' });
-                      items.push({ label: 'Abwasser', meterType: 'water_cold', tariffKind: 'wastewater' });
-                    } else {
-                      items.push({ label: meterTypeLabel(meterTypes, mt.value), meterType: mt.value });
-                    }
-                  }
-                  return items;
-                })().map((item) => (
+              <div className="flex flex-col gap-3 mb-6">
+                <div className="flex gap-2 flex-wrap">
                   <Button
-                    key={`${item.meterType}-${item.tariffKind ?? ''}`}
-                    variant={
-                      activeFilter?.meterType === item.meterType &&
-                      (activeFilter?.tariffKind ?? '') === (item.tariffKind ?? '')
-                        ? 'default'
-                        : 'outline'
-                    }
+                    variant={activeFilter === null ? 'default' : 'outline'}
                     size="sm"
-                    onClick={() =>
-                      setActiveFilter({ meterType: item.meterType, tariffKind: item.tariffKind })
-                    }
+                    onClick={() => setActiveFilter(null)}
                   >
-                    {item.label}
+                    Alle
                   </Button>
-                ))}
+                  {((): FilterItem[] => {
+                    const items: FilterItem[] = [];
+                    for (const mt of meterTypes) {
+                      if (mt.value === 'electricity_production') continue;
+                      if (mt.value === 'water_cold') {
+                        items.push({ label: 'Kaltwasser', meterType: 'water_cold', tariffKind: 'consumption' });
+                        items.push({ label: 'Abwasser', meterType: 'water_cold', tariffKind: 'wastewater' });
+                      } else {
+                        items.push({ label: meterTypeLabel(meterTypes, mt.value), meterType: mt.value });
+                      }
+                    }
+                    return items;
+                  })().map((item) => (
+                    <Button
+                      key={`${item.meterType}-${item.tariffKind ?? ''}`}
+                      variant={
+                        activeFilter?.meterType === item.meterType &&
+                        (activeFilter?.tariffKind ?? '') === (item.tariffKind ?? '')
+                          ? 'default'
+                          : 'outline'
+                      }
+                      size="sm"
+                      onClick={() =>
+                        setActiveFilter({ meterType: item.meterType, tariffKind: item.tariffKind })
+                      }
+                    >
+                      {item.label}
+                    </Button>
+                  ))}
+                </div>
+                <div className="flex justify-end">
+                  <TableSearch
+                    value={searchQuery}
+                    onChange={setSearchQuery}
+                    placeholder="Suchen (Zähler, Anbieter, Tarifart)"
+                  />
+                </div>
               </div>
 
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Zähler</TableHead>
-                      <TableHead>Tarifart</TableHead>
-                      <TableHead>Gültig von</TableHead>
-                      <TableHead>Gültig bis</TableHead>
-                      <TableHead>Preis/Einheit</TableHead>
-                      <TableHead>Grundpreis</TableHead>
-                      <TableHead>Messstellenbetrieb</TableHead>
-                      <TableHead>Kommentar</TableHead>
+                      <SortableHeader label="Zähler" sortKey="meter" sort={manualSort ?? { key: 'meter', dir: 'asc' }} onSort={handleSort} />
+                      <SortableHeader label="Tarifart" sortKey="kind" sort={manualSort ?? { key: 'meter', dir: 'asc' }} onSort={handleSort} />
+                      <SortableHeader label="Gültig von" sortKey="valid_from" sort={manualSort ?? { key: 'meter', dir: 'asc' }} onSort={handleSort} />
+                      <SortableHeader label="Gültig bis" sortKey="valid_to" sort={manualSort ?? { key: 'meter', dir: 'asc' }} onSort={handleSort} />
+                      <SortableHeader label="Preis/Einheit" sortKey="price" sort={manualSort ?? { key: 'meter', dir: 'asc' }} onSort={handleSort} />
+                      <SortableHeader label="Grundpreis" sortKey="base_fee" sort={manualSort ?? { key: 'meter', dir: 'asc' }} onSort={handleSort} />
+                      <SortableHeader label="Messstellenbetrieb" sortKey="metering" sort={manualSort ?? { key: 'meter', dir: 'asc' }} onSort={handleSort} />
+                      <SortableHeader label="Kommentar" sortKey="comment" sort={manualSort ?? { key: 'meter', dir: 'asc' }} onSort={handleSort} />
                       <TableHead>Aktionen</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredTariffs.map((tariff) => {
+                    {displayedTariffs.map((tariff) => {
                       const meter = metersById.get(tariff.meter_id);
                       const isGas = meter?.meter_type === 'gas';
                       return (

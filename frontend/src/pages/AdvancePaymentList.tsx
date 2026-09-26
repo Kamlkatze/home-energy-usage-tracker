@@ -11,9 +11,12 @@ import { Dialog } from '../components/ui/dialog';
 import { advancePaymentsApi } from '../api/advancePaymentsApi';
 import { metersApi } from '../api/client';
 import { useFetch } from '../hooks/useFetch';
+import { useColumnSort, sortRows } from '../hooks/useColumnSort';
 import { AdvancePayment, AdvancePaymentCategory, Meter } from '../types';
 import { ADVANCE_PAYMENT_CATEGORY_LABELS, ADVANCE_PAYMENT_CATEGORIES, getMeterFieldsForCategory } from '../lib/advancePaymentFields';
 import { Loader2, Pencil } from 'lucide-react';
+import { SortableHeader } from '../components/SortableHeader';
+import { TableSearch } from '../components/TableSearch';
 
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return 'offen';
@@ -49,6 +52,10 @@ const AdvancePaymentList: React.FC = () => {
   const meters = data?.meters ?? [];
   const [activeTab, setActiveTab] = useState<AdvancePaymentCategory | null>(null);
 
+  // Sort + search (default: newest valid_from first)
+  const [searchQuery, setSearchQuery] = useState('');
+  const { sort, toggleSort } = useColumnSort('valid_from', 'desc');
+
   // Edit modal state
   const [editPayment, setEditPayment] = useState<AdvancePayment | null>(null);
   const [editFormData, setEditFormData] = useState<Record<string, string>>({});
@@ -57,9 +64,50 @@ const AdvancePaymentList: React.FC = () => {
 
   const metersById = new Map(meters.map((m) => [m.id, m]));
 
-  const filteredPayments = advancePayments
-    .filter((p) => activeTab === null || p.category === activeTab)
-    .sort((a, b) => a.valid_from.localeCompare(b.valid_from));
+  const filteredPayments = advancePayments.filter(
+    (p) => activeTab === null || p.category === activeTab
+  );
+
+  const getAdvanceValue = (p: AdvancePayment, key: string): string | number | null => {
+    switch (key) {
+      case 'valid_from':
+        return p.valid_from;
+      case 'valid_to':
+        return p.valid_to;
+      case 'meter':
+        return getMeterFieldsForCategory(p.category)
+          .map((f) => {
+            const id = p[f.name as keyof AdvancePayment] as number | null;
+            return id !== null ? getMeterLabel(metersById, id) : '';
+          })
+          .join(', ');
+      case 'monthly_amount':
+        return p.monthly_amount ? parseFloat(p.monthly_amount) : null;
+      case 'comment':
+        return p.comment ?? '';
+      default:
+        return p.valid_from;
+    }
+  };
+
+  const searchedPayments = searchQuery
+    ? filteredPayments.filter((p) => {
+        const labels = getMeterFieldsForCategory(p.category)
+          .map((f) => {
+            const id = p[f.name as keyof AdvancePayment] as number | null;
+            return id !== null ? getMeterLabel(metersById, id) : '';
+          })
+          .join(' ');
+        const haystack = [
+          labels,
+          p.comment ?? '',
+          ADVANCE_PAYMENT_CATEGORY_LABELS[p.category],
+        ].join(' ').toLowerCase();
+        return haystack.includes(searchQuery.toLowerCase());
+      })
+    : filteredPayments;
+
+  const sortedPayments = sortRows(searchedPayments, sort, getAdvanceValue);
 
   // ---- Edit handlers ----
   const openEdit = (payment: AdvancePayment) => {
@@ -149,27 +197,36 @@ const AdvancePaymentList: React.FC = () => {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex gap-2 mb-6 flex-wrap">
-            <Button
-              variant={activeTab === null ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setActiveTab(null)}
-            >
-              Alle
-            </Button>
-            {ADVANCE_PAYMENT_CATEGORIES.map((cat) => (
+          <div className="flex flex-col gap-3 mb-6">
+            <div className="flex gap-2 flex-wrap">
               <Button
-                key={cat}
-                variant={activeTab === cat ? 'default' : 'outline'}
+                variant={activeTab === null ? 'default' : 'outline'}
                 size="sm"
-                onClick={() => setActiveTab(cat)}
+                onClick={() => setActiveTab(null)}
               >
-                {ADVANCE_PAYMENT_CATEGORY_LABELS[cat]}
+                Alle
               </Button>
-            ))}
+              {ADVANCE_PAYMENT_CATEGORIES.map((cat) => (
+                <Button
+                  key={cat}
+                  variant={activeTab === cat ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setActiveTab(cat)}
+                >
+                  {ADVANCE_PAYMENT_CATEGORY_LABELS[cat]}
+                </Button>
+              ))}
+            </div>
+            <div className="flex justify-end">
+              <TableSearch
+                value={searchQuery}
+                onChange={setSearchQuery}
+                placeholder="Suchen (Zähler, Anbieter)"
+              />
+            </div>
           </div>
 
-          {filteredPayments.length === 0 ? (
+          {sortedPayments.length === 0 ? (
             activeTab === null ? (
               <div className="text-center py-8 text-muted-foreground">
                 <p className="mb-2">Keine Abschlagszahlungen vorhanden.</p>
@@ -193,30 +250,34 @@ const AdvancePaymentList: React.FC = () => {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Zeitraum</TableHead>
-                    <TableHead>Zähler</TableHead>
-                    <TableHead>Monatlicher Betrag</TableHead>
-                    <TableHead>Kommentar</TableHead>
+                    <SortableHeader label="Zähler" sortKey="meter" sort={sort} onSort={toggleSort} />
+                    <SortableHeader label="Gültig von" sortKey="valid_from" sort={sort} onSort={toggleSort} />
+                    <SortableHeader label="Gültig bis" sortKey="valid_to" sort={sort} onSort={toggleSort} />
+                    <SortableHeader label="Monatlicher Betrag" sortKey="monthly_amount" sort={sort} onSort={toggleSort} />
+                    <SortableHeader label="Kommentar" sortKey="comment" sort={sort} onSort={toggleSort} />
                     <TableHead>Aktionen</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredPayments.map((payment) => {
+                  {sortedPayments.map((payment) => {
                     const fields = getMeterFieldsForCategory(payment.category);
                     return (
                       <TableRow key={payment.id}>
-                        <TableCell>
-                          {formatDate(payment.valid_from)} – {formatDate(payment.valid_to)}
-                        </TableCell>
-                        <TableCell>
-                          {fields.map((f) => {
-                            const id = payment[f.name as keyof AdvancePayment] as number | null;
-                            return id !== null
-                              ? `${f.label}: ${getMeterLabel(metersById, id)}`
-                              : `${f.label}: –`;
-                          }).join(', ')}
-                        </TableCell>
-                        <TableCell>{payment.monthly_amount} €</TableCell>
+<TableCell>
+                        {fields.map((f) => {
+                          const id = payment[f.name as keyof AdvancePayment] as number | null;
+                          return id !== null
+                            ? `${f.label}: ${getMeterLabel(metersById, id)}`
+                            : `${f.label}: –`;
+                        }).join(', ')}
+                      </TableCell>
+                      <TableCell>
+                        {formatDate(payment.valid_from)}
+                      </TableCell>
+                      <TableCell>
+                        {formatDate(payment.valid_to)}
+                      </TableCell>
+                      <TableCell>{payment.monthly_amount} €</TableCell>
                         <TableCell>{payment.comment || '–'}</TableCell>
                         <TableCell>
                           <Button
