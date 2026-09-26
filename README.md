@@ -7,6 +7,7 @@ A simple, local application for tracking electricity, gas, and water consumption
 - **Track multiple meters**: Gas, cold/garden water (m³), electricity import/export/production (kWh) — the unit is derived automatically from the meter type
 - **Record readings**: Simple form to add meter readings with dates and optional notes; edit or delete existing readings directly in the year detail tables via inline dialog. By default only current meters are shown — replaced meters can be displayed via an "Alte Zähler anzeigen" toggle.
 - **Visualize consumption**: Separate line charts per energy type (Strom, Wasser, Gas) on the years-overview page, plus per-meter charts on the year detail page showing usage trends over time, with toggle between absolute meter readings and cumulative consumption since Jan 1 (starts at 0, even-number axis bounds)
+- **Custom time-range analysis**: The `/custom-range` page ("Zeitraum" in the main nav, directly after "Jahresübersicht") lets you pick any from/to date (default: current year) and filter by energy type (Strom/Wasser/Gas). Each active area shows a combined multi-line chart and table of real readings with consumption and cost between readings (no projections), fetched via `GET /api/costs/consumption-timeseries`
 - **Tariff management**: Track price per unit and base fees for different periods, with optional comment field for provider name and category filter buttons (Strom Bezug/Gas/Wasser) in the list view
 - **Advance payment management**: Track monthly Abschläge per meter with category (gas, cold water, wastewater, power import), time-range validity, overlap protection, optional comment field, and an "Alle" button showing all categories at once in the list view
 - **Meter replacement chain**: When a physical meter is swapped, link the new meter to its predecessor via `replaces_meter_id`. Cost calculations automatically follow the chain, summing each meter's contribution — no negative consumption from a counter reset on the new device
@@ -625,7 +626,7 @@ The 30 % threshold is a fixed statutory value from EEG 2009 § 33 Abs. 2, not co
 ]
 ```
 
-- `GET /api/costs/consumption-timeseries?from={date}&to={date}` - Return a time series of actual readings (not calendar-aggregated) for every logical meter. Each reading is enriched with consumption and cost since the chronologically previous reading (which may lie outside the requested range or in a predecessor meter of the replacement chain). Returns **200** always; **422** when `from > to`.
+- `GET /api/costs/consumption-timeseries?from={date}&to={date}&meter_type={type}` - Return a time series of actual readings (not calendar-aggregated) for every logical meter. Each reading is enriched with consumption and cost since the chronologically previous reading (which may lie outside the requested range or in a predecessor meter of the replacement chain). The optional `meter_type` query parameter (one of the values from the `GET /api/meters/types` endpoint, e.g. `electricity_import`, `water_cold`, `gas`) restricts the result to logical meters of that type; when omitted, all types are returned (previous behaviour). Returns **200** always; **422** when `from > to` or `meter_type` is not a valid type.
 
 **Chain resolution:** Same logical meter identification as `/api/costs/years-overview` — only meters NOT referenced by any other meter's `replaces_meter_id` are top-level entries. Predecessor readings count toward the logical meter's history.
 
@@ -876,7 +877,7 @@ cd frontend && npm run test
 cd frontend && npm run test:watch
 ```
 
-**Note on ESLint Status:** The four strict rules from `eslint-plugin-react-hooks@7.1.1` that reported 18 errors after the September 2026 toolchain upgrade (`react-hooks/set-state-in-effect`, `react-hooks/immutability`, `react-hooks/refs`, `react-hooks/purity`) are **resolved** via the React 19 upgrade + `useFetch` migration (Sept 22, 2026): **0 errors, 50 warnings** (41 `no-explicit-any`, 8 `no-console`, 1 `react-refresh` – pre-existing, out of scope). `npm run lint` exits non-zero only because of the `--max-warnings 0` flag. Details: `frontend/README.md` section 11.
+**Note on ESLint Status:** The four strict rules from `eslint-plugin-react-hooks@7.1.1` that reported 18 errors after the September 2026 toolchain upgrade (`react-hooks/set-state-in-effect`, `react-hooks/immutability`, `react-hooks/refs`, `react-hooks/purity`) are **resolved** via the React 19 upgrade + `useFetch` migration (Sept 22, 2026): **0 errors, 38 warnings** (29 `no-explicit-any`, 8 `no-console`, 1 `react-refresh` – pre-existing, out of scope). `npm run lint` exits non-zero only because of the `--max-warnings 0` flag. Details: `frontend/README.md` section 11.
 
 ## Project Structure
 
@@ -932,6 +933,8 @@ home-energy-usage-tracker/
 │   │   ├── components/               # React components (EditMeterModal, ThemeToggle)
 │   │   ├── components/ui/            # shadcn/ui components
 │   │   ├── components/year-detail/    # Year detail page components (MeterBlock, ElectricitySection, WaterSection, GasSection, ReadingEditDialog)
+│   │   ├── components/shared/        # Shared chart/formatting helpers (chartHelpers.ts, ChartTooltip.tsx)
+│   │   ├── components/custom-range/  # Custom range page components (AreaBlock)
 │   │   ├── pages/                    # Page components
 │   │   ├── types/                    # TypeScript interfaces
 │   │   ├── hooks/                    # Custom React hooks

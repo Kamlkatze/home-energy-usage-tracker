@@ -1,5 +1,5 @@
 import axios, { AxiosError } from 'axios';
-import { Meter, MeterUpdateData, AdvancePaymentDiffByCategory } from '../types';
+import { Meter, MeterUpdateData, AdvancePaymentDiffByCategory, ConsumptionTimeseriesItem, MeterType } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 
@@ -184,6 +184,19 @@ export const costsApi = {
       }
       throw error;
     }
+  },
+
+  getConsumptionTimeseries: async (
+    from: string,
+    to: string,
+    meterType?: MeterType,
+  ): Promise<ConsumptionTimeseriesItem[]> => {
+    const params: Record<string, string> = { from, to };
+    if (meterType !== undefined) {
+      params.meter_type = meterType;
+    }
+    const response = await apiClient.get('/api/costs/consumption-timeseries', { params });
+    return response.data;
   },
 };
 

@@ -79,3 +79,4 @@ Tests verify:
 - API error handling
 - Decimal serialization as strings
 - Current meters endpoint (`GET /api/meters/current`): empty, standalone, chain filtering, mixed scenarios
+- Consumption timeseries endpoint (`GET /api/costs/consumption-timeseries`): cross-reading deltas, replacement-chain boundaries, tariff/omission/negative-delta edge cases, gas m³→kWh conversion, `from > to` → 422, and the `meter_type` filter (all types when omitted, per-type filtering, unknown value → 422)

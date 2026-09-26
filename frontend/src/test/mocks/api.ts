@@ -49,6 +49,7 @@ export const costsApi = {
   getYearlyProjection: vi.fn(),
   getWastewaterCosts: vi.fn(),
   getAdvancePaymentDiffByCategory: vi.fn(),
+  getConsumptionTimeseries: vi.fn(),
 };
 
 export const electricityApi = {
@@ -109,6 +110,7 @@ export function resetApiMocks(): void {
   costsApi.getYearlyProjection.mockResolvedValue(null);
   costsApi.getWastewaterCosts.mockResolvedValue(null);
   costsApi.getAdvancePaymentDiffByCategory.mockResolvedValue(null);
+  costsApi.getConsumptionTimeseries.mockResolvedValue([]);
 
   electricityApi.getFeedInCompensation.mockResolvedValue(null);
   electricityApi.getFeedInCompensationProjection.mockResolvedValue(null);

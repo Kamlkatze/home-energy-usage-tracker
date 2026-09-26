@@ -316,9 +316,11 @@ Returns **200** always (per-year failures are surfaced as null fields, never as 
 
 ### Consumption Timeseries
 
-**`GET /api/costs/consumption-timeseries?from={date}&to={date}`**
+**`GET /api/costs/consumption-timeseries?from={date}&to={date}&meter_type={type}`**
 
 Returns a time series of individual readings for every logical meter, each enriched with consumption and cost since the chronologically previous reading. The previous reading may lie outside the requested range or in a predecessor meter of the replacement chain.
+
+The optional `meter_type` query parameter (a `MeterType` enum value, e.g. `electricity_import`, `water_cold`, `gas`) restricts the result to logical meters of that type. When omitted, all types are returned (previous behaviour). An unknown value yields **422**.
 
 **Chain resolution:** Same as years-overview — only meters NOT referenced by any other meter's `replaces_meter_id` are top-level entries.
 

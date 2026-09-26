@@ -36,12 +36,13 @@
 | `/advance-payments/new` | `pages/AdvancePaymentForm.tsx` | Create advance payment form: category selector (4 values), dynamic meter dropdowns per category (gas → gas meter, cold_water → water_cold meter, power_import → electricity_import meter, wastewater → required water_cold + optional water_garden meter), validity range, monthly amount, optional comment. Submits to `POST /api/advance-payments/` with correct payload per category. Shows backend 422 errors. |
 | `/years-overview` | `pages/YearsOverview.tsx` | Year-over-year consumption table + separate line charts per energy type (Strom, Wasser, Gas) for all logical meters (chain-resolved via backend). Years link to `/years/:year`. |
 | `/years/:year` | `pages/YearDetail.tsx` | Year detail page grouped by category (Strom, Wasser, Gas). **Strom** uses MeterBlock per meter + EEG-Einspeisevergütung card. **Wasser** uses combined WaterSection (consumption strip, dual-line chart, paired comparison grids for Frischwasser + Abwasser). **Gas** uses GasSection (consumption strip, chart, readings table, comparison grid per meter). Readings are editable/deletable via inline dialog in all tables. |
+| `/custom-range` | `pages/CustomRange.tsx` | Custom time-range analysis: from/to date inputs (default: current year, via module-level constants) + meter-type toggles (Strom/Wasser/Gas). Fetches `GET /api/costs/consumption-timeseries` — one unfiltered request when all three types are active, otherwise one parallel request per type — and renders one card per active area (`AreaBlock`) with a combined multi-line chart (consumption between readings, no projections) and a combined table (Datum/Zähler/Zählerstand/Verbrauch/Kosten). Quick-select buttons ("1 Monat", "3 Monate", "6 Monate", "Jahr"), "Anwenden" applies the entered range, plus loading/error/empty states. |
 
 **Chart implementation notes (MeterBlock):**
 - **Projection line via `combinedData`:** Dashed projection does NOT use separate `<Line data={...}>` – Recharts only creates tooltip hit targets in the primary `data` array. All points are merged into `combinedData`: main Line uses `dataKey="value"`, projection Line uses `dataKey="projectedValue"`. End-of-year point carries `value: undefined` (invisible) and `isProjectionEnd: true`.
 - **Consumption mode toggle ("seit 01.01."):** New in this iteration. Each chart (MeterBlock, GasMeterView, WaterSection combined chart) has a toggle button to switch between absolute meter readings and cumulative consumption since Jan 1. In consumption mode, every reading value is offset by `start_reading_value` (from the projection response) — the chart starts at 0 and the Y-axis lower bound is fixed at 0. Projection line uses `projected_annual_consumption` instead of `projected_meter_reading_end_of_year`. Default is consumption mode (`useState(true)`).
-- **Nice Y-axis bounds:** New helper `niceAxisBounds()` in `utils.ts` computes data-min/max → even-number axis bounds with a constant step (2, 4, 10, 20, 40, 100, …). The lower bound is never negative. Replaces the old 10 % dynamic padding approach.
-- **Custom tooltip `ChartTooltip`** (module level): dark-mode via `hsl(var(--popover))` / `hsl(var(--popover-foreground))`. "Hochrechnung" only rendered when hovered point is in the future. Values formatted unit-aware: kWh → `Math.round()`, m³ → `toFixed(1)`.
+- **Nice Y-axis bounds:** New helper `niceAxisBounds()` in `components/shared/chartHelpers.ts` (extracted from `year-detail/utils.ts`) computes data-min/max → even-number axis bounds with a constant step (2, 4, 10, 20, 40, 100, …). The lower bound is never negative. Replaces the old 10 % dynamic padding approach.
+- **Custom tooltip `ChartTooltip`** (`components/shared/ChartTooltip.tsx`, module level): dark-mode via `hsl(var(--popover))` / `hsl(var(--popover-foreground))`. "Hochrechnung" only rendered when hovered point is in the future. Values formatted unit-aware: kWh → `Math.round()`, m³ → `toFixed(1)`. Used by MeterBlock, GasSection, WaterSection, and the custom-range AreaBlock (unit passed via props).
 - **Dark-mode axes:** explicit `stroke`/`tick.fill` using `hsl(var(--muted-foreground))`. YAxis tick values rounded to whole numbers.
 - **Unit-aware formatting:** kWh → integers (`Math.round`), m³ → one decimal (`toFixed(1)`). EEG kWh → `toFixed(0)`. Same in `YearsOverview.tsx`.
 
@@ -72,18 +73,29 @@ All follow the shadcn/ui pattern (Tailwind + `cn()` helper, forwardRef, displayN
 | Module | Description |
 |---|---|
 | `types.ts` | Shared interfaces: `MeterSection`, `AdvancePaymentDiffs` |
-| `utils.ts` | Helpers: `formatEuro()`, `basisLabel()`, `niceAxisBounds()` (even-number axis bounds with constant step, no negative values) |
+| `utils.ts` | Helper: `basisLabel()` (formatting/axis helpers were extracted to `components/shared/chartHelpers.ts`) |
 | `MeterBlock.tsx` | Single meter card: chart, readings table with edit/delete buttons, projection. Contains all Recharts logic (combinedData, ChartTooltip, dark-mode styling, unit-aware formatting). |
 | `ElectricitySection.tsx` | Strom category: all electricity meters + EEG Einspeisevergütung card. |
 | `WaterSection.tsx` | Wasser category: combined consumption strip (FW/GW/AW actual + projected), dual-line chart (Frischwasser + Gartenwasser with projections), paired 3×2 comparison grids (Frischwasser costs + Abwasserkosten with advance payment diffs), and separate Zählerstände tables for both Frischwasser and Gartenwasser with edit/delete buttons. No longer uses individual MeterBlocks. |
 | `GasSection.tsx` | Gas section: separate consumption strip (Verbrauch tats./prog.), chart + readings table with edit/delete buttons per meter, and comparison grid (Kosten tats./prog. + Abschlagsdifferenz). |
 | `ReadingEditDialog.tsx` | Reusable dialog for editing or deleting a single reading. Opens from pencil/trash icons in any readings table. Contains edit form (date, value, note) and delete confirmation view. Calls `readingsApi.update()` / `readingsApi.delete()`. |
 
+#### Shared chart helpers (`components/shared/`)
+| Module | Description |
+|---|---|
+| `chartHelpers.ts` | Shared chart/formatting helpers used by both `year-detail/` and `custom-range/`: `COLORS`, `formatEuro()`, `formatConsumption(value, unit)`, `formatReadingValue(value, unit)`, `niceAxisBounds()`. |
+| `ChartTooltip.tsx` | Module-level Recharts tooltip (dark-mode styling, projection-line filtering for past dates, unit-aware value formatting). |
+
+#### Custom Range (`components/custom-range/`)
+| Module | Description |
+|---|---|
+| `AreaBlock.tsx` | One card per active area on the custom-range page: combined multi-line chart (one line per logical meter, `consumption_since_previous`, no projections) + combined table (Datum/Zähler/Zählerstand/Verbrauch/Kosten) with empty states. Uses the shared ChartTooltip and helpers. |
+
 ### Hooks
 | Hook | File | Notes |
 |---|---|---|
 | `useMeterTypes` | `hooks/useMeterTypes.ts` | Fetches meter types from `GET /api/meters/types` once per session (module-level cache). Returns `MeterTypeInfo[]`. Also exports `meterTypeLabel()` helper. |
-| `useFetch` | `hooks/useFetch.ts` | Generic data-fetching hook used by **all 10 route pages**: `useFetch<T>(fetchFn, deps) => { data, loading, error }`. Auto-fetches on mount and whenever `deps` change. All state updates happen inside Promise callbacks (React 19 lint-compliant, no `set-state-in-effect` violations), stale/abandoned responses are ignored via an `active` flag, errors land in `error` (message string) and are logged centrally once via `console.error`. See section 11 for the rationale and usage patterns. |
+| `useFetch` | `hooks/useFetch.ts` | Generic data-fetching hook used by **all 11 route pages**: `useFetch<T>(fetchFn, deps) => { data, loading, error }`. Auto-fetches on mount and whenever `deps` change. All state updates happen inside Promise callbacks (React 19 lint-compliant, no `set-state-in-effect` violations), stale/abandoned responses are ignored via an `active` flag, errors land in `error` (message string) and are logged centrally once via `console.error`. See section 11 for the rationale and usage patterns. |
 
 ### Lib
 | File | Description |
@@ -93,7 +105,7 @@ All follow the shadcn/ui pattern (Tailwind + `cn()` helper, forwardRef, displayN
 | `lib/utils.ts` | `cn()` helper combining `clsx` and `tailwind-merge`. |
 
 ### Types (`types/index.ts`)
-Defines: `MeterType`, `TariffKind`, `MeterTypeInfo`, `Meter`, `Reading`, `TariffPeriod` (incl. `comment`), `TariffUsage`, `AdvancePaymentCategory`, `AdvancePayment` (incl. `comment`), `YearEntry`, `YearsOverviewItem`, `YearlyProjection` (incl. `start_reading_value`, `start_reading_date`), `FeedInCompensation`, `WastewaterCosts` — aligned with backend schemas.
+Defines: `MeterType`, `TariffKind`, `MeterTypeInfo`, `Meter`, `Reading`, `TariffPeriod` (incl. `comment`), `TariffUsage`, `AdvancePaymentCategory`, `AdvancePayment` (incl. `comment`), `YearEntry`, `YearsOverviewItem`, `YearlyProjection` (incl. `start_reading_value`, `start_reading_date`), `FeedInCompensation`, `WastewaterCosts`, `ConsumptionTimeseriesPoint`, `ConsumptionTimeseriesItem` (timeseries from `GET /api/costs/consumption-timeseries` — incl. `meter_label`, `meter_type`, `unit`, per-point `consumption_since_previous` / `cost_since_previous`) — aligned with backend schemas.
 
 ## 4. API Integration
 
@@ -109,7 +121,7 @@ Defines: `MeterType`, `TariffKind`, `MeterTypeInfo`, `Meter`, `Reading`, `Tariff
 | `readingsApi` | `GET /`, `GET /:id`, `POST /`, `PUT /:id`, `DELETE /:id` | `AddReading` (POST), `ReadingEditDialog` in `YearDetail` (PUT, DELETE) |
 | `tariffsApi` | `GET /`, `GET /:id`, `POST /`, `PUT /:id`, `DELETE /:id` | `TariffForm` (POST), `TariffList` (GET, PUT, DELETE) |
 | `advancePaymentsApi` | `GET /`, `GET /:id`, `POST /`, `PUT /:id`, `DELETE /:id` | `AdvancePaymentForm` (POST), `AdvancePaymentList` (GET, PUT) |
-| `costsApi` | `GET /years-overview`, `GET /yearly-projection`, `GET /wastewater/`, `GET /advance-payment-diff-by-category` | `YearsOverview`, `YearDetail` (projections, wastewater + advance payment diffs) |
+| `costsApi` | `GET /years-overview`, `GET /yearly-projection`, `GET /wastewater/`, `GET /advance-payment-diff-by-category`, `GET /consumption-timeseries` | `YearsOverview`, `YearDetail` (projections, wastewater + advance payment diffs), `CustomRange` (time series) |
 | `electricityApi` | `GET /feed-in-compensation`, `GET /feed-in-compensation-projection` | `YearDetail` (EEG feed-in compensation) |
 
 ## 5. Styling Approach
@@ -129,7 +141,7 @@ The following backend endpoints/features have **zero** frontend representation:
 | **Cost calculations** | `GET /api/costs/` (general), `/costs/advance-payment-diff` – no UI; `/costs/years-overview` ✅, `/costs/yearly-projection` ✅, `/costs/wastewater/` ✅ (implemented in `YearDetail`) |
 | **Electricity: feed-in compensation** | `GET /api/electricity/feed-in-compensation` — ✅ implemented in `YearDetail` as part of Strom category |
 | **Projections** | `GET /api/meters/{meter_id}/projection` – no UI (separate from `/costs/yearly-projection`) |
-| **Consumption timeseries** | No frontend endpoint consumer for aggregated timeseries data |
+| **Consumption timeseries** | ✅ Implemented – `CustomRange` consumes `GET /api/costs/consumption-timeseries` (see `/custom-range` route above) |
 | **Tariff list / edit / delete** | ✅ Implemented – see `/tariffs` route above |
 | **Reading list / edit / delete** | ✅ Implemented – see year detail page tables |
 | **Meter edit** | `PUT /api/meters/` via `EditMeterModal` in `MeterList` |
@@ -164,7 +176,7 @@ Vitest is the render-safety net for dependency migrations (Vite 7, React 19). Th
 | `npm run test:watch` | Watch mode, re-runs on file changes. |
 | `npm run test:ui` | Interactive browser UI (via `@vitest/ui`). |
 
-Currently: **11 smoke tests across `src/test/smoke/`, one per top-level route component — all green.**
+Currently: **12 smoke tests across `src/test/smoke/`, one per top-level route component — all green.**
 
 ### How the suite is organised
 
@@ -213,10 +225,10 @@ The migration to `eslint-plugin-react-hooks` 7.x introduced four new strict rule
 - `react-hooks/refs`: Detects ref mutations or accesses during render
 - `react-hooks/purity`: Detects pure function violations in effects
 
-**Status (updated Sept 22, 2026): ✅ RESOLVED.** The 18 errors (9× `set-state-in-effect`, 5× `immutability`, 3× `purity`, 1× `refs`) across the 10 pages above plus 5 component errors were fixed as part of the React 18 → 19 upgrade with the new `useFetch` hook — see **section 11**. Current lint state: **0 errors, 50 warnings**.
+**Status (updated Sept 22, 2026): ✅ RESOLVED.** The 18 errors (9× `set-state-in-effect`, 5× `immutability`, 3× `purity`, 1× `refs`) across the 10 pages above plus 5 component errors were fixed as part of the React 18 → 19 upgrade with the new `useFetch` hook — see **section 11**. Current lint state: **0 errors, 38 warnings**.
 
-**Remaining Warnings (50):**
-- `@typescript-eslint/no-explicit-any`: 41 (pre-existing, out of scope)
+**Remaining Warnings (38):**
+- `@typescript-eslint/no-explicit-any`: 29 (pre-existing, out of scope; the custom-range/shared refactor removed 12 further `any` usages that were duplicated in the three year-detail tooltip components)
 - `no-console`: 8 (was 14 — the migration removed 7 per-page fetch logs; `useFetch` adds 1 central error log)
 - `react-refresh/only-export-components`: 1 (pre-existing)
 
@@ -255,7 +267,7 @@ The 3 pre-existing `react-hooks/exhaustive-deps` warnings were eliminated alongs
 
 ### New hook: `src/hooks/useFetch.ts`
 
-`useFetch<T>(fetchFn, deps = []) => { data, loading, error }` — now used by **all 10 route pages** (AddReading, AdvancePaymentForm, AdvancePaymentList, MeterDetail, MeterForm, MeterList, TariffForm, TariffList, YearDetail, YearsOverview).
+`useFetch<T>(fetchFn, deps = []) => { data, loading, error }` — now used by **all 11 route pages** (AddReading, AdvancePaymentForm, AdvancePaymentList, CustomRange, MeterDetail, MeterForm, MeterList, TariffForm, TariffList, YearDetail, YearsOverview).
 
 Design constraints (driven by `eslint-plugin-react-hooks@7.1.1` rules):
 - All `setState` calls happen **only inside Promise callbacks** — never synchronously in the effect body (`set-state-in-effect`). The `loading` reset on dep-change/refetch uses a microtask (`void Promise.resolve().then(...)`).
@@ -280,4 +292,4 @@ Design constraints (driven by `eslint-plugin-react-hooks@7.1.1` rules):
 ### Known non-regressions
 
 - React 19 dev console warning `Each child in a list should have a unique "key" prop … from Line` (Recharts 2.15 internals): **pre-existing**, reproduced identically with the old code under React 19. Recharts 3.x would remove it but is out of scope.
-- Validation after migration: `npm run build` ✅, `tsc --noEmit` ✅, 11/11 Vitest smoke tests ✅, ESLint 0 errors, prod container verified in headless Chromium (MeterList, YearDetail render live data; no unexpected console errors).
+- Validation after migration: `npm run build` ✅, `tsc --noEmit` ✅, 12/12 Vitest smoke tests ✅, ESLint 0 errors, prod container verified in headless Chromium (MeterList, YearDetail render live data; no unexpected console errors).
