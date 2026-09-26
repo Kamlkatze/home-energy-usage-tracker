@@ -1069,8 +1069,11 @@ MIT License
 
 ## Contributing
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
+Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for setup,
+commands, and the expected workflow. This project follows the
+[Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.md).
+
+## For AI agents
+
+Repository rules for coding agents live in [AGENTS.md](AGENTS.md) (root) plus the
+nested files `backend/AGENTS.md` and `frontend/AGENTS.md`.
