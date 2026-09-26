@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
-import { Zap, Droplets, Flame, Gauge, FileText, CalendarDays, Euro, ArrowRight } from 'lucide-react';
+import { Zap, Droplets, Flame, Gauge, FileText, CalendarDays, CalendarRange, Euro, ArrowRight } from 'lucide-react';
 
 const HomePage: React.FC = () => {
   return (
@@ -86,6 +86,23 @@ const HomePage: React.FC = () => {
                   </div>
                   <p className="text-sm text-muted-foreground mb-2">
                     Verwalte Tarife, Grundgebühren und Einspeisevergütungen
+                  </p>
+                  <span className="text-sm text-primary flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    Öffnen <ArrowRight className="h-3 w-3" />
+                  </span>
+                </CardContent>
+              </Card>
+            </Link>
+
+            <Link to="/custom-range" className="group">
+              <Card className="h-full transition-colors hover:border-primary/50">
+                <CardContent className="p-6">
+                  <div className="flex items-center gap-3 mb-3">
+                    <CalendarRange className="h-6 w-6 text-teal-500" />
+                    <h3 className="font-semibold">Zeitraum</h3>
+                  </div>
+                  <p className="text-sm text-muted-foreground mb-2">
+                    Verbrauch und Kosten in einem individuellen Zeitraum im Überblick
                   </p>
                   <span className="text-sm text-primary flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     Öffnen <ArrowRight className="h-3 w-3" />
