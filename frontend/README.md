@@ -163,7 +163,7 @@ The following backend endpoints/features have **zero** frontend representation:
 
 ## 8. Tests (Vitest)
 
-Vitest is the render-safety net for dependency migrations (Vite 7, React 19) — the smoke tests exist to detect *"the app no longer renders"*. In addition, a set of **focused component tests** (`src/test/*.test.tsx`) assert specific behaviours of key interactions (e.g. the meter-form predecessor filter and the YearsOverview m³ formatting).
+Vitest is the render-safety net for dependency migrations (Vite 7, React 19) — the smoke tests exist to detect *"the app no longer renders"*. In addition, a set of **focused component tests** (`src/test/*.test.tsx`) assert specific behaviours of key interactions (e.g. the meter-form predecessor filter and the YearsOverview m³ formatting), and **unit tests** (`src/test/*.test.ts`) cover the API layer (`client`, `advancePaymentsApi` — the global API mocks are disabled per file and the `axios` module is mocked instead, so the real client runs against a stubbed HTTP layer) and `useColumnSort`.
 
 **Stack (current):** `vitest ^3.2.7`, `@vitest/ui ^3`, `@vitest/coverage-v8 ^3.2.7`, `@testing-library/react ^16` (+ explicit peer `@testing-library/dom ^10`), `@testing-library/jest-dom ^6`, `@testing-library/user-event ^14`, `jsdom ^30`. Note: `@testing-library/dom` must stay an explicit devDependency — `@testing-library/react` only declares it as a peer, and installs with `--legacy-peer-deps` (or `--omit=peer`) silently drop it.
 
@@ -180,9 +180,9 @@ Vitest is the render-safety net for dependency migrations (Vite 7, React 19) —
 | `npm run test:watch` | Watch mode, re-runs on file changes. |
 | `npm run test:ui` | Interactive browser UI (via `@vitest/ui`). |
 
-Currently: **63 tests, all green** — 14 smoke tests across `src/test/smoke/` (one per top-level route component) plus 49 focused component tests in `src/test/*.test.tsx` (AddReading, EditMeterModal, MeterForm, TariffForm, YearDetail, YearsOverview).
+Currently: **128 tests, all green** — 14 smoke tests across `src/test/smoke/` (one per top-level route component), 49 focused component tests in `src/test/*.test.tsx` (AddReading, EditMeterModal, MeterForm, TariffForm, YearDetail, YearsOverview), and 65 unit tests for the API layer and hooks in `src/test/*.test.ts` (client, advancePaymentsApi, useColumnSort).
 
-**Coverage (baseline, Sept 26 2026):** overall **35.4 % statements/lines**, **59.5 % branches**, **25.9 % functions** (`@vitest/coverage-v8`, provider `v8`). Configured in the `test.coverage` block of `vite.config.ts` — `reporter: ['text', 'html']`, report written to `coverage/`. Excluded from the report: `src/test/`, `*.test.*`, `*.d.ts`, `src/main.tsx` (entry point), `src/vite-env.d.ts`, `dist/`, and config files (`vite.config.ts`, `tailwind.config.*`, `postcss.config.*`, `eslint.config.*`). The baseline is low by design — the suite is deliberately minimal render-safety smoke tests, so most page/component logic stays uncovered.
+**Coverage (Sept 27 2026):** overall **72.1 % statements/lines**, **74.2 % branches**, **53.1 % functions** (`@vitest/coverage-v8`, provider `v8`). Configured in the `test.coverage` block of `vite.config.ts` — `reporter: ['text', 'html']`, report written to `coverage/`. Excluded from the report: `src/test/`, `*.test.*`, `*.d.ts`, `src/main.tsx` (entry point), `src/vite-env.d.ts`, `dist/`, and config files (`vite.config.ts`, `tailwind.config.*`, `postcss.config.*`, `eslint.config.*`). `src/api/client.ts`, `src/api/advancePaymentsApi.ts` and `src/hooks/useColumnSort.ts` are at **100 %** across all metrics; the remaining gaps are page/component rendering logic that is only smoke-tested.
 
 ### How the suite is organised
 
@@ -192,8 +192,10 @@ src/test/
 ├── mocks/
 │   └── api.ts        # mock implementations of all API client objects
 ├── utils.tsx         # renderWithProviders() helper
-├── *.test.tsx        # focused component tests (AddReading, EditMeterModal, MeterForm,
-│                     #   TariffForm, YearDetail, YearsOverview)
+├── *.test.ts(x)      # focused component tests + unit tests for API layer/hooks
+│                     #   (AddReading, EditMeterModal, MeterForm, TariffForm,
+│                     #   YearDetail, YearsOverview; client, advancePaymentsApi,
+│                     #   useColumnSort)
 └── smoke/            # one *.test.tsx per route component
 ```
 

@@ -29,8 +29,9 @@ Scope-specific rules live in nested files and apply **in addition** to this one:
 - Test:    `cd backend && uv run --extra dev pytest` (needs the `db-test` container from
   docker-compose.dev.yml on port 5433; default TEST_DATABASE_URL is PostgreSQL there – tests
   requiring the EXCLUDE constraint FAIL on SQLite, by design)
-- FE test: `cd frontend && npm run test` (Vitest, 63 tests: 14 route smoke tests + 49 focused
-  component tests in `src/test/*.test.tsx`)
+- FE test: `cd frontend && npm run test` (Vitest, 128 tests: 14 route smoke tests + 49 focused
+  component tests in `src/test/*.test.tsx` + 65 unit tests for API layer/hooks in
+  `src/test/*.test.ts`)
 - Lint:    `cd backend && uv run --extra dev ruff check --fix && uv run --extra dev mypy app/models`
 - FE lint: `cd frontend && npm run lint` (ESLint 9 flat config; exits 1 if any warning –
   target is **0 errors**, currently 38 known warnings)
