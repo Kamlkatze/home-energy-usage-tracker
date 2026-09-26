@@ -1771,23 +1771,49 @@ def get_consumption_timeseries(
                 else:
                     consumption_str = str(consumption_delta)
                     try:
-                        tariffs = _get_overlapping_tariffs(
-                            db,
-                            reading.meter_id,
-                            models.TariffKind.CONSUMPTION,
-                            prev_reading.reading_date,
-                            reading.reading_date,
-                        )
-                        _, total_cost, _ = _compute_cost_fields_multiperiod(
-                            consumption_delta,
-                            tariffs,
-                            prev_reading.reading_date,
-                            reading.reading_date,
-                            meter_type=meter.meter_type,
-                        )
-                        cost_str = str(total_cost)
+                        if meter.meter_type in (
+                            models.MeterType.ELECTRICITY_EXPORT,
+                            models.MeterType.ELECTRICITY_PRODUCTION,
+                        ):
+                            # Feed-in / generation meters carry a monetary value as
+                            # an Einspeisevergütung (Vergütung), not a consumption
+                            # cost. Compute it from the FEED_IN tariff (kWh × rate,
+                            # no base fee) and report it as the per-point value.
+                            tariffs = _get_overlapping_tariffs(
+                                db,
+                                reading.meter_id,
+                                models.TariffKind.FEED_IN,
+                                prev_reading.reading_date,
+                                reading.reading_date,
+                            )
+                            _, verguetung_raw = _compute_cost_fields_multiperiod_raw(
+                                consumption_delta,
+                                tariffs,
+                                prev_reading.reading_date,
+                                reading.reading_date,
+                            )
+                            verguetung = verguetung_raw.quantize(
+                                _CENT, rounding=ROUND_HALF_UP
+                            )
+                            cost_str = str(verguetung)
+                        else:
+                            tariffs = _get_overlapping_tariffs(
+                                db,
+                                reading.meter_id,
+                                models.TariffKind.CONSUMPTION,
+                                prev_reading.reading_date,
+                                reading.reading_date,
+                            )
+                            _, total_cost, _ = _compute_cost_fields_multiperiod(
+                                consumption_delta,
+                                tariffs,
+                                prev_reading.reading_date,
+                                reading.reading_date,
+                                meter_type=meter.meter_type,
+                            )
+                            cost_str = str(total_cost)
                     except HTTPException:
-                        # No tariff for this sub-period → cost is null.
+                        # No tariff for this sub-period → value is null.
                         cost_str = None
 
             points.append(schemas.ConsumptionTimeseriesPoint(

@@ -1,14 +1,15 @@
 import React, { useState } from 'react';
 import { Zap, Droplets, Flame, Loader2, type LucideIcon } from 'lucide-react';
-import { costsApi } from '../api/client';
+import { costsApi, electricityApi } from '../api/client';
 import { useFetch } from '../hooks/useFetch';
-import { ConsumptionTimeseriesItem, MeterType } from '../types';
+import { ConsumptionTimeseriesItem, FeedInCompensation, MeterType } from '../types';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Checkbox } from '../components/ui/checkbox';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import AreaBlock from '../components/custom-range/AreaBlock';
+import { formatEuro } from '../components/shared/chartHelpers';
 
 // Earliest date used by the "Alle Daten" quick select until the actual first
 // reading is known (the API omits empty periods, so 2000 is safe).
@@ -82,6 +83,10 @@ function getErrorMessage(err: unknown, fallback: string): string {
   return detail || (err instanceof Error ? err.message : fallback);
 }
 
+function formatDate(isoDate: string): string {
+  return new Date(`${isoDate}T00:00:00`).toLocaleDateString();
+}
+
 const CustomRange: React.FC = () => {
   const [fromDate, setFromDate] = useState(DEFAULT_FROM);
   const [toDate, setToDate] = useState(DEFAULT_TO);
@@ -110,6 +115,29 @@ const CustomRange: React.FC = () => {
       throw new Error(getErrorMessage(err, 'Fehler beim Laden der Zeitreihen.'));
     }
   }, [appliedRange.from, appliedRange.to, filters.electricity, filters.water, filters.gas]);
+
+  const prodMeter = (data ?? []).find((i) => i.meter_type === 'electricity_production');
+  const expMeter = (data ?? []).find((i) => i.meter_type === 'electricity_export');
+
+  // EEG 2009 feed-in compensation for the selected period (a range-based total,
+  // not a per-reading value). Only meaningful when both a production and an
+  // export meter exist and the electricity area is active.
+  const { data: eeg, loading: eegLoading, error: eegError } = useFetch<FeedInCompensation | null>(
+    async () => {
+      if (!filters.electricity || !prodMeter || !expMeter) return null;
+      try {
+        return await electricityApi.getFeedInCompensation(
+          prodMeter.meter_id,
+          expMeter.meter_id,
+          appliedRange.from,
+          appliedRange.to,
+        );
+      } catch (err: unknown) {
+        throw new Error(getErrorMessage(err, 'Fehler beim Laden der EEG-Einspeisevergütung.'));
+      }
+    },
+    [appliedRange.from, appliedRange.to, filters.electricity, data]
+  );
 
   const handleQuickSelect = (id: QuickSelectId): void => {
     const now = new Date();
@@ -255,6 +283,63 @@ const CustomRange: React.FC = () => {
         </Card>
       ) : (
         <div className="space-y-6">
+          {filters.electricity && prodMeter && expMeter && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Zap className="h-4 w-4" />
+                  EEG-Einspeisevergütung (EEG 2009)
+                </CardTitle>
+                <CardDescription>
+                  {formatDate(appliedRange.from)} – {formatDate(appliedRange.to)}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {eegLoading && (
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Lade EEG-Einspeisevergütung...
+                  </div>
+                )}
+                {eegError && (
+                  <div className="text-xs text-destructive">{eegError}</div>
+                )}
+                {eeg && (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    <div className="bg-muted rounded p-2">
+                      <p className="text-[10px] text-muted-foreground">Erzeugung (P)</p>
+                      <p className="text-sm font-semibold">
+                        {parseFloat(eeg.production_consumption).toFixed(0)} kWh
+                      </p>
+                    </div>
+                    <div className="bg-muted rounded p-2">
+                      <p className="text-[10px] text-muted-foreground">Einspeisung (E)</p>
+                      <p className="text-sm font-semibold">
+                        {parseFloat(eeg.export_consumption).toFixed(0)} kWh
+                      </p>
+                    </div>
+                    <div className="bg-muted rounded p-2">
+                      <p className="text-[10px] text-muted-foreground">Eigenverbrauch</p>
+                      <p className="text-sm font-semibold">
+                        {parseFloat(eeg.self_consumption).toFixed(0)} kWh
+                      </p>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">
+                        Tier 1: {parseFloat(eeg.tier1_kwh).toFixed(1)} &bull; Tier 2:{' '}
+                        {parseFloat(eeg.tier2_kwh).toFixed(0)} kWh
+                      </p>
+                    </div>
+                    <div className="bg-muted rounded p-2">
+                      <p className="text-[10px] text-muted-foreground">Vergütung</p>
+                      <p className="text-sm font-semibold">
+                        {formatEuro(eeg.total_compensation)}
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
           {activeAreas.map((area) => {
             const Icon = AREA_ICONS[area];
             const areaItems = dataItems.filter((item) =>

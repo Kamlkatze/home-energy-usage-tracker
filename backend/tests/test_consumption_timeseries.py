@@ -37,10 +37,11 @@ def _create_reading(client, meter_id, value, reading_date):
 
 
 def _create_tariff(client, meter_id, valid_from, valid_to, price_per_unit,
-                   base_fee_monthly=None, gas_z_zahl=None, gas_brennwert=None):
+                   base_fee_monthly=None, gas_z_zahl=None, gas_brennwert=None,
+                   tariff_kind="consumption"):
     payload = {
         "meter_id": meter_id,
-        "tariff_kind": "consumption",
+        "tariff_kind": tariff_kind,
         "valid_from": valid_from,
         "valid_to": valid_to,
         "price_per_unit": price_per_unit,
@@ -372,3 +373,62 @@ def test_invalid_meter_type_422(client):
     response = _get_timeseries(client, "2024-01-01", "2024-12-31",
                                meter_type="invalid_type")
     assert response.status_code == 422
+
+
+def test_export_meter_feed_in_verguetung(client):
+    """Export meter (Strom Einspeisung): value is an Einspeisevergütung from
+    the FEED_IN tariff (kWh × rate), the CONSUMPTION tariff and any base fee
+    are ignored."""
+    export_id = _create_meter(client, meter_type="electricity_export",
+                              label="Einspeisung")
+    _create_reading(client, export_id, "0.000", "2024-01-01")
+    _create_reading(client, export_id, "100.000", "2024-06-01")
+
+    # FEED_IN contingency (kWh × rate); base_fee must be ignored.
+    _create_tariff(client, export_id, valid_from="2024-01-01", valid_to=None,
+                   price_per_unit="0.08400", base_fee_monthly="5.00",
+                   tariff_kind="feed_in")
+    # A CONSUMPTION tariff on the same meter must NOT be used.
+    _create_tariff(client, export_id, valid_from="2024-01-01", valid_to=None,
+                   price_per_unit="2.33000", base_fee_monthly="10.00",
+                   tariff_kind="consumption")
+
+    response = _get_timeseries(client, "2024-01-01", "2024-12-31",
+                               meter_type="electricity_export")
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 1
+    points = data[0]["points"]
+
+    # First point: no previous → null.
+    assert points[0]["consumption_since_previous"] is None
+    assert points[0]["cost_since_previous"] is None
+
+    # Second point: delta = 100 kWh → Vergütung = 100 × 0.084 = 8.40.
+    assert Decimal(points[1]["consumption_since_previous"]) == Decimal("100.000")
+    assert Decimal(points[1]["cost_since_previous"]) == Decimal("8.40")
+
+
+def test_production_meter_feed_in_verguetung(client):
+    """Production meter (Strom Erzeugung) without a FEED_IN tariff → value
+    null even though a CONSUMPTION tariff exists (which must be ignored)."""
+    prod_id = _create_meter(client, meter_type="electricity_production",
+                            label="Erzeugung")
+    _create_reading(client, prod_id, "0.000", "2024-01-01")
+    _create_reading(client, prod_id, "718.000", "2024-04-01")
+
+    # Only a CONSUMPTION tariff exists → no Vergütung, and the wrong
+    # consumption-based cost must NOT be shown.
+    _create_tariff(client, prod_id, valid_from="2024-01-01", valid_to=None,
+                   price_per_unit="2.33000", base_fee_monthly="10.00",
+                   tariff_kind="consumption")
+
+    response = _get_timeseries(client, "2024-01-01", "2024-12-31",
+                               meter_type="electricity_production")
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 1
+    points = data[0]["points"]
+    assert len(points) == 2
+    assert points[1]["consumption_since_previous"] is not None
+    assert points[1]["cost_since_previous"] is None

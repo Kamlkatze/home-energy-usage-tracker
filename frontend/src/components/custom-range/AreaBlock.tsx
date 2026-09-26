@@ -16,6 +16,14 @@ interface AreaChartPoint {
   [meterKey: string]: number | undefined;
 }
 
+// Feed-in (Einspeisung) and generation (Erzeugung) meters carry a monetary
+// value that is a Vergütung (compensation), not a cost.
+function priceColumnLabel(meterType: ConsumptionTimeseriesItem['meter_type']): string {
+  return meterType === 'electricity_export' || meterType === 'electricity_production'
+    ? 'Vergütung'
+    : 'Kosten';
+}
+
 // Merges each meter's real reading points into a single date-sorted array.
 // One key per meter (`m_<meter_id>`) holds its consumption since the
 // previous reading; only actually entered readings are included.
@@ -55,17 +63,6 @@ const AreaBlock: React.FC<AreaBlockProps> = ({ title, icon, items }) => {
     numericValues.length > 0 ? Math.max(...numericValues) : 1,
     true
   );
-
-  const tableRows = items.flatMap((item) =>
-    item.points.map((point) => ({
-      key: `${item.meter_id}-${point.date}`,
-      date: point.date,
-      meterLabel: item.meter_label,
-      value: point.value,
-      consumption: point.consumption_since_previous,
-      cost: point.cost_since_previous,
-    }))
-  ).sort((a, b) => a.date.localeCompare(b.date) || a.meterLabel.localeCompare(b.meterLabel));
 
   const hasChartData = numericValues.length > 0;
 
@@ -137,43 +134,59 @@ const AreaBlock: React.FC<AreaBlockProps> = ({ title, icon, items }) => {
 
             <div>
               <h5 className="text-xs font-semibold text-muted-foreground mb-1">Messpunkte</h5>
-              <div className="max-h-72 overflow-y-auto">
-                {tableRows.length > 0 ? (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="text-xs">Datum</TableHead>
-                        <TableHead className="text-xs">Zähler</TableHead>
-                        <TableHead className="text-xs">Zählerstand ({unit})</TableHead>
-                        <TableHead className="text-xs">Verbrauch</TableHead>
-                        <TableHead className="text-xs">Kosten</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {tableRows.map((row) => (
-                        <TableRow key={row.key}>
-                          <TableCell className="text-xs py-1">
-                            {new Date(`${row.date}T00:00:00`).toLocaleDateString()}
-                          </TableCell>
-                          <TableCell className="text-xs py-1">{row.meterLabel}</TableCell>
-                          <TableCell className="text-xs py-1">
-                            {formatReadingValue(row.value, unit)}
-                          </TableCell>
-                          <TableCell className="text-xs py-1">
-                            {row.consumption != null ? formatConsumption(row.consumption, unit) : '\u2014'}
-                          </TableCell>
-                          <TableCell className="text-xs py-1">
-                            {row.cost != null ? formatEuro(row.cost) : '\u2014'}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                ) : (
-                  <p className="text-xs text-muted-foreground">
-                    Keine Messpunkte im gewählten Zeitraum vorhanden.
-                  </p>
-                )}
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                {items.map((item) => {
+                  const priceLabel = priceColumnLabel(item.meter_type);
+                  return (
+                    <div key={item.meter_id} className="max-h-72 overflow-y-auto">
+                      <h6 className="text-xs font-medium mb-1">{item.meter_label}</h6>
+                      {(item.meter_type === 'electricity_export' ||
+                        item.meter_type === 'electricity_production') && (
+                        <p className="text-[10px] text-muted-foreground mb-1">
+                          Vergütungsberechnung nur für fixe Vergütungsmodelle (fester Satz)
+                        </p>
+                      )}
+                      {item.points.length > 0 ? (
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead className="text-xs">Datum</TableHead>
+                              <TableHead className="text-xs">Zählerstand ({item.unit})</TableHead>
+                              <TableHead className="text-xs">Verbrauch</TableHead>
+                              <TableHead className="text-xs">{priceLabel}</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {item.points.map((point) => (
+                              <TableRow key={`${item.meter_id}-${point.date}`}>
+                                <TableCell className="text-xs py-1">
+                                  {new Date(`${point.date}T00:00:00`).toLocaleDateString()}
+                                </TableCell>
+                                <TableCell className="text-xs py-1">
+                                  {formatReadingValue(point.value, item.unit)}
+                                </TableCell>
+                                <TableCell className="text-xs py-1">
+                                  {point.consumption_since_previous != null
+                                    ? formatConsumption(point.consumption_since_previous, item.unit)
+                                    : '\u2014'}
+                                </TableCell>
+                                <TableCell className="text-xs py-1">
+                                  {point.cost_since_previous != null
+                                    ? formatEuro(point.cost_since_previous)
+                                    : '\u2014'}
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">
+                          Keine Messpunkte im gewählten Zeitraum vorhanden.
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </>
