@@ -69,11 +69,11 @@ describe('YearsOverview', () => {
       screen.getByRole('columnheader', { name: 'Gas-Hauptzähler (m³)' }),
     ).toBeInTheDocument();
 
-    // 2023 row: kWh rounded to integer, m³ with two decimals.
+    // 2023 row: kWh rounded to integer, m³ with one decimal.
     const row2023 = screen.getByRole('row', { name: /2023/ });
     expect(within(row2023).getByText('2023')).toBeInTheDocument();
     expect(within(row2023).getByText('1235 kWh')).toBeInTheDocument();
-    expect(within(row2023).getByText('12.30 m³')).toBeInTheDocument();
+    expect(within(row2023).getByText('12.3 m³')).toBeInTheDocument();
 
     // 2024 row: gas has no entry -> '—' placeholder.
     const row2024 = screen.getByRole('row', { name: /2024/ });
@@ -152,7 +152,10 @@ describe('YearsOverview', () => {
   it('navigates to the correct YearDetail route when a year is clicked', async () => {
     vi.mocked(costsApi.getYearsOverview).mockResolvedValue(FIXTURE);
     render(
-      <MemoryRouter initialEntries={['/years-overview']}>
+      <MemoryRouter
+        initialEntries={['/years-overview']}
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+      >
         <Routes>
           <Route path="/years-overview" element={<YearsOverview />} />
           <Route path="/years/:year" element={<StubYearDetail />} />

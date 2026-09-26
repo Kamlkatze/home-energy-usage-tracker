@@ -75,7 +75,7 @@ Applies to everything under `frontend/`, **in addition to** the root `AGENTS.md`
   `label.tsx`). Never add these rules to a global ignore file. Baseline: 0 `jsx-a11y` warnings in
   `src/`
 - ESLint 9 flat config (`eslint.config.js`); `npm run lint` exits 1 if any warning – target is
-  **0 errors**, 50 known warnings
+  **0 errors**, 38 known warnings
 - TS build hygiene: keep `src/vite-env.d.ts` present; don't leave unused deps (removed
   `@radix-ui/react-slot`)
 

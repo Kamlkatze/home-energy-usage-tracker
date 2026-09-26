@@ -18,7 +18,7 @@ import ThemeToggle from './components/ThemeToggle';
 
 const App: React.FC = () => {
   return (
-    <Router>
+    <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <div className="min-h-screen bg-background">
         <header className="border-b">
           <div className="container mx-auto px-4 py-4">

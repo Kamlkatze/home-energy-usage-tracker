@@ -165,6 +165,19 @@ describe('EditMeterModal', () => {
     expect(options).not.toContain('#4 Schon ersetzt (G-4)');
   });
 
+  it('never offers the edited meter itself as its own predecessor', async () => {
+    const { container } = renderModal();
+    await screen.findByText('Gas');
+
+    const options = Array.from(predecessorSelect(container).options).map(
+      (o) => o.textContent,
+    );
+    expect(options).not.toContain('#1 Heizung (G-77)');
+    // Other same-type meters stay available as predecessors.
+    expect(options).toContain('#5 Alter Gashauptzähler (G-50)');
+    expect(options).toContain('#2 Ersatzreserve');
+  });
+
   it('submits with the correct meter id and trims the payload', async () => {
     const onSaved = vi.fn();
     renderModal({ onSaved });

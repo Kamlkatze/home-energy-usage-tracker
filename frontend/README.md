@@ -7,7 +7,7 @@
 | Framework | React | ^19.3.0 | SPA, no SSR/Next.js; upgraded from 18.2.0 on Sept 22, 2026 (see section 11) |
 | Build tool | Vite | ^7.3.6 | + `@vitejs/plugin-react` |
 | Language | TypeScript | ^5.9.3 | strict mode via tsconfig |
-| Routing | react-router-dom | ^6.20.1 | `<BrowserRouter>` with `<Routes>` |
+| Routing | react-router-dom | ^6.20.1 | `<BrowserRouter>` with `<Routes>`; `future={{ v7_startTransition: true, v7_relativeSplatPath: true }}` enables the v7 opt-in flags and silences the v7 deprecation warnings (also set on the test `MemoryRouter`s) |
 | HTTP client | axios | ^1.6.0 | single `apiClient` instance |
 | Charting | recharts | ^2.10.0 | `LineChart` on meter detail page |
 | Icons | lucide-react | ^1.47.0 | used in nav, home cards, forms; upgraded from 0.303.0 for React 19 peer support (all previously used icon exports still exist) |
@@ -34,7 +34,7 @@
 | `/tariffs/new` | `pages/TariffForm.tsx` | Create tariff period form: meter selector, tariff kind (consumption/feed_in/self_consumption/wastewater/feed_in_eeg2009), validity range, dynamic fields per kind (price per unit, optional base + metering fees, gas Z-Zahl/Brennwert for gas meters, EEG 2009 block with tier rates + yearly metering fee), optional comment field. German labels/helper text throughout. EEG 2009 meter selection includes a hint to pick the feed-in meter. Handles empty meter list gracefully. |
 | `/advance-payments` | `pages/AdvancePaymentList.tsx` | Advance payment overview with 5 filter buttons (Alle/Gas/Kaltwasser/Abwasser/Strom Bezug). Per-filter table: assigned meter(s), valid-from/until (two separate columns), monthly amount, **comment** column. Default sort is **newest `valid_from` first** (like tariffs); **sortable columns** (meter, valid-from/until, monthly amount, comment) + **free-text search** (matches meter label, provider/comment, category). Supports **edit** via inline modal (validity period + monthly amount + optional comment, meter relations read-only). |
 | `/advance-payments/new` | `pages/AdvancePaymentForm.tsx` | Create advance payment form: category selector (4 values), dynamic meter dropdowns per category (gas → gas meter, cold_water → water_cold meter, power_import → electricity_import meter, wastewater → required water_cold + optional water_garden meter), validity range, monthly amount, optional comment. Submits to `POST /api/advance-payments/` with correct payload per category. Shows backend 422 errors. |
-| `/years-overview` | `pages/YearsOverview.tsx` | Year-over-year consumption table + separate line charts per energy type (Strom, Wasser, Gas) for all logical meters (chain-resolved via backend). Years link to `/years/:year`. |
+| `/years-overview` | `pages/YearsOverview.tsx` | Year-over-year consumption table + separate line charts per energy type (Strom, Wasser, Gas) for all logical meters (chain-resolved via backend). m³/water values are shown with one decimal (`toFixed(1)`) in both the table cells and the chart tooltip; kWh values are rounded to integers. Years link to `/years/:year`. |
 | `/years/:year` | `pages/YearDetail.tsx` | Year detail page grouped by category (Strom, Wasser, Gas). **Strom** uses MeterBlock per meter + EEG-Einspeisevergütung card. **Wasser** uses combined WaterSection (consumption strip, dual-line chart, paired comparison grids for Frischwasser + Abwasser). **Gas** uses GasSection (consumption strip, chart, readings table, comparison grid per meter). Readings are editable/deletable via inline dialog in all tables. |
 | `/custom-range` | `pages/CustomRange.tsx` | Custom time-range analysis: from/to date inputs (default: current year, via module-level constants) + meter-type toggles (Strom/Wasser/Gas). Fetches `GET /api/costs/consumption-timeseries` — one unfiltered request when all three types are active, otherwise one parallel request per type — and renders one card per active area (`AreaBlock`) with a combined multi-line chart (consumption between readings, no projections) and **one table per meter** laid out side-by-side (grid: Datum/Zählerstand/Verbrauch). The price column is labelled **"Vergütung"** for Einspeisung/Erzeugung meters and **"Kosten"** otherwise. When production + export meters exist and Strom is active, a **"EEG-Einspeisevergütung (EEG 2009)"** summary card shows the period total via `GET /api/electricity/feed-in-compensation` (range-based, requires a `feed_in_eeg2009` tariff on the export meter). Quick-select buttons ("1 Monat", "3 Monate", "6 Monate", "Jahr"), "Anwenden" applies the entered range, plus loading/error/empty states. |
 
@@ -66,7 +66,7 @@ All follow the shadcn/ui pattern (Tailwind + `cn()` helper, forwardRef, displayN
 ### Business components (`components/`)
 | Component | File | Notes |
 |---|---|---|
-| `EditMeterModal` | `EditMeterModal.tsx` | Dialog for editing a meter: name, number, predecessor dropdown. Meter type and unit are read-only. |
+| `EditMeterModal` | `EditMeterModal.tsx` | Dialog for editing a meter: name, number, predecessor dropdown. Meter type and unit are read-only. The predecessor dropdown only lists same-type meters and excludes the meter itself (a meter can never be its own predecessor); it keeps the currently selected predecessor selectable. |
 | `ThemeToggle` | `ThemeToggle.tsx` | Dark/light mode toggle button in nav bar. Stores preference in `localStorage.theme`. |
 | `SortableHeader` | `SortableHeader.tsx` | Reusable sortable table header. Renders a real `<button>` (a11y-friendly) with an arrow indicator (↑/↓ when active, dimmed ↑↓ otherwise). Props: `label`, `sortKey`, `sort`, `onSort`. Used by `TariffList` and `AdvancePaymentList`. |
 | `TableSearch` | `TableSearch.tsx` | Reusable free-text search `Input` with a search icon and an X to clear (`aria-label="Suche zurücksetzen"`). Props: `value`, `onChange`, `placeholder`. Used by `TariffList` and `AdvancePaymentList`. |
@@ -163,7 +163,7 @@ The following backend endpoints/features have **zero** frontend representation:
 
 ## 8. Tests (Vitest)
 
-Vitest is the render-safety net for dependency migrations (Vite 7, React 19). The suite's only job is to detect *"the app no longer renders"* — nothing more. It is deliberately minimal.
+Vitest is the render-safety net for dependency migrations (Vite 7, React 19) — the smoke tests exist to detect *"the app no longer renders"*. In addition, a set of **focused component tests** (`src/test/*.test.tsx`) assert specific behaviours of key interactions (e.g. the meter-form predecessor filter and the YearsOverview m³ formatting).
 
 **Stack (current):** `vitest ^3.2.7`, `@vitest/ui ^3`, `@vitest/coverage-v8 ^3.2.7`, `@testing-library/react ^16` (+ explicit peer `@testing-library/dom ^10`), `@testing-library/jest-dom ^6`, `@testing-library/user-event ^14`, `jsdom ^30`. Note: `@testing-library/dom` must stay an explicit devDependency — `@testing-library/react` only declares it as a peer, and installs with `--legacy-peer-deps` (or `--omit=peer`) silently drop it.
 
@@ -180,7 +180,7 @@ Vitest is the render-safety net for dependency migrations (Vite 7, React 19). Th
 | `npm run test:watch` | Watch mode, re-runs on file changes. |
 | `npm run test:ui` | Interactive browser UI (via `@vitest/ui`). |
 
-Currently: **12 smoke tests across `src/test/smoke/`, one per top-level route component — all green.**
+Currently: **63 tests, all green** — 14 smoke tests across `src/test/smoke/` (one per top-level route component) plus 49 focused component tests in `src/test/*.test.tsx` (AddReading, EditMeterModal, MeterForm, TariffForm, YearDetail, YearsOverview).
 
 **Coverage (baseline, Sept 26 2026):** overall **35.4 % statements/lines**, **59.5 % branches**, **25.9 % functions** (`@vitest/coverage-v8`, provider `v8`). Configured in the `test.coverage` block of `vite.config.ts` — `reporter: ['text', 'html']`, report written to `coverage/`. Excluded from the report: `src/test/`, `*.test.*`, `*.d.ts`, `src/main.tsx` (entry point), `src/vite-env.d.ts`, `dist/`, and config files (`vite.config.ts`, `tailwind.config.*`, `postcss.config.*`, `eslint.config.*`). The baseline is low by design — the suite is deliberately minimal render-safety smoke tests, so most page/component logic stays uncovered.
 
@@ -192,6 +192,8 @@ src/test/
 ├── mocks/
 │   └── api.ts        # mock implementations of all API client objects
 ├── utils.tsx         # renderWithProviders() helper
+├── *.test.tsx        # focused component tests (AddReading, EditMeterModal, MeterForm,
+│                     #   TariffForm, YearDetail, YearsOverview)
 └── smoke/            # one *.test.tsx per route component
 ```
 
@@ -207,7 +209,7 @@ src/test/
 4. Prefer exact heading names when the title text is the whole accessible name. For `CardTitle` headings that also embed an action link (e.g. `MeterList`'s "Alle Zähler" + "Neuer Zähler"), match the name with a regex (`{ name: /Alle Zähler/ }`).
 
 **Constraints that must hold:**
-- Do **not** assert on specific numbers, formatted values, dates, currency, or Tailwind classes — these are expected to change during the migration.
+- The smoke-test rules (1–4) are deliberately minimal and must **not** assert on specific numbers, formatted values, dates, currency, or Tailwind classes — these are expected to change during the migration. Focused **component tests** (in `src/test/*.test.tsx`) may assert such specifics when the behaviour under test is exactly that value or option (e.g. the predecessor dropdown exclude-self logic or the m³ `toFixed(1)` formatting).
 - Do **not** assert on chart internals; if Recharts data is involved, assert on the surrounding container instead.
 - If data is needed beyond the defaults, override a mock per-test via `vi.mocked(metersApi.getById).mockResolvedValue(...)` importable from `src/test/mocks/api`.
 - Do not modify application source code to make a test pass. If a route cannot be tested without refactoring app code, skip it and note why instead.

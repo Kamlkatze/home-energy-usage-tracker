@@ -34,7 +34,7 @@ const ChartTooltip: React.FC<{ active?: boolean; payload?: any[], label?: any; i
       {payload.map((p: any, idx: number) => {
         const unit = items.find(i => i.meter_label === p.name)?.unit || '';
         const value = typeof p.value === 'number'
-          ? (unit === 'kWh' ? `${Math.round(p.value)} ${unit}` : `${p.value.toFixed(2)} ${unit}`)
+          ? (unit === 'kWh' ? `${Math.round(p.value)} ${unit}` : `${p.value.toFixed(1)} ${unit}`)
           : p.value;
         return (
           <p key={idx} style={{ color: p.color, margin: 0 }}>
@@ -231,7 +231,7 @@ const YearsOverview: React.FC = () => {
                     return (
                       <TableCell key={item.meter_id}>
                         {val != null
-                          ? `${item.unit === 'kWh' ? Math.round(parseFloat(val)) : parseFloat(val).toFixed(2)} ${item.unit}`
+                          ? `${item.unit === 'kWh' ? Math.round(parseFloat(val)) : parseFloat(val).toFixed(1)} ${item.unit}`
                           : '—'}
                       </TableCell>
                     );

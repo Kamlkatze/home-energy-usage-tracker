@@ -42,6 +42,7 @@ const EditMeterForm: React.FC<EditMeterFormProps> = ({ meter, allMeters, onClose
   const currentPredecessorId = meter.replaces_meter_id ?? null;
   const eligiblePredecessors = allMeters.filter(
     (m) =>
+      m.id !== meter.id &&
       m.meter_type === meter.meter_type &&
       (currentPredecessorId === m.id || !replacedMeterIds.has(m.id))
   );
