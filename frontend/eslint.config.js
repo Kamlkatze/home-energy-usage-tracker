@@ -9,7 +9,7 @@ import jsxA11y from 'eslint-plugin-jsx-a11y';
 export default tseslint.config(
   // Ignore patterns
   {
-    ignores: ['dist', 'node_modules'],
+    ignores: ['dist', 'coverage', 'node_modules'],
   },
   // Main source files
   {
