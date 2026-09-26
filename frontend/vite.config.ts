@@ -20,5 +20,22 @@ export default defineConfig({
     globals: true,
     setupFiles: ['./src/test/setup.ts'],
     css: false,
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'html'],
+      reportsDirectory: 'coverage',
+      exclude: [
+        '**/src/test/**',
+        '**/*.test.{ts,tsx}',
+        '**/*.d.ts',
+        'src/main.tsx',
+        'src/vite-env.d.ts',
+        'dist/**',
+        '**/vite.config.ts',
+        '**/tailwind.config.*',
+        '**/postcss.config.*',
+        '**/eslint.config.*',
+      ],
+    },
   },
 })

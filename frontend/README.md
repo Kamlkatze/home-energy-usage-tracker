@@ -165,7 +165,7 @@ The following backend endpoints/features have **zero** frontend representation:
 
 Vitest is the render-safety net for dependency migrations (Vite 7, React 19). The suite's only job is to detect *"the app no longer renders"* — nothing more. It is deliberately minimal.
 
-**Stack (current):** `vitest ^3.2.7`, `@vitest/ui ^3`, `@testing-library/react ^16` (+ explicit peer `@testing-library/dom ^10`), `@testing-library/jest-dom ^6`, `@testing-library/user-event ^14`, `jsdom ^30`. Note: `@testing-library/dom` must stay an explicit devDependency — `@testing-library/react` only declares it as a peer, and installs with `--legacy-peer-deps` (or `--omit=peer`) silently drop it.
+**Stack (current):** `vitest ^3.2.7`, `@vitest/ui ^3`, `@vitest/coverage-v8 ^3.2.7`, `@testing-library/react ^16` (+ explicit peer `@testing-library/dom ^10`), `@testing-library/jest-dom ^6`, `@testing-library/user-event ^14`, `jsdom ^30`. Note: `@testing-library/dom` must stay an explicit devDependency — `@testing-library/react` only declares it as a peer, and installs with `--legacy-peer-deps` (or `--omit=peer`) silently drop it.
 
 **`vite.config.ts` rule:** type the `test` block with `/// <reference types="vitest/config" />` and import `defineConfig` from `'vite'` — never from `'vitest/config'`. The dev container runs vite from a persistent `node_modules` volume, and a runtime import of vitest makes the whole dev server crash at config load if that volume predates Vitest (see AGENTS.md learning 30). `Dockerfile.dev` mitigates this by running `npm ci` on start whenever `node_modules` is missing or `package-lock.json` is newer than the install marker.
 
@@ -176,10 +176,13 @@ Vitest is the render-safety net for dependency migrations (Vite 7, React 19). Th
 | Command | What it does |
 |---|---|
 | `npm run test` | Run the full suite once (CI-friendly). |
+| `npm run test:coverage` | Run the full suite once with V8 code coverage; prints a `text` summary and writes an interactive HTML report to `coverage/`. |
 | `npm run test:watch` | Watch mode, re-runs on file changes. |
 | `npm run test:ui` | Interactive browser UI (via `@vitest/ui`). |
 
 Currently: **12 smoke tests across `src/test/smoke/`, one per top-level route component — all green.**
+
+**Coverage (baseline, Sept 26 2026):** overall **35.4 % statements/lines**, **59.5 % branches**, **25.9 % functions** (`@vitest/coverage-v8`, provider `v8`). Configured in the `test.coverage` block of `vite.config.ts` — `reporter: ['text', 'html']`, report written to `coverage/`. Excluded from the report: `src/test/`, `*.test.*`, `*.d.ts`, `src/main.tsx` (entry point), `src/vite-env.d.ts`, `dist/`, and config files (`vite.config.ts`, `tailwind.config.*`, `postcss.config.*`, `eslint.config.*`). The baseline is low by design — the suite is deliberately minimal render-safety smoke tests, so most page/component logic stays uncovered.
 
 ### How the suite is organised
 
