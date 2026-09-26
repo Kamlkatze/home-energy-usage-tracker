@@ -55,11 +55,14 @@ Applies to everything under `backend/`, **in addition to** the root `AGENTS.md`
 
 ## Domain & cost-calculation knowledge
 
-- No fixed 30-day month convention: `_prorate_monthly()` in `costs.py` uses calendar-accurate
-  month lengths (full months = 1, partial months prorated by actual days in that month). It
-  replaced `_DAYS_PER_MONTH = Decimal(30)` and fixes systematic overcounting for periods > 30 days
-  (365/30 = 12.167 instead of 12). Call sites: base fee in single-period, multi-period,
-  multiperiod-raw, and advance-payment proration
+- No fixed 30-day month convention: `_prorate_monthly()` in `app/services/cost_calculation.py`
+  uses calendar-accurate month lengths (full months = 1, partial months prorated by actual days
+  in that month). It replaced `_DAYS_PER_MONTH = Decimal(30)` and fixes systematic overcounting
+  for periods > 30 days (365/30 = 12.167 instead of 12). Call sites: base fee in single-period,
+  multi-period, multiperiod-raw, and advance-payment proration
+- Cost calculation helpers live in `app/services/`: `cost_calculation.py` (pure math),
+  `cost_queries.py` (DB lookups/validation), `meter_chain_costs.py` (replacement-chain
+  consumption/cost). `app/api/costs.py` keeps the routes and endpoint-specific orchestration
 - TariffKind simplification: standalone `base_fee` and `metering_fee` kinds were removed and merged
   into the `consumption` kind as optional `base_fee_monthly` / `metering_fee_monthly` fields
   (migration `f470c15c6414` modifies the PG enum and adds the column; no production data migration

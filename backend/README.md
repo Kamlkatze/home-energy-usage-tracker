@@ -222,7 +222,8 @@ Response (200):
 
 ## Cost Calculation
 
-**`app/api/costs.py`**
+**`app/api/costs.py`**  (calculation helpers live in `app/services/cost_calculation.py`,
+`cost_queries.py`, and `meter_chain_costs.py`)
 
 ### Single meter
 Consumption = `end_reading.value − start_reading.value`. Base fee is prorated using

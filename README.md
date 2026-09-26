@@ -888,8 +888,8 @@ home-energy-usage-tracker/
 │   │   ├── api/
 │   │   │   ├── __init__.py           # Router registration
 │   │   │   ├── advance_payments.py   # CRUD endpoints for advance payments
-│   │   │   ├── costs.py              # Cost calculation, wastewater, yearly projection,
-│   │   │   │                         #   consumption-timeseries, and advance-payment-diff endpoints
+│   │   │   ├── costs.py              # Cost, wastewater, yearly-projection, consumption-timeseries,
+│   │   │   │                         #   and advance-payment-diff endpoints (helpers live in services/)
 │   │   │   ├── deps.py               # Dependency injection (database session)
 │   │   │   ├── electricity.py         # EEG 2009 feed-in compensation endpoint
 │   │   │   ├── meters.py             # CRUD endpoints for meters
@@ -913,7 +913,10 @@ home-energy-usage-tracker/
 │   │   │   ├── tariff_period.py      # TariffPeriod schemas with TariffKind
 │   │   │   └── yearly_projection_cost.py # Yearly projection with cost response schema
 │   │   ├── services/
+│   │   │   ├── cost_calculation.py   # Pure cost math (proration, multi-period rounding, gas conversion)
+│   │   │   ├── cost_queries.py       # DB lookup / validation helpers for cost endpoints
 │   │   │   ├── meter_chain.py        # Meter replacement chain resolution
+│   │   │   ├── meter_chain_costs.py  # Replacement-chain consumption & cost logic
 │   │   │   └── projection.py         # Business logic for projection calculations
 │   │   ├── __init__.py
 │   │   ├── config.py                 # Configuration with pydantic-settings

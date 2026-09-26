@@ -206,7 +206,8 @@ class ProjectionService:
 
         # Multi-meter: accumulate consumption segment by segment.
         # Find the transition dates by looking at the first reading of each
-        # successor meter (same logic as _get_chain_consumption in costs.py).
+        # successor meter (same logic as _get_chain_consumption in
+        # app/services/meter_chain_costs.py).
         from datetime import timedelta
 
         total = Decimal(0)
