@@ -29,10 +29,10 @@ Scope-specific rules live in nested files and apply **in addition** to this one:
 - Test:    `cd backend && uv run --extra dev pytest` (needs the `db-test` container from
   docker-compose.dev.yml on port 5433; default TEST_DATABASE_URL is PostgreSQL there – tests
   requiring the EXCLUDE constraint FAIL on SQLite, by design)
-- FE test: `cd frontend && npm run test` (Vitest smoke tests, 11 tests)
+- FE test: `cd frontend && npm run test` (Vitest smoke tests, 12 tests)
 - Lint:    `cd backend && uv run --extra dev ruff check --fix && uv run --extra dev mypy app/models`
 - FE lint: `cd frontend && npm run lint` (ESLint 9 flat config; exits 1 if any warning –
-  target is **0 errors**, currently 50 known warnings)
+  target is **0 errors**, currently 38 known warnings)
 - Dev:     `docker compose -f docker-compose.dev.yml up`
 - Prod:    `docker compose up -d --build` (uses docker-compose.yml, mounts `./backend/app:/app/app`)
 - DB console: `podman exec -it home-energy-usage-tracker_db_1 psql -U postgres -d energy_tracker`

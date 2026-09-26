@@ -12,7 +12,8 @@ import AdvancePaymentList from './pages/AdvancePaymentList';
 import AdvancePaymentForm from './pages/AdvancePaymentForm';
 import YearsOverview from './pages/YearsOverview';
 import YearDetail from './pages/YearDetail';
-import { Home, BarChart2, FileText, Settings, Euro, CalendarDays } from 'lucide-react';
+import CustomRange from './pages/CustomRange';
+import { Home, BarChart2, FileText, Settings, Euro, CalendarDays, CalendarRange } from 'lucide-react';
 import ThemeToggle from './components/ThemeToggle';
 
 const App: React.FC = () => {
@@ -37,6 +38,12 @@ const App: React.FC = () => {
                   <Button variant="ghost" size="sm" className="gap-2">
                     <CalendarDays className="h-4 w-4" />
                     Jahresübersicht
+                  </Button>
+                </Link>
+                <Link to="/custom-range">
+                  <Button variant="ghost" size="sm" className="gap-2">
+                    <CalendarRange className="h-4 w-4" />
+                    Zeitraum
                   </Button>
                 </Link>
                 <Link to="/readings/new">
@@ -82,6 +89,7 @@ const App: React.FC = () => {
             <Route path="/advance-payments/new" element={<AdvancePaymentForm />} />
             <Route path="/years-overview" element={<YearsOverview />} />
             <Route path="/years/:year" element={<YearDetail />} />
+            <Route path="/custom-range" element={<CustomRange />} />
           </Routes>
         </main>
         

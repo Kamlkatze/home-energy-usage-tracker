@@ -1,6 +1,14 @@
 import React, { useState } from 'react';
 import { MeterSection, AdvancePaymentDiffs } from './types';
-import { formatEuro, basisLabel, niceAxisBounds } from './utils';
+import { basisLabel } from './utils';
+import {
+  COLORS,
+  formatConsumption as formatConsumptionShared,
+  formatEuro,
+  formatReadingValue as formatReadingValueShared,
+  niceAxisBounds,
+} from '../shared/chartHelpers';
+import ChartTooltip from '../shared/ChartTooltip';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { Loader2, Pencil, Trash2 } from 'lucide-react';
 import {
@@ -8,45 +16,6 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import ReadingEditDialog from './ReadingEditDialog';
-
-// Read once at module load instead of calling Date.now() during render
-// (forbidden by react-hooks/purity): "future" data points are relative
-// to the time the chart module was loaded with the page.
-const LOAD_TIME_MS = Date.now();
-
-const ChartTooltip: React.FC<{ active?: boolean; payload?: any[]; label?: any; unit: string; showConsumption?: boolean }> = ({ active, payload, label, unit }) => {
-  if (!active || !payload || payload.length === 0) return null;
-  const isFuture = typeof label === 'number' ? label > LOAD_TIME_MS : false;
-  const filteredPayload = isFuture
-    ? payload
-    : payload.filter((p: any) => p.name !== 'Hochrechnung');
-  if (filteredPayload.length === 0) return null;
-  const fmtValue = (v: number): string => unit === 'kWh' ? Math.round(v).toString() : v.toFixed(1);
-  return (
-    <div style={{
-      backgroundColor: 'hsl(var(--popover))',
-      color: 'hsl(var(--popover-foreground))',
-      border: '1px solid hsl(var(--border))',
-      borderRadius: 'var(--radius)',
-      padding: '8px 12px',
-      fontSize: '12px',
-    }}>
-      <p style={{ marginBottom: 4, fontWeight: 600 }}>
-        Datum: {label ? new Date(label).toLocaleDateString() : '—'}
-      </p>
-      {filteredPayload.map((p: any, idx: number) => (
-        <p key={idx} style={{ color: p.color, margin: 0 }}>
-          {p.name}: {typeof p.value === 'number' ? `${fmtValue(p.value)} ${unit}` : p.value}
-        </p>
-      ))}
-    </div>
-  );
-};
-
-const COLORS = [
-  '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6',
-  '#ec4899', '#14b8a6', '#f97316',
-];
 
 const MeterBlock: React.FC<{
   section: MeterSection;
@@ -61,14 +30,11 @@ const MeterBlock: React.FC<{
   const unit = item.unit;
   const chartColor = COLORS[meterIdx % COLORS.length];
 
-  const formatConsumption = (value: string | null): string => {
-    if (value === null) return '—';
-    const num = parseFloat(value);
-    return unit === 'kWh' ? `${Math.round(num)} ${unit}` : `${num.toFixed(1)} ${unit}`;
-  };
+  const formatConsumption = (value: string | null): string =>
+    formatConsumptionShared(value, unit);
 
   const formatReadingValue = (value: string): string =>
-    unit === 'kWh' ? Math.round(parseFloat(value)).toString() : value;
+    formatReadingValueShared(value, unit);
 
   const startOfYear = new Date(year, 0, 1).getTime();
   const startOfNextYear = new Date(year + 1, 0, 1).getTime();
@@ -313,7 +279,7 @@ const MeterBlock: React.FC<{
                   tickFormatter={(v: number) => Math.round(v).toString()}
                   stroke="hsl(var(--muted-foreground))"
                 />
-                <Tooltip content={<ChartTooltip unit={unit} showConsumption={showConsumption} />} />
+                <Tooltip content={<ChartTooltip unit={unit} />} />
                 <Line
                   type="monotone"
                   dataKey="value"

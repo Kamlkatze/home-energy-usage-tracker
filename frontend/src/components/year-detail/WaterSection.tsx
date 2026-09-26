@@ -1,6 +1,12 @@
 import React, { useState } from 'react';
 import { MeterSection, AdvancePaymentDiffs } from './types';
-import { formatEuro, basisLabel, niceAxisBounds } from './utils';
+import { basisLabel } from './utils';
+import {
+  formatConsumption as formatConsumptionShared,
+  formatEuro,
+  niceAxisBounds,
+} from '../shared/chartHelpers';
+import ChartTooltip from '../shared/ChartTooltip';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Loader2, Euro, Pencil, Trash2 } from 'lucide-react';
 import { WastewaterCosts, Reading } from '../../types';
@@ -25,39 +31,6 @@ interface CombinedChartPoint {
   isFwEnd: boolean;
   isGwEnd: boolean;
 }
-
-// Read once at module load instead of calling Date.now() during render
-// (forbidden by react-hooks/purity): "future" data points are relative
-// to the time the chart module was loaded with the page.
-const LOAD_TIME_MS = Date.now();
-
-const ChartTooltip: React.FC<{ active?: boolean; payload?: any[]; label?: any }> = ({ active, payload, label }) => {
-  if (!active || !payload || payload.length === 0) return null;
-  const isFuture = typeof label === 'number' ? label > LOAD_TIME_MS : false;
-  const filteredPayload = isFuture
-    ? payload
-    : payload.filter((p: any) => !p.name.includes('(prog.)'));
-  if (filteredPayload.length === 0) return null;
-  return (
-    <div style={{
-      backgroundColor: 'hsl(var(--popover))',
-      color: 'hsl(var(--popover-foreground))',
-      border: '1px solid hsl(var(--border))',
-      borderRadius: 'var(--radius)',
-      padding: '8px 12px',
-      fontSize: '12px',
-    }}>
-      <p style={{ marginBottom: 4, fontWeight: 600 }}>
-        Datum: {label ? new Date(label).toLocaleDateString() : '—'}
-      </p>
-      {filteredPayload.map((p: any, idx: number) => (
-        <p key={idx} style={{ color: p.color, margin: 0 }}>
-          {p.name}: {typeof p.value === 'number' ? `${p.value.toFixed(1)} m³` : p.value}
-        </p>
-      ))}
-    </div>
-  );
-};
 
 function makeCombinedChartData(
   coldSection: MeterSection | undefined,
@@ -217,10 +190,8 @@ const coldConsActual = coldSection.projection?.actual_consumption_to_date ?? col
   const startOfYear = new Date(year, 0, 1).getTime();
   const startOfNextYear = new Date(year + 1, 0, 1).getTime();
 
-  const formatConsumption = (value: string | null): string => {
-    if (value === null) return '—';
-    return `${parseFloat(value).toFixed(1)} m³`;
-  };
+  const formatConsumption = (value: string | null): string =>
+    formatConsumptionShared(value, 'm\u00B3');
 
   const coldDiff = advancePaymentDiffs['cold_water'];
   const awDiff = advancePaymentDiffs['wastewater'];
@@ -314,7 +285,7 @@ const coldConsActual = coldSection.projection?.actual_consumption_to_date ?? col
                     tickFormatter={(v: number) => Math.round(v).toString()}
                     stroke="hsl(var(--muted-foreground))"
                   />
-                  <Tooltip content={<ChartTooltip />} />
+                  <Tooltip content={<ChartTooltip unit="m\u00B3" />} />
                   <Line
                     type="monotone"
                     dataKey="fwValue"

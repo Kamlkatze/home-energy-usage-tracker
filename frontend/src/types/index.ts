@@ -85,6 +85,21 @@ export interface YearsOverviewItem {
   years: YearEntry[];
 }
 
+export interface ConsumptionTimeseriesPoint {
+  date: string;
+  value: string;
+  consumption_since_previous: string | null;
+  cost_since_previous: string | null;
+}
+
+export interface ConsumptionTimeseriesItem {
+  meter_id: number;
+  meter_label: string;
+  meter_type: MeterType;
+  unit: string;
+  points: ConsumptionTimeseriesPoint[];
+}
+
 export interface YearlyProjection {
   meter_id: number;
   year: number;

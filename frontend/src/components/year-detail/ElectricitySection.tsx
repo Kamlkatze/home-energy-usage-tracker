@@ -1,6 +1,7 @@
 import React from 'react';
 import { MeterSection, AdvancePaymentDiffs } from './types';
-import { formatEuro, basisLabel } from './utils';
+import { basisLabel } from './utils';
+import { formatEuro } from '../shared/chartHelpers';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Loader2, Zap } from 'lucide-react';
 import { FeedInCompensation, FeedInCompensationProjection, YearlyProjection } from '../../types';
