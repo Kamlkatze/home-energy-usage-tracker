@@ -20,18 +20,24 @@ describe('CustomRange page', () => {
   });
 
   it('renders one table per meter, labelling feed-in/generation as Vergütung and others as Kosten', async () => {
-    const meter = (id: number, label: string, meter_type: 'electricity_export' | 'electricity_production' | 'electricity_import', cost: string | null) => ({
-      meter_id: id,
-      meter_label: label,
-      meter_type,
-      unit: 'kWh',
-      points: [{
-        date: '2025-04-01',
-        value: '1000.000',
-        consumption_since_previous: '100.000',
-        cost_since_previous: cost,
-      }],
-    });
+    const meter = (id: number, label: string, meter_type: 'electricity_export' | 'electricity_production' | 'electricity_import', cost: string | null) => {
+      const isShownBreakdown = meter_type === 'electricity_import';
+      return {
+        meter_id: id,
+        meter_label: label,
+        meter_type,
+        unit: 'kWh',
+        points: [{
+          date: '2025-04-01',
+          value: '1000.000',
+          consumption_since_previous: '100.000',
+          cost_since_previous: cost,
+          base_fee_since_previous: isShownBreakdown ? '10.81' : null,
+          metering_fee_since_previous: isShownBreakdown ? '0.00' : null,
+          energy_cost_since_previous: isShownBreakdown ? '58.80' : null,
+        }],
+      };
+    };
     vi.mocked(costsApi.getConsumptionTimeseries).mockResolvedValue([
       meter(1, 'Strom Einspeisung', 'electricity_export', '60.31'),
       meter(2, 'Strom Erzeugung', 'electricity_production', '75.60'),
@@ -57,8 +63,8 @@ describe('CustomRange page', () => {
     expect(await screen.findByText('Strom Einspeisung')).toBeInTheDocument();
     expect(screen.getByText('Strom Erzeugung')).toBeInTheDocument();
     expect(screen.getByText('Strom Bezug')).toBeInTheDocument();
-    expect(screen.getAllByText('Verg\u00fctung')).toHaveLength(2);
-    expect(screen.getAllByText('Kosten')).toHaveLength(1);
+    expect(screen.getAllByText('Verg\u00fctung seit letzter Ablesung')).toHaveLength(2);
+    expect(screen.getAllByText('Kosten seit letzter Ablesung')).toHaveLength(1);
     expect(
       screen.getAllByText(
         'Verg\u00fctungsberechnung nur f\u00fcr fixe Verg\u00fctungsmodelle (fester Satz)'
@@ -68,5 +74,39 @@ describe('CustomRange page', () => {
     expect(await screen.findByText('50.25 \u20AC')).toBeInTheDocument();
     expect(screen.getByText('Verg\u00fctung (brutto): 54.50 \u20AC')).toBeInTheDocument();
     expect(screen.getByText('abz\u00fcglich Messstellenbetrieb: \u22124.25 \u20AC')).toBeInTheDocument();
+
+    // Strom Bezug (Kosten) shows the total plus its breakdown line.
+    expect(screen.getByText('88.00 \u20AC')).toBeInTheDocument();
+    expect(
+      screen.getByText('Arbeitspreis 58.80 \u20AC \u00b7 Grundpreis 10.81 \u20AC')
+    ).toBeInTheDocument();
+  });
+
+  it('renders a hyphen for a feed-in meter without a pure Einspeisevergütung tariff, and an em dash for missing cost data', async () => {
+    const point = (id: number, label: string, meterType: string, cost: string | null) => ({
+      meter_id: id,
+      meter_label: label,
+      meter_type: meterType,
+      unit: 'kWh',
+      points: [{
+        date: '2025-04-01',
+        value: '100.000',
+        consumption_since_previous: '20.000',
+        cost_since_previous: cost,
+      }],
+    });
+    vi.mocked(costsApi.getConsumptionTimeseries).mockResolvedValue([
+      point(1, 'Strom Erzeugung', 'electricity_production', null),
+      point(2, 'Strom Einspeisung', 'electricity_export', null),
+      point(3, 'Strom Bezug', 'electricity_import', null),
+    ]);
+
+    renderWithProviders(<CustomRange />);
+
+    expect(await screen.findByText('Strom Bezug')).toBeInTheDocument();
+    // Feed-in / production meters without a pure tariff → "-"
+    expect(screen.getAllByText('-')).toHaveLength(2);
+    // A cost meter without an applicable tariff keeps the em dash "—"
+    expect(screen.getAllByText('\u2014')).toHaveLength(1);
   });
 });

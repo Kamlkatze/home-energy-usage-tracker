@@ -159,7 +159,7 @@ Response (200):
 | `valid_to` | date nullable | inclusive upper bound; `null` = open-ended |
 | `price_per_unit` | numeric(10,5) | |
 | `base_fee_monthly` | numeric(10,2) nullable | only meaningful for `consumption` tariffs |
-| `metering_fee_monthly` | numeric(10,2) nullable | only meaningful for `consumption` tariffs |
+| `metering_fee_monthly` | numeric(10,2) nullable | Messstellenbetrieb; prorated monthly and included in the cost breakdown |
 | `gas_z_zahl` | numeric(10,5) nullable | Zustandszahl; required for gas cost calculation |
 | `gas_brennwert` | numeric(10,5) nullable | kWh/m³; required for gas cost calculation |
 | `eeg_tier1_rate` | numeric(10,5) nullable | only meaningful for `feed_in_eeg2009` tariffs |
@@ -327,9 +327,10 @@ The optional `meter_type` query parameter (a `MeterType` enum value, e.g. `elect
 
 **Per-point calculation:**
 - `consumption_since_previous = current_reading.value - previous_reading.value` (null if no previous reading exists or delta is negative)
-- `cost_since_previous` computed via multi-period cost logic over `[previous_reading_date, current_reading_date)` (null if no tariff covers that sub-period, or on gas conversion factor errors). Reuses `_get_overlapping_tariffs` and `_compute_cost_fields_multiperiod`.
+- `cost_since_previous` computed via multi-period cost logic over `[previous_reading_date, current_reading_date)` (null if no tariff covers that sub-period, or on gas conversion factor errors). Reuses `_get_overlapping_tariffs` and `_compute_cost_fields_multiperiod_breakdown`.
+- The cost is broken down per point into `energy_cost_since_previous` (Arbeitspreis), `base_fee_since_previous` (Grundpreis) and `metering_fee_since_previous` (Messstellenbetrieb); the three sum exactly to `cost_since_previous`. Both the Grundpreis and the Messstellenbetrieb are prorated calendar-accurately from their respective monthly fee fields; the Grundpreis was already included before, the Messstellenbetrieb is now also included in the total cost (`_accumulate_costs`).
 - Gas consumption is converted m³→kWh per tariff period using `gas_z_zahl × gas_brennwert`.
-- Missing tariffs or negative consumption per point result in null fields (never fail the whole request).
+- Missing tariffs or negative consumption per point result in null fields (never fail the whole request). For `electricity_export`/`electricity_production` meters the value is an Einspeisevergütung from the `feed_in` tariff (no base fee): `cost_since_previous`/`energy_cost_since_previous` hold the Vergütung, `base_fee_since_previous` is null and `metering_fee_since_previous` is `"0.00"`.
 
 **Omission:** Meters/chain with zero readings in `[from, to]` are omitted from the response.
 

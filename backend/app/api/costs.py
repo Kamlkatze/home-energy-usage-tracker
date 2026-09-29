@@ -15,6 +15,7 @@ from ..services.cost_calculation import (
     _GAS_CONVERSION_FIELDS_MESSAGE,
     _combine_messages,
     _compute_cost_fields_multiperiod,
+    _compute_cost_fields_multiperiod_breakdown,
     _compute_cost_fields_multiperiod_raw,
     _prorate_monthly,
 )
@@ -1120,6 +1121,9 @@ def get_consumption_timeseries(
 
             consumption_str: str | None = None
             cost_str: str | None = None
+            base_fee_str: str | None = None
+            metering_fee_str: str | None = None
+            energy_cost_str: str | None = None
 
             if prev_reading is not None:
                 consumption_delta = reading.value - prev_reading.value
@@ -1146,7 +1150,7 @@ def get_consumption_timeseries(
                                 prev_reading.reading_date,
                                 reading.reading_date,
                             )
-                            _, verguetung_raw = _compute_cost_fields_multiperiod_raw(
+                            _, _, verguetung_raw = _compute_cost_fields_multiperiod_raw(
                                 consumption_delta,
                                 tariffs,
                                 prev_reading.reading_date,
@@ -1156,6 +1160,9 @@ def get_consumption_timeseries(
                                 _CENT, rounding=ROUND_HALF_UP
                             )
                             cost_str = str(verguetung)
+                            base_fee_str = None
+                            metering_fee_str = "0.00"
+                            energy_cost_str = str(verguetung)
                         else:
                             tariffs = _get_overlapping_tariffs(
                                 db,
@@ -1164,23 +1171,37 @@ def get_consumption_timeseries(
                                 prev_reading.reading_date,
                                 reading.reading_date,
                             )
-                            _, total_cost, _ = _compute_cost_fields_multiperiod(
-                                consumption_delta,
-                                tariffs,
-                                prev_reading.reading_date,
-                                reading.reading_date,
-                                meter_type=meter.meter_type,
+                            base_fee, metering_fee, energy_cost = (
+                                _compute_cost_fields_multiperiod_breakdown(
+                                    consumption_delta,
+                                    tariffs,
+                                    prev_reading.reading_date,
+                                    reading.reading_date,
+                                    meter_type=meter.meter_type,
+                                )
                             )
+                            total_cost = (
+                                base_fee + metering_fee + energy_cost
+                            ).quantize(_CENT, rounding=ROUND_HALF_UP)
                             cost_str = str(total_cost)
+                            base_fee_str = str(base_fee)
+                            metering_fee_str = str(metering_fee)
+                            energy_cost_str = str(energy_cost)
                     except HTTPException:
                         # No tariff for this sub-period → value is null.
                         cost_str = None
+                        base_fee_str = None
+                        metering_fee_str = None
+                        energy_cost_str = None
 
             points.append(schemas.ConsumptionTimeseriesPoint(
                 date=reading.reading_date,
                 value=str(reading.value),
                 consumption_since_previous=consumption_str,
                 cost_since_previous=cost_str,
+                base_fee_since_previous=base_fee_str,
+                metering_fee_since_previous=metering_fee_str,
+                energy_cost_since_previous=energy_cost_str,
             ))
 
             prev_reading = reading

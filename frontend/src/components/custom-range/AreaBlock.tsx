@@ -1,5 +1,5 @@
 import React from 'react';
-import { ConsumptionTimeseriesItem } from '../../types';
+import { ConsumptionTimeseriesItem, ConsumptionTimeseriesPoint } from '../../types';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import {
@@ -20,9 +20,58 @@ interface AreaChartPoint {
 // value that is a Vergütung (compensation), not a cost.
 function priceColumnLabel(meterType: ConsumptionTimeseriesItem['meter_type']): string {
   return meterType === 'electricity_export' || meterType === 'electricity_production'
-    ? 'Vergütung'
-    : 'Kosten';
+    ? 'Vergütung seit letzter Ablesung'
+    : 'Kosten seit letzter Ablesung';
 }
+
+// Renders the per-point monetary value. For cost meters the total is shown
+// together with its breakdown (Arbeitspreis / Grundpreis / Messstellenbetrieb)
+// on a second line; feed-in meters show the plain Vergütung. A missing value
+// for a feed-in meter (EEG 2009 or no pure (fester Satz) Einspeisevergütung
+// tariff) renders as "-", not the "—" used for missing cost data.
+const CostCell: React.FC<{ point: ConsumptionTimeseriesPoint; isFeedIn: boolean }> =
+  ({ point, isFeedIn }) => {
+    if (point.cost_since_previous == null) {
+      return (
+        <TableCell className="text-xs py-1">
+          {isFeedIn ? '-' : '\u2014'}
+        </TableCell>
+      );
+    }
+
+    if (isFeedIn) {
+      return (
+        <TableCell className="text-xs py-1">
+          {formatEuro(point.cost_since_previous)}
+        </TableCell>
+      );
+    }
+
+    const parts: string[] = [];
+    if (point.energy_cost_since_previous != null) {
+      parts.push(`Arbeitspreis ${formatEuro(point.energy_cost_since_previous)}`);
+    }
+    if (point.base_fee_since_previous != null) {
+      parts.push(`Grundpreis ${formatEuro(point.base_fee_since_previous)}`);
+    }
+    if (
+      point.metering_fee_since_previous != null &&
+      point.metering_fee_since_previous !== '0.00'
+    ) {
+      parts.push(`Messstellenbetrieb ${formatEuro(point.metering_fee_since_previous)}`);
+    }
+
+    return (
+      <TableCell className="text-xs py-1">
+        <span>{formatEuro(point.cost_since_previous)}</span>
+        {parts.length > 0 && (
+          <span className="block text-[10px] text-muted-foreground">
+            {parts.join(' \u00b7 ')}
+          </span>
+        )}
+      </TableCell>
+    );
+  };
 
 // Merges each meter's real reading points into a single date-sorted array.
 // One key per meter (`m_<meter_id>`) holds its consumption since the
@@ -152,7 +201,7 @@ const AreaBlock: React.FC<AreaBlockProps> = ({ title, icon, items }) => {
                             <TableRow>
                               <TableHead className="text-xs">Datum</TableHead>
                               <TableHead className="text-xs">Zählerstand ({item.unit})</TableHead>
-                              <TableHead className="text-xs">Verbrauch</TableHead>
+                              <TableHead className="text-xs">Verbrauch seit letzter Ablesung</TableHead>
                               <TableHead className="text-xs">{priceLabel}</TableHead>
                             </TableRow>
                           </TableHeader>
@@ -170,11 +219,13 @@ const AreaBlock: React.FC<AreaBlockProps> = ({ title, icon, items }) => {
                                     ? formatConsumption(point.consumption_since_previous, item.unit)
                                     : '\u2014'}
                                 </TableCell>
-                                <TableCell className="text-xs py-1">
-                                  {point.cost_since_previous != null
-                                    ? formatEuro(point.cost_since_previous)
-                                    : '\u2014'}
-                                </TableCell>
+                                <CostCell
+                                  point={point}
+                                  isFeedIn={
+                                    item.meter_type === 'electricity_export' ||
+                                    item.meter_type === 'electricity_production'
+                                  }
+                                />
                               </TableRow>
                             ))}
                           </TableBody>

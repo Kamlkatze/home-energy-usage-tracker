@@ -155,6 +155,7 @@ def _compute_chain_cost(
     meter segment) for backward compatibility in API responses.
     """
     base_fee_total_raw = Decimal(0)
+    metering_fee_total_raw = Decimal(0)
     energy_cost_raw = Decimal(0)
     first_price_per_unit: Decimal | None = None
 
@@ -163,16 +164,21 @@ def _compute_chain_cost(
         if first_price_per_unit is None:
             first_price_per_unit = tariffs[0].price_per_unit
 
-        # Accumulate unrounded base fee and energy cost across segments so that
-        # rounding happens only once at the final output boundary (AGENTS.md).
-        _seg_base_raw, _seg_energy_raw = _compute_cost_fields_multiperiod_raw(
-            seg_consumption, tariffs, seg_from, seg_to, meter_type=meter.meter_type,
+        # Accumulate unrounded base fee, metering fee and energy cost across
+        # segments so that rounding happens only once at the final output
+        # boundary (AGENTS.md).
+        _seg_base_raw, _seg_metering_raw, _seg_energy_raw = (
+            _compute_cost_fields_multiperiod_raw(
+                seg_consumption, tariffs, seg_from, seg_to, meter_type=meter.meter_type,
+            )
         )
         base_fee_total_raw += _seg_base_raw
+        metering_fee_total_raw += _seg_metering_raw
         energy_cost_raw += _seg_energy_raw
 
     base_fee_total = base_fee_total_raw.quantize(_CENT, rounding=ROUND_HALF_UP)
-    total_cost = (energy_cost_raw + base_fee_total_raw).quantize(_CENT, rounding=ROUND_HALF_UP)
+    fixed_cost_raw = base_fee_total_raw + metering_fee_total_raw
+    total_cost = (energy_cost_raw + fixed_cost_raw).quantize(_CENT, rounding=ROUND_HALF_UP)
 
     if first_price_per_unit is None:
         # No segments were processed — should not happen but guard defensively.

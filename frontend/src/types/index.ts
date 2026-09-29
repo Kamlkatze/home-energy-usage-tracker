@@ -90,6 +90,9 @@ export interface ConsumptionTimeseriesPoint {
   value: string;
   consumption_since_previous: string | null;
   cost_since_previous: string | null;
+  base_fee_since_previous?: string | null;
+  metering_fee_since_previous?: string | null;
+  energy_cost_since_previous?: string | null;
 }
 
 export interface ConsumptionTimeseriesItem {

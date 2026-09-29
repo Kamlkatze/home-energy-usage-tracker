@@ -60,6 +60,15 @@ Applies to everything under `backend/`, **in addition to** the root `AGENTS.md`
   in that month). It replaced `_DAYS_PER_MONTH = Decimal(30)` and fixes systematic overcounting
   for periods > 30 days (365/30 = 12.167 instead of 12). Call sites: base fee in single-period,
   multi-period, multiperiod-raw, and advance-payment proration
+- `metering_fee_monthly` (Messstellenbetrieb) is included in the cost total exactly like the
+  Grundpreis: prorated calendar-accurately and accumulated in `_accumulate_costs()` (shared by the
+  single-period, multi-period and multiperiod-raw variants, and `meter_chain_costs.py`). The
+  `/api/costs/consumption-timeseries` endpoint exposes the per-point breakdown via
+  `_compute_cost_fields_multiperiod_breakdown()` as `energy_cost_since_previous` /
+  `base_fee_since_previous` / `metering_fee_since_previous`, which sum exactly to
+  `cost_since_previous`. For feed-in/production meters the value is a Vergütung from the `feed_in`
+  tariff (energy only; `base_fee_since_previous` is `null`, `metering_fee_since_previous` is
+  `"0.00"`).
 - Cost calculation helpers live in `app/services/`: `cost_calculation.py` (pure math),
   `cost_queries.py` (DB lookups/validation), `meter_chain_costs.py` (replacement-chain
   consumption/cost). `app/api/costs.py` keeps the routes and endpoint-specific orchestration

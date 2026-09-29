@@ -95,6 +95,9 @@ class ConsumptionTimeseriesPoint(BaseModel):
     value: str
     consumption_since_previous: str | None = None
     cost_since_previous: str | None = None
+    base_fee_since_previous: str | None = None
+    metering_fee_since_previous: str | None = None
+    energy_cost_since_previous: str | None = None
 
 
 class ConsumptionTimeseriesItem(BaseModel):

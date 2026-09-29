@@ -38,7 +38,7 @@ def _create_reading(client, meter_id, value, reading_date):
 
 def _create_tariff(client, meter_id, valid_from, valid_to, price_per_unit,
                    base_fee_monthly=None, gas_z_zahl=None, gas_brennwert=None,
-                   tariff_kind="consumption"):
+                   metering_fee_monthly=None, tariff_kind="consumption"):
     payload = {
         "meter_id": meter_id,
         "tariff_kind": tariff_kind,
@@ -48,6 +48,8 @@ def _create_tariff(client, meter_id, valid_from, valid_to, price_per_unit,
     }
     if base_fee_monthly is not None:
         payload["base_fee_monthly"] = base_fee_monthly
+    if metering_fee_monthly is not None:
+        payload["metering_fee_monthly"] = metering_fee_monthly
     if gas_z_zahl is not None:
         payload["gas_z_zahl"] = gas_z_zahl
     if gas_brennwert is not None:
@@ -432,3 +434,64 @@ def test_production_meter_feed_in_verguetung(client):
     assert len(points) == 2
     assert points[1]["consumption_since_previous"] is not None
     assert points[1]["cost_since_previous"] is None
+
+
+def test_cost_breakdown_fields(client):
+    """Consumption meters expose Grundpreis / Messstellenbetrieb / Arbeitspreis
+    breakdown per point; the components sum to cost_since_previous."""
+    meter_id = _create_meter(client, label="Strom")
+    _create_reading(client, meter_id, "0.000", "2026-02-01")
+    _create_reading(client, meter_id, "197.000", "2026-03-01")
+    _create_tariff(client, meter_id, valid_from="2026-02-01", valid_to=None,
+                   price_per_unit="0.29850", base_fee_monthly="10.81")
+
+    response = _get_timeseries(client, "2026-02-01", "2026-03-31")
+    assert response.status_code == 200
+    data = response.json()
+    points = data[0]["points"]
+    # Second reading 2026-03-01: prev = 2026-02-01, delta = 197 kWh over the
+    # full February period (one full month → full Grundpreis).
+    p = points[1]
+    assert Decimal(p["consumption_since_previous"]) == Decimal("197.000")
+    assert Decimal(p["energy_cost_since_previous"]) == Decimal("58.80")
+    assert Decimal(p["base_fee_since_previous"]) == Decimal("10.81")
+    assert Decimal(p["metering_fee_since_previous"]) == Decimal("0.00")
+    assert Decimal(p["cost_since_previous"]) == Decimal("69.61")
+    assert Decimal(p["energy_cost_since_previous"]) + Decimal(p["base_fee_since_previous"]) \
+        + Decimal(p["metering_fee_since_previous"]) == Decimal(p["cost_since_previous"])
+
+
+def test_metering_fee_included_in_cost(client):
+    """A metering fee (Messstellenbetrieb) is prorated like the Grundpreis and
+    included in the per-point cost and its breakdown."""
+    meter_id = _create_meter(client, label="Strom")
+    _create_reading(client, meter_id, "0.000", "2026-02-01")
+    _create_reading(client, meter_id, "100.000", "2026-03-01")
+    _create_tariff(client, meter_id, valid_from="2026-02-01", valid_to=None,
+                   price_per_unit="0.30", base_fee_monthly="10.00",
+                   metering_fee_monthly="3.00")
+
+    response = _get_timeseries(client, "2026-02-01", "2026-03-31")
+    assert response.status_code == 200
+    data = response.json()
+    p = data[0]["points"][1]
+    assert Decimal(p["energy_cost_since_previous"]) == Decimal("30.00")
+    assert Decimal(p["base_fee_since_previous"]) == Decimal("10.00")
+    assert Decimal(p["metering_fee_since_previous"]) == Decimal("3.00")
+    assert Decimal(p["cost_since_previous"]) == Decimal("43.00")
+
+
+def test_first_reading_breakdown_null(client):
+    """First reading with no previous → all cost breakdown fields null."""
+    meter_id = _create_meter(client, label="Strom")
+    _create_reading(client, meter_id, "500.000", "2024-06-01")
+    _create_tariff(client, meter_id, valid_from="2024-01-01", valid_to=None,
+                   price_per_unit="0.30", base_fee_monthly="10.00")
+
+    response = _get_timeseries(client, "2024-02-01", "2024-07-01")
+    assert response.status_code == 200
+    p = response.json()[0]["points"][0]
+    assert p["cost_since_previous"] is None
+    assert p["base_fee_since_previous"] is None
+    assert p["metering_fee_since_previous"] is None
+    assert p["energy_cost_since_previous"] is None
