@@ -285,7 +285,7 @@ const coldConsActual = coldSection.projection?.actual_consumption_to_date ?? col
                     tickFormatter={(v: number) => Math.round(v).toString()}
                     stroke="hsl(var(--muted-foreground))"
                   />
-                  <Tooltip content={<ChartTooltip unit="m\u00B3" />} />
+                  <Tooltip content={<ChartTooltip unit="m³" />} />
                   <Line
                     type="monotone"
                     dataKey="fwValue"
