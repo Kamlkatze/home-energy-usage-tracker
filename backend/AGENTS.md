@@ -72,6 +72,14 @@ Applies to everything under `backend/`, **in addition to** the root `AGENTS.md`
 - Cost calculation helpers live in `app/services/`: `cost_calculation.py` (pure math),
   `cost_queries.py` (DB lookups/validation), `meter_chain_costs.py` (replacement-chain
   consumption/cost). `app/api/costs.py` keeps the routes and endpoint-specific orchestration
+- Completed-year actual costs in `/api/costs/yearly-projection` are clamped to Dec 31 of the
+  viewed year: the actual-cost path passes `end_bound = min(as_of_date, Dec 31 of year)` to
+  `_get_boundary_readings_for_yearly_cost()` and computes `cost_end_date` from it, so readings
+  from later years do not inflate consumption or base/metering fees (the boundary-reading +
+  day-proration + `_compute_cost_fields_multiperiod` method is shared with ongoing years – do
+  not fork it into a separate completed-year calculation). Do not remove the `end_bound` clamp:
+  without it, `actual_cost_to_date` for completed years becomes grossly inflated once readings
+  from a later year exist
 - TariffKind simplification: standalone `base_fee` and `metering_fee` kinds were removed and merged
   into the `consumption` kind as optional `base_fee_monthly` / `metering_fee_monthly` fields
   (migration `f470c15c6414` modifies the PG enum and adds the column; no production data migration

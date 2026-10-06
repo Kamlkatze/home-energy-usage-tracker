@@ -136,12 +136,15 @@ def _get_overlapping_tariffs(
 
 def _get_boundary_readings_for_yearly_cost(
     db: Session, meter_id: int, year: int, as_of_date: date,
+    end_bound: date | None = None,
 ) -> tuple[models.Reading, models.Reading] | tuple[None, None]:
     """Find boundary readings for yearly cost calculation.
 
     Similar to projection logic:
     - Start: prefer reading on Dec 31 of previous year, fallback to first reading in year
-    - End: last reading <= as_of_date
+    - End: last reading <= as_of_date (optionally clamped to end_bound, e.g.
+      Dec 31 of the viewed year for completed years, so that readings after
+      the viewed year do not inflate the consumption)
     """
     # Try to get reading from previous year's end exactly
     prev_year_end = date(year - 1, 12, 31)
@@ -170,12 +173,13 @@ def _get_boundary_readings_for_yearly_cost(
             .first()
         )
 
-    # End reading: last reading <= as_of_date
+    # End reading: last reading <= as_of_date (clamped to end_bound if given)
+    effective_end = as_of_date if end_bound is None else min(as_of_date, end_bound)
     end_reading = (
         db.query(models.Reading)
         .filter(
             models.Reading.meter_id == meter_id,
-            models.Reading.reading_date <= as_of_date,
+            models.Reading.reading_date <= effective_end,
         )
         .order_by(models.Reading.reading_date.desc())
         .first()

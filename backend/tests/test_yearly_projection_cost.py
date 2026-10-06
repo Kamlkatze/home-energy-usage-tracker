@@ -208,6 +208,99 @@ def test_yearly_projection_completed_year(client):
     # Total: 350.00 + 143.61 = 493.61
     assert Decimal(data["projected_annual_cost"]) == Decimal("493.61")
 
+    # Actual cost path: prorated consumption 1000 * 364/365 = 997.2602...
+    # Energy cost: 997.2602... * 0.35 = 349.0411...
+    # Base fee: 12.00 * (11 + 30/31) = 143.6129...
+    # Total: 492.6540... -> 492.65
+    assert Decimal(data["actual_cost_to_date"]) == Decimal("492.65")
+
+
+def test_yearly_projection_completed_year_reading_after_year_end(client):
+    """Regression: a reading AFTER the completed year must not inflate costs.
+
+    Completed year 2023, viewed as of 2024-06-30. Without the Dec 31 clamp
+    the end reading (2024-06-30) pulled 2024 consumption and ~1.5 years of
+    base fee into the 2023 actual cost.
+
+    Readings: 1000.000 (2022-12-31), 2000.000 (2023-12-31),
+              2600.000 (2024-06-30, after the viewed year)
+    Tariff 2023-01-01..2023-12-31: price 0.35000, base_fee_monthly 12.00
+
+    With the clamp, the end reading is 2023-12-31:
+      total_consumption = 1000.000 over 365 days
+      cost period [2023-01-01, 2023-12-31) = 364 days overlap
+      prorated = 1000.000 * 364/365 = 997.2602...
+      Energy cost: 997.2602... * 0.35 = 349.0411...
+      Base fee: 12.00 * (11 + 30/31) = 143.6129...
+      Total: 492.6540... -> 492.65 (identical to no-later-reading case)
+    """
+    meter_id = _create_meter(client)
+
+    _create_reading(client, meter_id, "1000.000", "2022-12-31")
+    _create_reading(client, meter_id, "2000.000", "2023-12-31")
+    _create_reading(client, meter_id, "2600.000", "2024-06-30")
+
+    _create_tariff(
+        client,
+        meter_id,
+        valid_from="2023-01-01",
+        valid_to="2023-12-31",
+        price_per_unit="0.35000",
+        base_fee_monthly="12.00",
+    )
+
+    response = calculate_yearly_projection(client, meter_id, 2023, "2024-06-30")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["basis"] == "actual_full_year"
+    # Projection for completed years is year-bounded anyway.
+    assert Decimal(data["actual_consumption_to_date"]) == Decimal("1000.000")
+    assert Decimal(data["projected_annual_consumption"]) == Decimal("1000.000")
+    assert Decimal(data["projected_annual_cost"]) == Decimal("493.61")
+    # The actual cost must equal the full-2023 cost, NOT the multi-year one.
+    assert Decimal(data["actual_cost_to_date"]) == Decimal("492.65")
+    assert data["message"] is None
+
+
+def test_yearly_projection_completed_year_gas_reading_after_year_end(client):
+    """Regression (gas): a later reading must not inflate the 2023 gas cost.
+
+    Gas meter, completed year 2023 viewed as of 2024-06-30 with a reading on
+    2024-06-30. Tariff 2023: price 0.10000 €/kWh, no base fee,
+    gas_z_zahl 0.9612, gas_brennwert 11.482.
+
+    With the clamp, end reading is 2023-12-31:
+      prorated = 1000.000 * 364/365 = 997.2602... m³
+      kWh = 997.2602... * 0.9612 * 11.482 = 11006.2614...
+      cost = 11006.2614... * 0.10000 = 1100.6261... -> 1100.63
+    """
+    meter_id = _create_meter(client, meter_type="gas")
+
+    _create_reading(client, meter_id, "1000.000", "2022-12-31")
+    _create_reading(client, meter_id, "2000.000", "2023-12-31")
+    _create_reading(client, meter_id, "2600.000", "2024-06-30")
+
+    _create_tariff(
+        client,
+        meter_id,
+        valid_from="2023-01-01",
+        valid_to="2023-12-31",
+        price_per_unit="0.10000",
+        base_fee_monthly=None,
+        gas_z_zahl="0.9612",
+        gas_brennwert="11.482",
+    )
+
+    response = calculate_yearly_projection(client, meter_id, 2023, "2024-06-30")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["basis"] == "actual_full_year"
+    assert Decimal(data["actual_cost_to_date"]) == Decimal("1100.63")
+    assert Decimal(data["projected_annual_cost"]) == Decimal("1103.65")
+    assert data["message"] is None
+
 
 def test_yearly_projection_meter_not_found(client):
     """Test 404 when meter doesn't exist."""

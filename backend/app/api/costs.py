@@ -193,6 +193,7 @@ def get_yearly_projection_with_cost(
     1. Gets projected annual consumption from ProjectionService
     2. Determines tariff active on as_of_date (tariff_kind="consumption")
     3. Calculates actual cost from Jan 1 to as_of_date using existing cost logic
+       (for completed years the period is clamped to Dec 31 of the viewed year)
     4. Estimates projected annual cost using projected consumption and active tariff
 
     Edge cases:
@@ -256,12 +257,17 @@ def get_yearly_projection_with_cost(
     try:
         year_start = date(year, 1, 1)
 
+        # For completed years, clamp the end of the cost period to Dec 31 of
+        # the viewed year so that later readings (e.g. from a later year)
+        # cannot inflate the consumption and fees.
+        effective_end = min(as_of_date, date(year, 12, 31))
+
         # Use existing cost calculation logic for actual cost
         if as_of_date > year_start:
             # For ongoing years, use projection-like boundary reading logic
             # This ensures consistency with projection's actual_consumption_to_date
             boundary_readings = _get_boundary_readings_for_yearly_cost(
-                db, meter_id, year, as_of_date,
+                db, meter_id, year, as_of_date, end_bound=effective_end,
             )
 
             if boundary_readings[0] is not None and boundary_readings[1] is not None:
@@ -275,9 +281,9 @@ def get_yearly_projection_with_cost(
                 total_days = (reading_end_date - reading_start_date).days
 
                 if total_days > 0:
-                    # Calculate overlap with Jan 1 to as_of_date period
+                    # Calculate overlap with Jan 1 to effective_end period
                     cost_start_date = max(year_start, reading_start_date)
-                    cost_end_date = min(as_of_date, reading_end_date)
+                    cost_end_date = min(effective_end, reading_end_date)
 
                     # Prorate consumption based on overlap days
                     overlap_days = (cost_end_date - cost_start_date).days

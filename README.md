@@ -467,7 +467,7 @@ The 30 % threshold is a fixed statutory value from EEG 2009 § 33 Abs. 2, not co
 **Calculation Logic:**
 1. **Projection**: Uses the same logic as `/api/meters/{id}/projection` to get projected annual consumption
 2. **Active tariff**: Finds the consumption tariff active on `as_of_date` for the meter
-3. **Actual cost**: Calculates cost from Jan 1 of `year` to `as_of_date` using existing cost calculation logic
+3. **Actual cost**: Calculates cost from Jan 1 of `year` to `as_of_date` using existing cost calculation logic. For completed years (i.e. `year` before the `as_of_date` year), the period is clamped to Dec 31 of `year`: readings after that date do not inflate the consumption, and base/metering fees are prorated only over the viewed year
 4. **Projected cost**: Estimates annual cost using projected consumption and active tariff's rates
 
 **Edge cases:**
