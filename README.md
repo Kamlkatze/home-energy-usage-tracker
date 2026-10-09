@@ -1,6 +1,51 @@
-# Home Energy Usage Tracker
+<h1 align="center">Home Energy Usage Tracker</h1>
 
-A simple, local application for tracking electricity, gas, and water consumption in your household.
+<p align="center">
+  <a href="#license"><img src="https://img.shields.io/badge/license-MIT-green.svg" alt="MIT License"></a>
+  <img src="https://img.shields.io/badge/Python-3.13-blue.svg" alt="Python 3.13">
+  <img src="https://img.shields.io/badge/FastAPI-latest-009688.svg" alt="FastAPI">
+  <img src="https://img.shields.io/badge/React-19-61DAFB.svg" alt="React 19">
+  <img src="https://img.shields.io/badge/PostgreSQL-16-4169E1.svg" alt="PostgreSQL 16">
+  <img src="https://img.shields.io/badge/Docker-Compose-2496ED.svg" alt="Docker Compose">
+</p>
+
+Home Energy Usage Tracker is a self-hosted, single-user application for recording meter
+readings (electricity import/export/production, gas, cold and garden water) and managing
+tariff periods and monthly advance payments. Based on the readings it computes
+consumption, costs, and annual projections — including meter replacement chains,
+wastewater billing, and EEG 2009/Simple feed-in compensation — and visualizes the results in
+per-meter charts and year-over-year overviews. Everything runs locally via a single
+`docker compose up -d`: all data stays in your own PostgreSQL instance, with no cloud
+services, no authentication, and no external network access.
+
+## Architecture
+
+The production stack (`docker-compose.yml`) consists of three containers on the
+pre-created Docker network `energy-net`. Only the frontend is reachable from the host;
+the backend is proxied internally through nginx, and the database additionally accepts
+localhost-only connections for administration.
+
+```mermaid
+flowchart LR
+    user(("User<br/>(browser)"))
+    admin(("Host admin<br/>(psql)"))
+    subgraph net ["Docker network: energy-net"]
+        fe["frontend<br/>nginx :80<br/><i>serves React build,<br/>reverse-proxies /api</i>"]
+        be["backend<br/>FastAPI / uvicorn :8000<br/><i>no host port;<br/>runs alembic upgrade head<br/>on start</i>"]
+        db[("db<br/>PostgreSQL 16 :5432<br/><i>bind mount:<br/>.dockerdata/postgres</i>")]
+    end
+    user -- "http://localhost:3500" --> fe
+    fe -- "/api proxy → backend:8000 (internal)" --> be
+    be -- "DATABASE_URL → db:5432 (internal)" --> db
+    admin -. "127.0.0.1:5432<br/>(localhost-only, not exposed)" .-> db
+```
+
+## Screenshots
+
+<img src="docs/screenshots/years-overview.png" alt="Years overview page" width="49%"> <img src="docs/screenshots/custom-range.png" alt="Custom time-range analysis" width="49%">
+
+<img src="docs/screenshots/years-detail.png" alt="Year detail page" width="49%"> <img src="docs/screenshots/tariffs.png" alt="Tariff management" width="49%">
+
 
 ## Features
 
@@ -78,6 +123,43 @@ A simple, local application for tracking electricity, gas, and water consumption
 **Network exposure of the database:** The `db` service binds PostgreSQL only to `127.0.0.1:5432`, so you can reach it from the host via `psql -h localhost -p 5432 -U postgres`, but it is **not** exposed to the outside network.
 
 **Required password:** `POSTGRES_PASSWORD` must be set (no default fallback). If it is missing or empty, `docker compose up` fails with an error instead of running with a weak default password.
+
+### Demo Data (Fake Data)
+
+`scripts/demo_data.sql` contains a realistic fake dataset (Jan 2024 – Oct 2026) for
+screenshots and trying out the app: 7 meters (including a gas meter replacement chain),
+~205 monthly readings with seasonal patterns, tariff periods (including EEG 2009
+feed-in and wastewater), and advance payments for all categories.
+
+**Warning:** Only load it into an **empty** database — the inserts use fixed primary
+key IDs and will fail on (or mix with) existing data. Both bounds of the transaction
+are rolled back automatically on any error.
+
+Load it after the migrations have run (the backend container applies them on start):
+
+```bash
+# Containerized (adjust the container name and target DB as needed):
+cat scripts/demo_data.sql | docker exec -i <db-container> psql -U postgres -d energy_tracker
+
+# Native PostgreSQL:
+psql -U postgres -d energy_tracker -f scripts/demo_data.sql
+```
+
+**Ready-made demo stack:** `docker-compose.demo.yml` starts a complete demo
+environment (own PostgreSQL on `127.0.0.1:5434`, backend without host port, frontend on
+**http://localhost:3001**) alongside the dev stack. A `seed` service wipes the demo DB
+and reloads `scripts/demo_data.sql` on every start, so the dataset is always fresh:
+
+```bash
+docker compose -f docker-compose.demo.yml up -d --build
+```
+
+Stop it with (containers are removed, the demo DB volume `.dockerdata/postgres_demo`
+is kept and re-seeded on the next start):
+
+```bash
+docker compose -f docker-compose.demo.yml down
+```
 
 ### Environment Configuration
 

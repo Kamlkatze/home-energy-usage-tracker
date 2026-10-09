@@ -1,0 +1,89 @@
+# Demo stack for screenshots: frontend + backend + a dedicated PostgreSQL
+# ("test" DB) that is wiped and re-seeded with scripts/demo_data.sql on every
+# `up`. Runs alongside the dev stack (distinct host ports):
+#   frontend: http://localhost:3001
+#   db:       127.0.0.1:5434 (energy_tracker_test)
+#
+#   docker compose -f docker-compose.demo.yml up -d --build
+
+# Distinct compose project name so the demo stack can run alongside dev/prod
+# without replacing their containers.
+name: demo
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB_TEST:-energy_tracker_test}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    volumes:
+      - ./.dockerdata/postgres_demo:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB_TEST:-energy_tracker_test}
+      DATABASE_URL_ASYNC: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB_TEST:-energy_tracker_test}
+      API_V1_PREFIX: ${API_V1_PREFIX:-/api}
+      PROJECT_NAME: ${PROJECT_NAME:-Home Energy Usage Tracker}
+      CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:3001"]}
+    # No host port: the demo frontend proxies /api internally (like prod).
+    command: >
+      sh -c "
+        /opt/venv/bin/python -m alembic upgrade head &&
+        exec /opt/venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+      "
+    healthcheck:
+      test: ["CMD", "/opt/venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  seed:
+    image: postgres:16-alpine
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    volumes:
+      - ./scripts/demo_data.sql:/demo_data.sql:ro
+    # Idempotent: wipes the demo DB and reloads the dump on every `up`.
+    command: >
+      sh -c "
+        echo 'TRUNCATE advance_payments, tariff_periods, readings, meters RESTART IDENTITY CASCADE;' |
+          psql -h db -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB_TEST:-energy_tracker_test} &&
+        cat /demo_data.sql |
+          psql -h db -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB_TEST:-energy_tracker_test}
+      "
+    restart: "no"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      VITE_API_URL: "" # empty -> baseURL becomes ""
+      VITE_PROXY_TARGET: http://backend:8000
+    ports:
+      - "3001:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
