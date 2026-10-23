@@ -29,7 +29,7 @@ Scope-specific rules live in nested files and apply **in addition** to this one:
 - Test:    `cd backend && uv run --extra dev pytest` (needs the `db-test` container from
   docker-compose.dev.yml on port 5433; default TEST_DATABASE_URL is PostgreSQL there – tests
   requiring the EXCLUDE constraint FAIL on SQLite, by design)
-- FE test: `cd frontend && npm run test` (Vitest, 128 tests: 14 route smoke tests + 49 focused
+- FE test: `cd frontend && npm run test` (Vitest, 137 tests: 17 route smoke tests + 55 focused
   component tests in `src/test/*.test.tsx` + 65 unit tests for API layer/hooks in
   `src/test/*.test.ts`)
 - Lint:    `cd backend && uv run --extra dev ruff check --fix && uv run --extra dev mypy app/models`
@@ -54,6 +54,9 @@ Scope-specific rules live in nested files and apply **in addition** to this one:
 ## Architecture facts
 
 - Monorepo: FastAPI + SQLAlchemy + PostgreSQL backend (`backend/`), React 19 + Vite frontend (`frontend/`)
+- App version: single source of truth is `[project] version` in `backend/pyproject.toml`, exposed
+  via `settings.APP_VERSION` (`importlib.metadata`). To change it: bump the field, run
+  `cd backend && uv lock`, rebuild. Never set `APP_VERSION` in `.env`
 - No `app/domain/` directory – domain logic is in `app/models/` (ORM) and `app/schemas/` (Pydantic)
 - Migrations run automatically in prod via `/opt/venv/bin/python -m alembic upgrade head && ...`
   in docker-compose.yml
@@ -74,3 +77,16 @@ Scope-specific rules live in nested files and apply **in addition** to this one:
    (POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB) used by both docker-compose.yml and
    docker-compose.dev.yml via `${VARNAME:-default}` substitution. `DATABASE_URL` and
    `DATABASE_URL_ASYNC` are constructed from these credentials in the Compose files
+6. Backup/Restore UI (`/backup-restore`): backend image installs `postgresql-client` (trixie →
+   v17 ≥ server 16; pg_dump must never be older than the server). Safety dumps go to
+   `./.dockerdata/backups` (mounted as `/backups`); nginx needs `client_max_body_size` for
+   restore uploads. pg_dump ≥17 emits `SET transaction_timeout = 0;` which PG16 servers reject –
+   the restore strips it before `psql`. `DROP SCHEMA public` must run against the **target**
+   database, the maintenance connection (`postgres` db) is only for `pg_terminate_backend`
+7. nginx resolves a static `proxy_pass http://backend:8000` at startup: after
+   `docker compose up -d --force-recreate backend` the frontend gets stale IPs (502) until
+   `docker compose restart frontend`
+8. Dev and prod compose shared the frontend image tag, so a dev `up` (podman-compose builds
+   all services with `build:`) rebuilt it from `Dockerfile.dev` (vite, no nginx) and later prod
+   recreates ran the wrong image (port 3500 resets). Fixed with distinct tags
+   `home-energy-usage-tracker_frontend:prod` / `:dev` in the compose files

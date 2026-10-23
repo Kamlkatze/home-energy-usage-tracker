@@ -65,6 +65,19 @@ export const advancePaymentsApi = {
   delete: vi.fn(),
 };
 
+export const backupApi = {
+  getInfo: vi.fn(),
+  downloadDump: vi.fn(),
+  restore: vi.fn(),
+};
+
+export const BACKUP_INFO = {
+  db_revision: '3d6f19fc27d2',
+  head_revision: '3d6f19fc27d2',
+  pg_version: '16.4',
+  app_version: '0.1.0',
+};
+
 // Resets all mocks to their default implementations. Called in a global
 // beforeEach (see setup.ts) so tests are isolated from each other.
 export function resetApiMocks(): void {
@@ -120,4 +133,15 @@ export function resetApiMocks(): void {
   advancePaymentsApi.create.mockResolvedValue({});
   advancePaymentsApi.update.mockResolvedValue({});
   advancePaymentsApi.delete.mockResolvedValue({});
+
+  backupApi.getInfo.mockResolvedValue(BACKUP_INFO);
+  backupApi.downloadDump.mockResolvedValue({
+    blob: new Blob(['-- BACKUP-META {}\n'], { type: 'application/sql' }),
+    filename: '2026-10-23_3d6f19fc27d2_energy_data_backup.sql',
+  });
+  backupApi.restore.mockResolvedValue({
+    message: 'Datenbank erfolgreich wiederhergestellt.',
+    dump_revision: BACKUP_INFO.db_revision,
+    upgraded_to: '',
+  });
 }

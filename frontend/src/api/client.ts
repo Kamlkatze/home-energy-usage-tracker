@@ -1,5 +1,5 @@
 import axios, { AxiosError } from 'axios';
-import { Meter, MeterUpdateData, AdvancePaymentDiffByCategory, ConsumptionTimeseriesItem, MeterType } from '../types';
+import { Meter, MeterUpdateData, AdvancePaymentDiffByCategory, ConsumptionTimeseriesItem, MeterType, BackupInfo, BackupRestoreResult } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 
@@ -228,6 +228,37 @@ export const electricityApi = {
         export_meter_id: exportMeterId,
         year,
       },
+    });
+    return response.data;
+  },
+};
+
+export const backupApi = {
+  getInfo: async (): Promise<BackupInfo> => {
+    const response = await apiClient.get('/api/backup/info');
+    return response.data;
+  },
+
+  downloadDump: async (): Promise<{ blob: Blob; filename: string }> => {
+    const response = await apiClient.get('/api/backup/dump', {
+      responseType: 'blob',
+      timeout: 300000,
+    });
+    const disposition = String(response.headers['content-disposition'] ?? '');
+    const match = /filename="?([^";]+)"?/i.exec(disposition);
+    return {
+      blob: response.data as Blob,
+      filename: match ? match[1] : 'energy_data_backup.sql',
+    };
+  },
+
+  restore: async (file: File): Promise<BackupRestoreResult> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('confirm', 'true');
+    const response = await apiClient.post('/api/backup/restore', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 300000,
     });
     return response.data;
   },

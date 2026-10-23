@@ -4,6 +4,7 @@ from .advance_payment import (
     AdvancePaymentCreate,
     AdvancePaymentUpdate,
 )
+from .backup import BackupInfo, RestoreResult
 from .cost import (
     AdvancePaymentDiffByCategoryResponse,
     AdvancePaymentDiffResponse,
@@ -34,6 +35,7 @@ __all__ = [
     "AdvancePaymentDiffByCategoryResponse",
     "AdvancePaymentDiffResponse",
     "AdvancePaymentUpdate",
+    "BackupInfo",
     "ConsumptionTimeseriesItem",
     "ConsumptionTimeseriesPoint",
     "CostCalculationResponse",
@@ -47,6 +49,7 @@ __all__ = [
     "Reading",
     "ReadingCreate",
     "ReadingUpdate",
+    "RestoreResult",
     "TariffPeriod",
     "TariffPeriodCreate",
     "TariffPeriodUpdate",

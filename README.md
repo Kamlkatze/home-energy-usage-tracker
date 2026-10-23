@@ -57,6 +57,7 @@ flowchart LR
 - **Advance payment management**: Track monthly Abschläge per meter with category (gas, cold water, wastewater, power import), time-range validity, overlap protection, optional comment field, and an "Alle" button showing all categories at once in the list view
 - **Meter replacement chain**: When a physical meter is swapped, link the new meter to its predecessor via `replaces_meter_id`. Cost calculations automatically follow the chain, summing each meter's contribution — no negative consumption from a counter reset on the new device. The edit dialog only proposes same-type meters as predecessors and excludes the meter being edited itself (a meter can never be its own predecessor), while keeping an already-selected predecessor selectable. Meter types are editable via forms but changing a meter with existing readings is rejected by the API.
 - **Advance payment comparison**: Compare paid/planned monthly Abschläge against the estimated or actual annual cost to see whether you'll receive a refund (Guthaben) or owe a Nachzahlung
+- **Backup & Restore UI**: The `/backup-restore` page ("Backup/Restore" in the main nav) downloads a full SQL dump named `DATE_ALEMBICREVISION_energy_data_backup.sql` with an embedded `BACKUP-META` header, and restores an uploaded dump after an explicit confirmation dialog. Restore validates the dump's Alembic revision (exact match, or an ancestor of the current head which is auto-migrated via `alembic upgrade head`), takes an automatic safety dump into `./.dockerdata/backups` and rolls back to it if the restore fails
 - **Local deployment**: All data stays on your machine, no cloud services
 - **No authentication**: Single-user, local operation only
 
@@ -184,7 +185,15 @@ DATABASE_PORT=5432
 API_V1_PREFIX=/api
 PROJECT_NAME=Home Energy Usage Tracker
 CORS_ORIGINS=["http://localhost:3500", "http://localhost:5173"]
+# APP_VERSION: do not set - it is read from backend/pyproject.toml ([project].version)
 ```
+
+**App version (single source of truth):** `backend/pyproject.toml` → `[project] version`
+(`0.1.0`). The backend exposes it via `settings.APP_VERSION` (read with `importlib.metadata`
+from the installed distribution metadata) and embeds it in the `-- BACKUP-META` header of every
+backup and in `GET /api/backup/info`. To bump it: edit the `version` field, run
+`cd backend && uv lock` (keeps `uv.lock` in sync), then rebuild/restart (`docker compose
+up -d --build`). `tests/test_config.py` asserts the match between pyproject and runtime.
 
 **Frontend Configuration (native development only):**
 ```bash
@@ -786,6 +795,12 @@ The 30 % threshold is a fixed statutory value from EEG 2009 § 33 Abs. 2, not co
 ### Advance Payment Diff By Category
 - `GET /api/costs/advance-payment-diff-by-category?category={cat}&year={year}&meter_id={id}&water_cold_meter_id={id}&as_of_date={date}&water_garden_meter_id={id}` - Thin wrapper around `advance-payment-diff` with category-based parameter validation. Adds a `category` field to the response.
 
+### Backup & Restore
+- `GET /api/backup/info` - Returns `{"db_revision", "head_revision", "pg_version", "app_version"}` (current Alembic revision in the DB vs. the code's head revision)
+- `GET /api/backup/dump` - Streams a full `pg_dump` (plain SQL). The first line is a `-- BACKUP-META {json}` header with `alembic_revision`, `pg_version`, `created_at` and `app_version`; the filename (via `Content-Disposition`) is `YYYY-MM-DD_<revision>_energy_data_backup.sql`
+- `POST /api/backup/restore` - Multipart upload (`file` = .sql dump, `confirm` = "true" mandatory). Validates the dump revision against the current DB/code: exact match restores directly; an ancestor revision is restored and then auto-migrated with `alembic upgrade head`; unknown/newer revisions are rejected with **409** and a German detail message. Before discarding the current schema an automatic safety dump is written to `BACKUP_DIR` (default `/backups`, host: `./.dockerdata/backups`, last 10 kept); a failed restore (psql or migration) automatically rolls back to it. **400** without `confirm=true` or a `.sql` file, **409** while another backup/restore is running, **413** above `BACKUP_MAX_UPLOAD_BYTES` (64 MB)
+- **Note**: the dump is produced by `pg_dump` from the `postgresql-client` package installed in the backend image (Debian trixie → client 17, compatible with the postgres:16 server). Dumps from client ≥ 17 contain `SET transaction_timeout = 0;` which pre-17 servers reject; the restore strips this line from the script before running `psql`
+
 ### Health
 - `GET /health` - Health check endpoint, returns `{"status": "healthy"}`.
 
@@ -1129,31 +1144,38 @@ If `docker compose build` (dev or prod) fails at `RUN npm ci` with `ERESOLVE cou
 
 ## Backup & Restore
 
-### Data Backup
-To export your energy tracking data (schema is created via Alembic on the target system):
+### Via the Web UI (recommended)
+The **Backup/Restore** page (`/backup-restore`, tab in the main nav) offers both directions:
+
+1. **Backup herunterladen**: creates a full schema+data SQL dump directly from the running
+   application and saves it as `YYYY-MM-DD_<alembic-revision>_energy_data_backup.sql`
+   (embedded `-- BACKUP-META` header for version verification).
+2. **Backup wiederherstellen**: upload such a `.sql` dump, check the warning checkbox and
+   confirm. The page shows the current Alembic revision and the revision detected in the
+   selected file. Restore requires an explicit German confirmation ("Vorsicht: Durch diese
+   Aktion löschen Sie die alten Daten …"); incompatible revisions are rejected by the
+   server (409). Before the current schema is discarded, an automatic safety dump is stored
+   under `./.dockerdata/backups` and is rolled back to if the restore fails. Older (but
+   ancestor) dump revisions are migrated automatically with `alembic upgrade head`.
+
+### Manual (CLI fallback)
+If the application is not reachable (e.g. after a failed migration), dump/restore directly
+against the database container:
 
 ```bash
-# Find your database container name
-docker ps | grep postgres
+# Backup (schema + data)
+docker exec <db-container> pg_dump -U postgres -d energy_tracker > energy_data_backup.sql
 
-# Export data only (schema comes from Alembic on the target system)
-docker exec <db-container> pg_dump -U postgres -d energy_tracker \
-  --data-only --column-inserts > energy_data_backup.sql
+# Restore (drops the public schema first – only if you are sure)
+docker exec -i <db-container> psql -U postgres -d energy_tracker <<'EOF'
+DROP SCHEMA public CASCADE;
+CREATE SCHEMA public;
+EOF
+cat energy_data_backup.sql | docker exec -i <db-container> psql -U postgres -d energy_tracker
 ```
 
-### Data Restore
-To import data on the target system (after `alembic upgrade head` has run there):
-
-```bash
-# Find your database container name on the target system
-docker ps | grep postgres
-
-# Import the backup
-cat energy_data_backup.sql | docker exec -i <db-container> \
-  psql -U postgres -d energy_tracker
-```
-
-**Note**: This exports only data, not schema. The schema must be created separately via Alembic migrations (`alembic upgrade head`).
+The safety dumps created by the UI restore flow (`.dockerdata/backups/safety-*.sql`) can be
+restored the same way.
 
 ## License
 

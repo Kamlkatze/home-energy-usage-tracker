@@ -187,3 +187,15 @@ export interface AdvancePaymentDiffByCategory {
   difference: string | null;
   message: string | null;
 }
+export interface BackupInfo {
+  db_revision: string;
+  head_revision: string;
+  pg_version: string;
+  app_version: string;
+}
+
+export interface BackupRestoreResult {
+  message: string;
+  dump_revision: string;
+  upgraded_to: string;
+}

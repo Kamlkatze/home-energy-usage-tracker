@@ -44,10 +44,12 @@ services:
       API_V1_PREFIX: ${API_V1_PREFIX:-/api}
       PROJECT_NAME: ${PROJECT_NAME:-Home Energy Usage Tracker}
       CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:3000","http://localhost:5173"]}
+      BACKUP_DIR: ${BACKUP_DIR:-/backups}
     ports:
       - "8000:8000"
     volumes:
       - ./backend:/app
+      - ./.dockerdata/backups:/backups
     command: >
       sh -c "
         /opt/venv/bin/python -m alembic upgrade head
@@ -55,6 +57,7 @@ services:
       "
 
   frontend:
+    image: home-energy-usage-tracker_frontend:dev
     build:
       context: ./frontend
       dockerfile: Dockerfile.dev

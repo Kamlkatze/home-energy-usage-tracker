@@ -13,7 +13,8 @@ import AdvancePaymentForm from './pages/AdvancePaymentForm';
 import YearsOverview from './pages/YearsOverview';
 import YearDetail from './pages/YearDetail';
 import CustomRange from './pages/CustomRange';
-import { Home, BarChart2, FileText, Settings, Euro, CalendarDays, CalendarRange } from 'lucide-react';
+import BackupRestore from './pages/BackupRestore';
+import { Home, BarChart2, FileText, Settings, Euro, CalendarDays, CalendarRange, DatabaseBackup } from 'lucide-react';
 import ThemeToggle from './components/ThemeToggle';
 
 const App: React.FC = () => {
@@ -70,6 +71,12 @@ const App: React.FC = () => {
                     Zähler
                   </Button>
                 </Link>
+                <Link to="/backup-restore">
+                  <Button variant="ghost" size="sm" className="gap-2">
+                    <DatabaseBackup className="h-4 w-4" />
+                    Backup/Restore
+                  </Button>
+                </Link>
                 <ThemeToggle />
               </nav>
             </div>
@@ -90,6 +97,7 @@ const App: React.FC = () => {
             <Route path="/years-overview" element={<YearsOverview />} />
             <Route path="/years/:year" element={<YearDetail />} />
             <Route path="/custom-range" element={<CustomRange />} />
+            <Route path="/backup-restore" element={<BackupRestore />} />
           </Routes>
         </main>
         
