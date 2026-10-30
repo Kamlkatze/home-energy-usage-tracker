@@ -50,7 +50,10 @@ EXCLUDE/daterange constraints, by design.
 2. Run tests + lint (`0 errors` required; frontend currently has ~50 known warnings)
 3. If images are affected: `docker compose up -d --build` and smoke-test the stack;
    model-only changes need just `docker compose restart backend` (app/ is mounted in prod)
-4. Commit, push, open a pull request – describe *what* and *why*, link related issues
+4. If a tool/framework version changed (Python, FastAPI, React, PostgreSQL, ...): update the
+   version badges at the top of `README.md` accordingly – they must reflect the versions
+   actually used in the project, never `latest`
+5. Commit, push, open a pull request – describe *what* and *why*, link related issues
 
 ## Documentation map
 

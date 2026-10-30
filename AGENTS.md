@@ -49,7 +49,10 @@ Scope-specific rules live in nested files and apply **in addition** to this one:
    `cd backend && uv sync --extra dev && uv run python ../scripts/generate_erd.py --readme ../README.md --update-readme`
    – commit the updated `README.md`, `backend/docs/er-diagram.png` and `backend/docs/er-diagram.md`
    alongside the model change
-6. Do not modify files outside the scope of the current task (see Hard rules)
+6. When updating a tool/framework version (Python, FastAPI, React, PostgreSQL, ...), update the
+   version badges at the top of `README.md` – they must show the actual version in use
+   (e.g. `FastAPI-0.141.1`), never `latest`
+7. Do not modify files outside the scope of the current task (see Hard rules)
 
 ## Architecture facts
 
