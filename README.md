@@ -3,7 +3,7 @@
 <p align="center">
   <a href="#license"><img src="https://img.shields.io/badge/license-MIT-green.svg" alt="MIT License"></a>
   <img src="https://img.shields.io/badge/Python-3.13-blue.svg" alt="Python 3.13">
-  <img src="https://img.shields.io/badge/FastAPI-0.141.1-009688.svg" alt="FastAPI">
+  <img src="https://img.shields.io/badge/FastAPI-0.162.0-009688.svg" alt="FastAPI">
   <img src="https://img.shields.io/badge/React-19-61DAFB.svg" alt="React 19">
   <img src="https://img.shields.io/badge/PostgreSQL-16-4169E1.svg" alt="PostgreSQL 16">
   <img src="https://img.shields.io/badge/Docker-Compose-2496ED.svg" alt="Docker Compose">

@@ -1,6 +1,6 @@
 import type { ReactElement, ReactNode } from 'react';
 import { render, type RenderOptions } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router';
 
 // The app's only global provider (beyond React.StrictMode in main.tsx) is the
 // router itself — there is no QueryClientProvider or custom context provider.
@@ -25,7 +25,7 @@ export function renderWithProviders(
     return (
       <MemoryRouter
         initialEntries={initialEntries}
-        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+       
       >
         <Routes>
           <Route path={path} element={children} />

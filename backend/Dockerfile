@@ -1,4 +1,4 @@
-FROM python:3.13.15-slim AS builder
+FROM python:3.13.18-slim AS builder
 
 RUN pip install uv
 WORKDIR /app
@@ -7,7 +7,7 @@ COPY pyproject.toml uv.lock ./
 COPY app ./app
 RUN uv sync --frozen
 
-FROM python:3.13.15-slim
+FROM python:3.13.18-slim
 
 # postgresql-client provides pg_dump/psql for the backup/restore feature.
 # Debian trixie ships client v17 which is >= the postgres:16 server

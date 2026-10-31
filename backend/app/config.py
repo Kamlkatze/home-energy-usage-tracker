@@ -16,7 +16,7 @@ def _app_version() -> str:
 
 
 class Settings(BaseSettings):
-    DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/energy_tracker"
+    DATABASE_URL: str = "postgresql+psycopg://postgres:postgres@localhost:5432/energy_tracker"
     DATABASE_URL_ASYNC: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/energy_tracker"
     API_V1_PREFIX: str = "/api"
     PROJECT_NAME: str = "Home Energy Usage Tracker"

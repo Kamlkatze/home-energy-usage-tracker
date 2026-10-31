@@ -22,7 +22,7 @@ from app.models.base import Base
 # constraint will FAIL (not pass silently) on SQLite.
 TEST_DATABASE_URL = os.environ.get(
     "TEST_DATABASE_URL",
-    "postgresql://postgres:postgres@localhost:5433/energy_tracker_test"
+    "postgresql+psycopg://postgres:postgres@localhost:5433/energy_tracker_test"
 )
 
 @pytest.fixture(scope="session")

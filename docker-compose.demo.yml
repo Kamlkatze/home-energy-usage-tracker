@@ -35,7 +35,7 @@ services:
       db:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB_TEST:-energy_tracker_test}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB_TEST:-energy_tracker_test}
       DATABASE_URL_ASYNC: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB_TEST:-energy_tracker_test}
       API_V1_PREFIX: ${API_V1_PREFIX:-/api}
       PROJECT_NAME: ${PROJECT_NAME:-Home Energy Usage Tracker}
