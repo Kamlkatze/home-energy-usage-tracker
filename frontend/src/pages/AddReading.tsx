@@ -391,7 +391,7 @@ const AddReading: React.FC = () => {
                                     placeholder="Notiz (optional)"
                                     rows={1}
                                     disabled={!entry.checked}
-                                    className="min-h-[2.5rem]"
+                                    className="min-h-10"
                                   />
                                 </div>
                               </div>
