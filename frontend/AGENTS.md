@@ -44,7 +44,7 @@ Applies to everything under `frontend/`, **in addition to** the root `AGENTS.md`
 - Free-text search matches the human-readable fields (meter label/number, comment,
   category/kind label), lowercased, via `haystack.includes(query)`.
 
-## Charts (Recharts 2.15)
+## Charts (Recharts 3)
 
 - A separate `<Line data={projectionData}>` only creates tooltip hit targets at points of the
   primary `data` array passed to `<LineChart>`. Fix: merge all points into `combinedData` and use
@@ -57,9 +57,6 @@ Applies to everything under `frontend/`, **in addition to** the root `AGENTS.md`
   `tick={{ fill: 'hsl(var(--muted-foreground))' }}`; Tooltip uses `background: hsl(var(--popover))`,
   `color: hsl(var(--popover-foreground))`, `border: 1px solid hsl(var(--border))`; YAxis
   `tickFormatter` for integer ticks: `(v) => Math.round(v).toString()`
-- Known **pre-existing** dev-only warning `Each child in a list should have a unique "key" prop …
-  from Line` (React 19 + recharts 2.15, Recharts-internal ForwardRef): reproduced with old page
-  code – do not chase as a regression; recharts 3.x would be the real fix
 
 ## Formatting & lint conventions
 
