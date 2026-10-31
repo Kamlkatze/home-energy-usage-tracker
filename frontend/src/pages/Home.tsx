@@ -1,5 +1,5 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Zap, Droplets, Flame, Gauge, FileText, CalendarDays, CalendarRange, Euro, ArrowRight } from 'lucide-react';
 

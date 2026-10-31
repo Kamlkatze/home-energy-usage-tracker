@@ -1,7 +1,7 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { screen, within, fireEvent } from '@testing-library/react';
 import { render } from '@testing-library/react';
-import { MemoryRouter, Route, Routes, useParams } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useParams } from 'react-router';
 import { renderWithProviders } from './utils';
 import YearsOverview from '../pages/YearsOverview';
 import { costsApi } from './mocks/api';
@@ -154,7 +154,7 @@ describe('YearsOverview', () => {
     render(
       <MemoryRouter
         initialEntries={['/years-overview']}
-        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+       
       >
         <Routes>
           <Route path="/years-overview" element={<YearsOverview />} />

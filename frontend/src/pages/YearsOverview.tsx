@@ -1,5 +1,5 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { costsApi } from '../api/client';
 import { useFetch } from '../hooks/useFetch';
 import { YearsOverviewItem } from '../types';

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link } from 'react-router';
 import { costsApi, metersApi, electricityApi } from '../api/client';
 import { useFetch } from '../hooks/useFetch';
 import { Meter, Reading, YearsOverviewItem, FeedInCompensation, FeedInCompensationProjection, WastewaterCosts, AdvancePaymentDiffByCategory } from '../types';
