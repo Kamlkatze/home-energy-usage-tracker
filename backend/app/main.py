@@ -33,17 +33,17 @@ async def integrity_error_handler(request: Request, exc: IntegrityError):
     logger = logging.getLogger(__name__)
     logger.exception("Database integrity error")
     
-    # Try to extract constraint name from psycopg2 error details
+    # Try to extract constraint name from the DBAPI error details
     constraint_name = None
     if hasattr(exc, 'orig') and exc.orig:
-        # PostgreSQL psycopg2 errors have diag attribute
+        # PostgreSQL DBAPI errors (psycopg) have diag attribute
         if hasattr(exc.orig, 'diag') and exc.orig.diag:
             if hasattr(exc.orig.diag, 'constraint_name'):
                 constraint_name = exc.orig.diag.constraint_name
         # Fallback: try to parse from error message
-        elif hasattr(exc.orig, 'pgerror') and exc.orig.pgerror:
+        else:
             import re
-            match = re.search(r'constraint "([^"]+)"', exc.orig.pgerror)
+            match = re.search(r'constraint "([^"]+)"', str(exc.orig))
             if match:
                 constraint_name = match.group(1)
     
