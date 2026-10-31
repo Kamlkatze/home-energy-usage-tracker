@@ -16,6 +16,11 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
+# Git commit hash baked at build time (shown in the frontend footer).
+# docker-compose.yml passes it from the host: GIT_COMMIT=<hash> docker compose build
+ARG GIT_COMMIT=unknown
+ENV GIT_COMMIT=$GIT_COMMIT
+
 WORKDIR /app
 
 COPY --from=builder /app/.venv /opt/venv

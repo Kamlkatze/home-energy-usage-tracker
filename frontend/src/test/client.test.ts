@@ -5,6 +5,7 @@ import {
   costsApi,
   electricityApi,
   metersApi,
+  metaApi,
   readingsApi,
   tariffsApi,
 } from '../api/client';
@@ -454,5 +455,15 @@ describe('electricityApi', () => {
     await expect(
       electricityApi.getFeedInCompensation(1, 2, '2024-01-01', '2024-12-31'),
     ).rejects.toMatchObject({ response: { status: 500 } });
+  });
+});
+
+describe('metaApi', () => {
+  it('getMeta returns the response data on success', async () => {
+    const meta = { app_version: '0.2.0', git_commit: 'abc123def456' };
+    mockAxiosInstance.get.mockResolvedValue({ data: meta });
+
+    await expect(metaApi.getMeta()).resolves.toEqual(meta);
+    expect(mockAxiosInstance.get).toHaveBeenCalledWith('/api/meta');
   });
 });

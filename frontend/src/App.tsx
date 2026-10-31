@@ -16,6 +16,7 @@ import CustomRange from './pages/CustomRange';
 import BackupRestore from './pages/BackupRestore';
 import { Home, BarChart2, FileText, Settings, Euro, CalendarDays, CalendarRange, DatabaseBackup } from 'lucide-react';
 import ThemeToggle from './components/ThemeToggle';
+import Footer from './components/Footer';
 
 const App: React.FC = () => {
   return (
@@ -101,12 +102,7 @@ const App: React.FC = () => {
           </Routes>
         </main>
         
-        <footer className="border-t mt-8 py-6">
-          <div className="container mx-auto px-4 text-center text-sm text-muted-foreground">
-            <p>Home Energy Usage Tracker • Local deployment • No cloud services</p>
-            <p className="mt-2">Data stays on your machine</p>
-          </div>
-        </footer>
+        <Footer />
       </div>
     </Router>
   );

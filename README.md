@@ -64,22 +64,22 @@ flowchart LR
 ## Tech Stack
 
 ### Backend
-- **Python 3.13** with FastAPI
-- **SQLAlchemy 2.0** with mapped_column syntax
-- **PostgreSQL 16** database
-- **Pydantic v2** for data validation
+- **Python** with FastAPI
+- **SQLAlchemy** with mapped_column syntax
+- **PostgreSQL** database
+- **Pydantic** for data validation
 - **Alembic** for database migrations
 - **uv** as package manager
 
 ### Frontend
-- **React 19** with TypeScript (upgraded from 18, Sept 2026)
-- **Vite 7** for build tooling (upgraded from 5, Sept 2026)
+- **React** with TypeScript
+- **Vite** for build tooling
 - **Custom `useFetch` hook** (`src/hooks/useFetch.ts`) for all page data loading — React 19 lint-compliant (no setState-in-effect), see `frontend/README.md` section 11
 - **shadcn/ui** for UI components
 - **Recharts** for data visualization
 - **Tailwind CSS** for styling
-- **Vitest 3** for testing with jsdom (upgraded from 2, Sept 2026)
-- **ESLint 9** with flat config (upgraded from 8, Sept 2026) — see `frontend/README.md` for React Hooks status
+- **Vitest** for testing with jsdom
+- **ESLint** with flat config — see `frontend/README.md` for React Hooks status
 
 ### Deployment
 - **Docker Compose** with 3 services
@@ -97,7 +97,7 @@ flowchart LR
 
 1. Clone the repository:
    ```bash
-   git clone https://codeberg.org/Kamlkatze/home-energy-usage-tracker.git
+   git clone https://github.com/Kamlkatze/home-energy-usage-tracker.git
    cd home-energy-usage-tracker
    ```
 
@@ -189,11 +189,23 @@ CORS_ORIGINS=["http://localhost:3500", "http://localhost:5173"]
 ```
 
 **App version (single source of truth):** `backend/pyproject.toml` → `[project] version`
-(`0.1.0`). The backend exposes it via `settings.APP_VERSION` (read with `importlib.metadata`
+(`X.X.X`). The backend exposes it via `settings.APP_VERSION` (read with `importlib.metadata`
 from the installed distribution metadata) and embeds it in the `-- BACKUP-META` header of every
 backup and in `GET /api/backup/info`. To bump it: edit the `version` field, run
 `cd backend && uv lock` (keeps `uv.lock` in sync), then rebuild/restart (`docker compose
 up -d --build`). `tests/test_config.py` asserts the match between pyproject and runtime.
+
+**Git commit hash (frontend footer):** `GET /api/meta` exposes `settings.GIT_COMMIT` next to
+`app_version`. Resolution order: (1) the `GIT_COMMIT` env var baked into the prod image at
+build time (docker-compose.yml passes it as a build arg), (2) a `.git` directory found by
+walking up from the working directory (native dev). Because Compose cannot run commands, the
+commit must be set at build time:
+
+```bash
+GIT_COMMIT=$(git rev-parse --short HEAD) docker compose up -d --build
+```
+
+Without it the footer shows `unknown`.
 
 **Frontend Configuration (native development only):**
 ```bash
@@ -795,6 +807,9 @@ The 30 % threshold is a fixed statutory value from EEG 2009 § 33 Abs. 2, not co
 ### Advance Payment Diff By Category
 - `GET /api/costs/advance-payment-diff-by-category?category={cat}&year={year}&meter_id={id}&water_cold_meter_id={id}&as_of_date={date}&water_garden_meter_id={id}` - Thin wrapper around `advance-payment-diff` with category-based parameter validation. Adds a `category` field to the response.
 
+### Meta
+- `GET /api/meta` - Returns `{"app_version", "git_commit"}` for the frontend footer (version + git commit, git commit is `"unknown"` if not resolvable).
+
 ### Backup & Restore
 - `GET /api/backup/info` - Returns `{"db_revision", "head_revision", "pg_version", "app_version"}` (current Alembic revision in the DB vs. the code's head revision)
 - `GET /api/backup/dump` - Streams a full `pg_dump` (plain SQL). The first line is a `-- BACKUP-META {json}` header with `alembic_revision`, `pg_version`, `created_at` and `app_version`; the filename (via `Content-Disposition`) is `YYYY-MM-DD_<revision>_energy_data_backup.sql`
@@ -1052,7 +1067,6 @@ home-energy-usage-tracker/
 │   ├── Dockerfile.dev                # Development frontend image (Vite)
 │   ├── package.json                  # Node.js dependencies
 │   ├── package-lock.json             # Locked dependencies
-│   ├── tailwind.config.js            # Tailwind CSS configuration
 │   ├── postcss.config.js             # PostCSS configuration
 │   └── vite.config.ts                # Vite configuration
 ├── docker-compose.yml                # Production Docker setup (3 services)

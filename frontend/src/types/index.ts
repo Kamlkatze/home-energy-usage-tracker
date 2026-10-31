@@ -194,6 +194,11 @@ export interface BackupInfo {
   app_version: string;
 }
 
+export interface AppMeta {
+  app_version: string;
+  git_commit: string;
+}
+
 export interface BackupRestoreResult {
   message: string;
   dump_revision: string;

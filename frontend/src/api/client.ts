@@ -1,5 +1,5 @@
 import axios, { AxiosError } from 'axios';
-import { Meter, MeterUpdateData, AdvancePaymentDiffByCategory, ConsumptionTimeseriesItem, MeterType, BackupInfo, BackupRestoreResult } from '../types';
+import { Meter, MeterUpdateData, AdvancePaymentDiffByCategory, ConsumptionTimeseriesItem, MeterType, BackupInfo, BackupRestoreResult, AppMeta } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 
@@ -229,6 +229,13 @@ export const electricityApi = {
         year,
       },
     });
+    return response.data;
+  },
+};
+
+export const metaApi = {
+  getMeta: async (): Promise<AppMeta> => {
+    const response = await apiClient.get('/api/meta');
     return response.data;
   },
 };

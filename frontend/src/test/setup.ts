@@ -21,6 +21,7 @@ vi.mock('../api/client', async () => {
     costsApi: api.costsApi,
     electricityApi: api.electricityApi,
     backupApi: api.backupApi,
+    metaApi: api.metaApi,
     default: {},
   };
 });
