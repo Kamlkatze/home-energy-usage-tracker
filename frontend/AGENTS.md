@@ -86,6 +86,9 @@ Applies to everything under `frontend/`, **in addition to** the root `AGENTS.md`
   `npm ci` in a scratch copy of package.json+lock before `docker compose build`
 - `@testing-library/react@16` needs `@testing-library/dom` as an **explicit** devDependency under
   such installs
+- TypeScript is intentionally at 6.x, **not 7**: typescript-eslint (all releases incl. canary)
+  declares peer `typescript <6.1.0`, so TS 7 would break `npm ci` strict peer resolution in both
+  Dockerfiles. Revisit when typescript-eslint publishes a release with a TS 7 peer range
 - Dev-container crash `Cannot find package 'vitest' imported from /app/vite.config.ts` (:3000 dead,
   host dev works): the dev compose mounts `./frontend:/app` with `/app/node_modules` as an
   **anonymous volume that podman-compose reuses forever** – not refreshed by `--build` or `up`, so
