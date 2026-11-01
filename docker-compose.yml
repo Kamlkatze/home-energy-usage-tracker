@@ -20,8 +20,6 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-      args:
-        GIT_COMMIT: ${GIT_COMMIT:-unknown}
     depends_on:
       db:
         condition: service_healthy
@@ -34,6 +32,10 @@ services:
       BACKUP_DIR: ${BACKUP_DIR:-/backups}
     volumes:
       - ./.dockerdata/backups:/backups
+      # Git commit for the frontend footer: the backend reads .git/HEAD at
+      # startup (see app/config.py). A simple restart picks up new commits
+      # after `git pull` - no rebuild needed.
+      - ./.git:/app/.git:ro
     command: >
       sh -c "
         /opt/venv/bin/python -m alembic upgrade head &&

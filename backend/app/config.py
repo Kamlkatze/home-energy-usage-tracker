@@ -19,14 +19,17 @@ def _app_version() -> str:
 
 def _git_commit() -> str:
     # Resolution order:
-    # 1. GIT_COMMIT env var - baked into the prod image at build time via the
-    #    build arg of the same name in docker-compose.yml. The default value
-    #    "unknown" is treated as unset so the fallback below can still kick in.
-    # 2. A .git directory found by walking up from the working directory
-    #    (native dev on the host). HEAD is read directly, no git binary needed.
+    # 1. GIT_COMMIT env var (optional override for exotic setups; in Docker the
+    #    compose files mount the host .git directory read-only into /app/.git
+    #    instead, so this is normally not set).
+    # 2. A .git directory found by walking up from the working directory.
+    #    HEAD is read directly, no git binary needed. Works in the container
+    #    (.git mounted read-only) and in native dev on the host. Because the
+    #    file is read at process start, a plain restart after `git pull`
+    #    picks up the new commit - no rebuild needed.
     # Never fails: the footer just shows "unknown" if nothing is resolvable.
     env_commit = os.environ.get("GIT_COMMIT", "").strip()
-    if env_commit and env_commit != "unknown":
+    if env_commit:
         return env_commit
     try:
         current = Path.cwd()

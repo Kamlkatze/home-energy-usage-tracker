@@ -40,6 +40,9 @@ services:
       API_V1_PREFIX: ${API_V1_PREFIX:-/api}
       PROJECT_NAME: ${PROJECT_NAME:-Home Energy Usage Tracker}
       CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:3001"]}
+    volumes:
+      # Git commit for the frontend footer (see app/config.py).
+      - ./.git:/app/.git:ro
     # No host port: the demo frontend proxies /api internally (like prod).
     command: >
       sh -c "

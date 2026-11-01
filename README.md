@@ -196,16 +196,12 @@ backup and in `GET /api/backup/info`. To bump it: edit the `version` field, run
 up -d --build`). `tests/test_config.py` asserts the match between pyproject and runtime.
 
 **Git commit hash (frontend footer):** `GET /api/meta` exposes `settings.GIT_COMMIT` next to
-`app_version`. Resolution order: (1) the `GIT_COMMIT` env var baked into the prod image at
-build time (docker-compose.yml passes it as a build arg), (2) a `.git` directory found by
-walking up from the working directory (native dev). Because Compose cannot run commands, the
-commit must be set at build time:
-
-```bash
-GIT_COMMIT=$(git rev-parse --short HEAD) docker compose up -d --build
-```
-
-Without it the footer shows `unknown`.
+`app_version`. Resolution order: (1) an explicit `GIT_COMMIT` env var (optional override),
+(2) a `.git` directory found by walking up from the working directory. All compose files
+mount the host `.git` directory read-only into the backend container (`./.git:/app/.git:ro`),
+so the commit is resolved automatically at startup — no build args, no manual env vars.
+After `git pull` a plain restart (`docker compose restart backend`) is enough to pick up the
+new commit; no rebuild needed. If nothing is resolvable, the footer shows `unknown`.
 
 **Frontend Configuration (native development only):**
 ```bash
