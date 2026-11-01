@@ -4,16 +4,16 @@ import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
-import { Textarea } from '../components/ui/textarea';
 import { Checkbox } from '../components/ui/checkbox';
 import { readingsApi, metersApi } from '../api/client';
 import { useFetch } from '../hooks/useFetch';
 import { meterTypeLabel, useMeterTypes } from '../hooks/useMeterTypes';
 import { Meter, Reading } from '../types';
-import { ArrowLeft, CheckCircle, XCircle, Loader2 } from 'lucide-react';
+import { ArrowLeft, ArrowUp, ArrowDown, CheckCircle, XCircle, Loader2 } from 'lucide-react';
 
 const LS_KEY = 'reading-form-selected-meters';
 const LS_SEEN_KEY = 'reading-form-seen-meters';
+const LS_ORDER_KEY = 'reading-form-meter-order';
 
 interface MeterEntry {
   checked: boolean;
@@ -32,11 +32,22 @@ interface MetersLoadResult {
   meters: Meter[];
   baseEntries: Record<number, MeterEntry>;
   lastReadings: Record<number, Reading | null>;
+  savedOrder: number[];
 }
 
 const formatDate = (dateStr: string): string => {
   const d = new Date(dateStr);
   return d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+};
+
+// Display-only formatting of the last reading: electricity (kWh) is rounded
+// to whole kWh, gas/water (m³) keeps 3 decimal places.
+const formatLastReading = (value: string, unit: string): string => {
+  const num = parseFloat(value);
+  if (Number.isNaN(num)) return value;
+  if (unit === 'kWh') return num.toFixed(0);
+  if (unit === 'm³') return num.toFixed(3);
+  return value;
 };
 
 const AddReading: React.FC = () => {
@@ -49,6 +60,8 @@ const AddReading: React.FC = () => {
   const [results, setResults] = useState<SubmitResult[] | null>(null);
 
   const [showReplaced, setShowReplaced] = useState(false);
+  // Custom row order (meter IDs) set via the move buttons; null = use saved order.
+  const [orderState, setOrderState] = useState<number[] | null>(null);
 
   const {
     data: metersLoad,
@@ -59,9 +72,11 @@ const AddReading: React.FC = () => {
       const data = await metersApi.getAll();
 
       // Load localStorage: selectedIds = meters checked last time,
-      // seenIds = all meter IDs that have ever been displayed on this page.
+      // seenIds = all meter IDs that have ever been displayed on this page,
+      // savedOrder = custom row order set via the move buttons.
       let selectedIds: number[] = [];
       let seenIds: number[] = [];
+      let savedOrder: number[] = [];
       try {
         const rawSelected = localStorage.getItem(LS_KEY);
         if (rawSelected) {
@@ -70,6 +85,10 @@ const AddReading: React.FC = () => {
         const rawSeen = localStorage.getItem(LS_SEEN_KEY);
         if (rawSeen) {
           seenIds = JSON.parse(rawSeen);
+        }
+        const rawOrder = localStorage.getItem(LS_ORDER_KEY);
+        if (rawOrder) {
+          savedOrder = JSON.parse(rawOrder);
         }
       } catch {
         // ignore invalid localStorage data
@@ -105,7 +124,7 @@ const AddReading: React.FC = () => {
         })
       );
 
-      return { meters: data, baseEntries, lastReadings };
+      return { meters: data, baseEntries, lastReadings, savedOrder };
     } catch (err) {
       throw new Error(err instanceof Error ? err.message : 'Fehler beim Laden der Zähler');
     }
@@ -114,6 +133,25 @@ const AddReading: React.FC = () => {
   const meters = metersLoad?.meters ?? [];
   const baseEntries = metersLoad?.baseEntries ?? {};
   const lastReadings = metersLoad?.lastReadings ?? {};
+  const savedOrder = metersLoad?.savedOrder ?? [];
+
+  // Row order: user's live order, else the persisted order, else API order.
+  const meterMap = new Map(meters.map(m => [m.id, m]));
+  const activeOrder = orderState ?? savedOrder;
+  const orderedMeters: Meter[] = [
+    ...activeOrder.map(id => meterMap.get(id)).filter((m): m is Meter => Boolean(m)),
+    ...meters.filter(m => !activeOrder.includes(m.id)),
+  ];
+
+  const replacedMeterIds = new Set(
+    meters
+      .filter(m => m.replaces_meter_id !== null)
+      .map(m => m.replaces_meter_id as number)
+  );
+  const visibleMeters = showReplaced
+    ? orderedMeters
+    : orderedMeters.filter(m => !replacedMeterIds.has(m.id));
+  const visibleIds = visibleMeters.map(m => m.id);
 
   // Effective entries: base entries from the load + the user's edits.
   const entries: Record<number, MeterEntry> = {};
@@ -144,6 +182,27 @@ const AddReading: React.FC = () => {
 
   const handleNoteChange = (meterId: number, note: string) => {
     setEntryOverrides(prev => ({ ...prev, [meterId]: { ...prev[meterId], note } }));
+  };
+
+  const handleMove = (meterId: number, dir: -1 | 1) => {
+    const idx = visibleIds.indexOf(meterId);
+    const targetIdx = idx + dir;
+    if (idx === -1 || targetIdx < 0 || targetIdx >= visibleIds.length) return;
+    const targetId = visibleIds[targetIdx];
+
+    // Reorder within the full (ordered) list, relative to the target row.
+    const order = orderedMeters.map(m => m.id);
+    order.splice(order.indexOf(meterId), 1);
+    let to = order.indexOf(targetId);
+    if (dir === 1) to += 1;
+    order.splice(to, 0, meterId);
+
+    setOrderState(order);
+    try {
+      localStorage.setItem(LS_ORDER_KEY, JSON.stringify(order));
+    } catch {
+      // ignore storage failures — ordering is cosmetic
+    }
   };
 
   const hasValidEntries = Object.values(entries).some(
@@ -204,7 +263,7 @@ const AddReading: React.FC = () => {
         Zurück zu den Zählern
       </Button>
 
-      <div className="max-w-3xl mx-auto">
+      <div className="max-w-5xl mx-auto">
         {results && allSuccess ? (
           <Card>
             <CardContent className="p-8 text-center">
@@ -296,114 +355,138 @@ const AddReading: React.FC = () => {
                   </CardContent>
                 </Card>
 
-                {/* Meter list */}
-                <div className="space-y-4">
-                  {(() => {
-                    const replacedMeterIds = new Set(
-                      meters
-                        .filter(m => m.replaces_meter_id !== null)
-                        .map(m => m.replaces_meter_id as number)
-                    );
-                    const visibleMeters = showReplaced
-                      ? meters
-                      : meters.filter(m => !replacedMeterIds.has(m.id));
-                    return (
-                      <>
-                        <div className="flex items-center gap-2">
-                          <Checkbox
-                            id="show-replaced"
-                            checked={showReplaced}
-                            onChange={(e) => setShowReplaced(e.target.checked)}
-                          />
-                          <Label htmlFor="show-replaced" className="text-sm cursor-pointer text-muted-foreground">
-                            Alte Zähler anzeigen
-                          </Label>
-                        </div>
-                        {visibleMeters.length === 0 ? (
-                          <Card>
-                            <CardContent className="p-8 text-center text-muted-foreground">
-                              Keine Zähler vorhanden. Bitte legen Sie zuerst einen Zähler an.
-                            </CardContent>
-                          </Card>
-                        ) : (
-                          visibleMeters.map(meter => {
-                        const entry = entries[meter.id];
-                        const lastReading = lastReadings[meter.id];
-                        const isReplaced = replacedMeterIds.has(meter.id);
-                        if (!entry) return null;
-                      return (
-                        <Card key={meter.id} className={`${entry.checked ? '' : 'opacity-60'} ${isReplaced ? 'border-amber-300 dark:border-amber-700' : ''}`}>
-                          <CardContent className="p-4">
-                            <div className="flex items-start gap-3">
-                              {/* Checkbox */}
-                              <Checkbox
-                                id={`check-${meter.id}`}
-                                checked={entry.checked}
-                                onChange={(e) => handleCheckChange(meter.id, e.target.checked)}
-                                className="mt-1"
-                              />
-
-                              {/* Meter info + inputs */}
-                              <div className="flex-1 min-w-0 space-y-3">
-                                <div className="flex justify-between items-baseline gap-2">
-                                  <Label
-                                    htmlFor={`value-${meter.id}`}
-                                    className="text-base font-medium cursor-pointer"
-                                    onClick={() => handleCheckChange(meter.id, !entry.checked)}
-                                  >
-                                    {meter.label}
-                                    <span className="text-sm text-muted-foreground font-normal ml-2">
-                                      ({meterTypeLabel(meterTypes, meter.meter_type)} • {meter.unit})
+                {/* Meter table */}
+                <div className="flex items-center gap-2 mb-3">
+                  <Checkbox
+                    id="show-replaced"
+                    checked={showReplaced}
+                    onChange={(e) => setShowReplaced(e.target.checked)}
+                  />
+                  <Label htmlFor="show-replaced" className="text-sm cursor-pointer text-muted-foreground">
+                    Alte Zähler anzeigen
+                  </Label>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
+                        <th className="py-2 pr-3 w-8">
+                          <span className="sr-only">Auswählen</span>
+                        </th>
+                        <th className="py-2 pr-3 font-medium">Zähler</th>
+                        <th className="py-2 pr-3 font-medium">Letzter Stand</th>
+                        <th className="py-2 pr-3 font-medium">Zählerstand</th>
+                        <th className="py-2 pr-3 font-medium">Notiz</th>
+                        <th className="py-2 font-medium">
+                          <span className="sr-only">Reihenfolge</span>
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {visibleMeters.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="py-8 text-center text-muted-foreground">
+                            {meters.length === 0
+                              ? 'Keine Zähler vorhanden. Bitte legen Sie zuerst einen Zähler an.'
+                              : 'Keine Zähler für die aktuelle Ansicht.'}
+                          </td>
+                        </tr>
+                      ) : (
+                        visibleMeters.map(meter => {
+                          const entry = entries[meter.id];
+                          if (!entry) return null;
+                          const lastReading = lastReadings[meter.id];
+                          const isReplaced = replacedMeterIds.has(meter.id);
+                          const visIdx = visibleIds.indexOf(meter.id);
+                          return (
+                            <tr
+                              key={meter.id}
+                              className={`border-b last:border-0 ${entry.checked ? '' : 'opacity-60'} ${isReplaced ? 'bg-amber-50/50 dark:bg-amber-950/20' : ''}`}
+                            >
+                              <td className="py-3 pr-3 align-middle">
+                                <Checkbox
+                                  id={`check-${meter.id}`}
+                                  checked={entry.checked}
+                                  onChange={(e) => handleCheckChange(meter.id, e.target.checked)}
+                                />
+                              </td>
+                              <td className="py-3 pr-3 align-middle">
+                                <Label
+                                  htmlFor={`value-${meter.id}`}
+                                  className="font-medium cursor-pointer"
+                                  onClick={() => handleCheckChange(meter.id, !entry.checked)}
+                                >
+                                  {meter.label}
+                                  <span className="block text-xs text-muted-foreground font-normal">
+                                    ({meterTypeLabel(meterTypes, meter.meter_type)} • {meter.unit})
+                                  </span>
+                                </Label>
+                              </td>
+                              <td className="py-3 pr-3 align-middle whitespace-nowrap">
+                                {lastReading ? (
+                                  <>
+                                    {formatLastReading(lastReading.value, meter.unit)} {meter.unit}
+                                    <span className="block text-xs text-muted-foreground">
+                                      am {formatDate(lastReading.reading_date)}
                                     </span>
-                                    {isReplaced && (
-                                      <span className="text-xs text-amber-600 dark:text-amber-400 font-normal ml-2">
-                                        (ersetzt)
-                                      </span>
-                                    )}
-                                  </Label>
-                                </div>
-
-                                {/* Last reading reference */}
-                                {lastReading && (
-                                  <p className="text-xs text-muted-foreground">
-                                    Letzter Stand: {lastReading.value} {meter.unit} am {formatDate(lastReading.reading_date)}
-                                  </p>
+                                  </>
+                                ) : (
+                                  <span className="text-muted-foreground">–</span>
                                 )}
-
-                                {/* Value input */}
-                                <div>
-                                  <Input
-                                    id={`value-${meter.id}`}
-                                    type="number"
-                                    step="0.001"
-                                    value={entry.value}
-                                    onChange={(e) => handleValueChange(meter.id, e.target.value)}
-                                    placeholder="Zählerstand"
-                                    disabled={!entry.checked}
-                                  />
+                              </td>
+                              <td className="py-3 pr-3 align-middle">
+                                <Input
+                                  id={`value-${meter.id}`}
+                                  type="number"
+                                  step="0.001"
+                                  value={entry.value}
+                                  onChange={(e) => handleValueChange(meter.id, e.target.value)}
+                                  placeholder="Zählerstand"
+                                  disabled={!entry.checked}
+                                  className="w-36"
+                                />
+                              </td>
+                              <td className="py-3 pr-3 align-middle">
+                                <Input
+                                  id={`note-${meter.id}`}
+                                  value={entry.note}
+                                  onChange={(e) => handleNoteChange(meter.id, e.target.value)}
+                                  placeholder="optional"
+                                  disabled={!entry.checked}
+                                />
+                              </td>
+                              <td className="py-3 align-middle">
+                                <div className="flex gap-1 justify-end">
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7"
+                                    aria-label="Nach oben"
+                                    disabled={visIdx === 0}
+                                    onClick={() => handleMove(meter.id, -1)}
+                                  >
+                                    <ArrowUp className="h-4 w-4" />
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7"
+                                    aria-label="Nach unten"
+                                    disabled={visIdx === visibleIds.length - 1}
+                                    onClick={() => handleMove(meter.id, 1)}
+                                  >
+                                    <ArrowDown className="h-4 w-4" />
+                                  </Button>
                                 </div>
-
-                                {/* Note */}
-                                <div>
-                                  <Textarea
-                                    value={entry.note}
-                                    onChange={(e) => handleNoteChange(meter.id, e.target.value)}
-                                    placeholder="Notiz (optional)"
-                                    rows={1}
-                                    disabled={!entry.checked}
-                                    className="min-h-10"
-                                  />
-                                </div>
-                              </div>
-                            </div>
-                          </CardContent>
-                        </Card>
-                      );
-                    })
-                        )}
-                      </>
-                    );
-                  })()}
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
                 </div>
 
                 {/* Submit */}

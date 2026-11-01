@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest';
-import { screen, fireEvent, waitFor } from '@testing-library/react';
+import { screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { renderWithProviders } from './utils';
 import AddReading from '../pages/AddReading';
 import { metersApi, readingsApi } from './mocks/api';
@@ -50,9 +50,11 @@ describe('AddReading (Zählerstände eintragen)', () => {
     expect(container.querySelectorAll('input[type="number"]')).toHaveLength(
       TEST_METERS.length,
     );
-    expect(container.querySelectorAll('textarea')).toHaveLength(
-      TEST_METERS.length,
-    );
+    for (const meter of TEST_METERS) {
+      expect(
+        container.querySelector<HTMLInputElement>(`#note-${meter.id}`),
+      ).toBeInTheDocument();
+    }
 
     for (const meter of TEST_METERS) {
       expect(screen.getByText(meter.label)).toBeInTheDocument();
@@ -103,9 +105,10 @@ describe('AddReading (Zählerstände eintragen)', () => {
       container.querySelector<HTMLInputElement>('#value-2')!,
       { target: { value: '20' } },
     );
-    fireEvent.change(container.querySelectorAll('textarea')[0], {
-      target: { value: 'Abgelesen am Morgen' },
-    });
+    fireEvent.change(
+      container.querySelector<HTMLInputElement>('#note-1')!,
+      { target: { value: 'Abgelesen am Morgen' } },
+    );
 
     fireEvent.click(submitButton());
 
@@ -160,5 +163,87 @@ describe('AddReading (Zählerstände eintragen)', () => {
     expect(
       screen.getByText(/Fehler: Zählerstand darf nicht unter dem letzten Wert liegen/),
     ).toBeInTheDocument();
+  });
+
+  it('moves a meter up with the move buttons and persists the new order', async () => {
+    const { container } = renderPage();
+    await screen.findByText('Gas-Hauptzähler');
+
+    const rows = () =>
+      Array.from(container.querySelectorAll<HTMLElement>('tbody tr'));
+    const rowFor = (label: string) =>
+      rows().find(r => r.textContent?.includes(label))!;
+
+    // Initial order follows the API: Gas first, Strom second.
+    expect(rows()[0].textContent).toContain('Gas-Hauptzähler');
+    expect(rows()[1].textContent).toContain('Strom-Bezugszähler');
+
+    const upButton = within(rowFor('Strom-Bezugszähler')).getByRole('button', {
+      name: 'Nach oben',
+    });
+    fireEvent.click(upButton);
+
+    // Strom-Bezugszähler is now the first row and the order was persisted.
+    expect(rows()[0].textContent).toContain('Strom-Bezugszähler');
+    expect(rows()[1].textContent).toContain('Gas-Hauptzähler');
+    expect(localStorage.getItem('reading-form-meter-order')).toBe(
+      JSON.stringify([2, 1]),
+    );
+
+    // The first row's up button is disabled at the top edge.
+    expect(
+      within(rows()[0]).getByRole('button', { name: 'Nach oben' }),
+    ).toBeDisabled();
+    // The last row's down button is disabled at the bottom edge.
+    expect(
+      within(rows()[1]).getByRole('button', { name: 'Nach unten' }),
+    ).toBeDisabled();
+  });
+
+  it('restores a previously saved meter order on load', async () => {
+    localStorage.setItem('reading-form-meter-order', JSON.stringify([2, 1]));
+    const { container } = renderPage();
+
+    await screen.findByText('Strom-Bezugszähler');
+    const rows = Array.from(
+      container.querySelectorAll<HTMLElement>('tbody tr'),
+    );
+
+    expect(rows[0].textContent).toContain('Strom-Bezugszähler');
+    expect(rows[1].textContent).toContain('Gas-Hauptzähler');
+  });
+
+  it('rounds the last reading to whole kWh for electricity and 3 decimals for m³', async () => {
+    vi.mocked(metersApi.getLastReading).mockImplementation((meterId: number) => {
+      if (meterId === 1) {
+        return Promise.resolve({
+          id: 11,
+          meter_id: 1,
+          value: '123.4567',
+          reading_date: '2025-03-01',
+          note: null,
+        });
+      }
+      return Promise.resolve({
+        id: 12,
+        meter_id: 2,
+        value: '12345.67',
+        reading_date: '2025-03-01',
+        note: null,
+      });
+    });
+
+    const { container } = renderPage();
+    await screen.findByText('Gas-Hauptzähler');
+
+    const gasRow = Array.from(container.querySelectorAll('tbody tr')).find(r =>
+      r.textContent?.includes('Gas-Hauptzähler'),
+    )!;
+    expect(gasRow.textContent).toContain('123.457 m³');
+
+    const stromRow = Array.from(container.querySelectorAll('tbody tr')).find(r =>
+      r.textContent?.includes('Strom-Bezugszähler'),
+    )!;
+    expect(stromRow.textContent).toContain('12346 kWh');
   });
 });

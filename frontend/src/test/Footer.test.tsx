@@ -14,7 +14,8 @@ describe('Footer', () => {
   it('renders the static lines while the metadata is still loading', async () => {
     vi.mocked(metaApi.getMeta).mockReturnValue(new Promise(() => {}));
     renderWithProviders(<Footer />);
-    expect(screen.getByText('Home Energy Usage Tracker • Local deployment • No cloud services')).toBeInTheDocument();
+    expect(screen.getByText('Home Energy Usage Tracker')).toBeInTheDocument();
+    expect(screen.getByText('Local deployment • No cloud services')).toBeInTheDocument();
     expect(screen.queryByText(/v0\.2\.0/)).not.toBeInTheDocument();
     // Let the pending promise resolve for test isolation.
     await Promise.resolve();
@@ -23,9 +24,10 @@ describe('Footer', () => {
   it('hides the version line when the metadata request fails', async () => {
     vi.mocked(metaApi.getMeta).mockRejectedValue(new Error('boom'));
     renderWithProviders(<Footer />);
-    expect(screen.getByText('Home Energy Usage Tracker • Local deployment • No cloud services')).toBeInTheDocument();
+    expect(screen.getByText('Home Energy Usage Tracker')).toBeInTheDocument();
+    expect(screen.getByText('Local deployment • No cloud services')).toBeInTheDocument();
     expect(screen.queryByText(/v0\.2\.0/)).not.toBeInTheDocument();
-    await screen.findByText('Data stays on your machine');
+    await screen.findByRole('link', { name: 'Backup/Restore' });
     expect(screen.queryByText(/v0\.2\.0/)).not.toBeInTheDocument();
   });
 
@@ -36,5 +38,10 @@ describe('Footer', () => {
     });
     renderWithProviders(<Footer />);
     expect(await screen.findByText(/v0\.2\.0 • Commit unknown/)).toBeInTheDocument();
+  });
+
+  it('links to the backup/restore page', () => {
+    renderWithProviders(<Footer />);
+    expect(screen.getByRole('link', { name: 'Backup/Restore' })).toHaveAttribute('href', '/backup-restore');
   });
 });

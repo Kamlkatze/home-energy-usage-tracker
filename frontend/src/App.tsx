@@ -14,7 +14,8 @@ import YearsOverview from './pages/YearsOverview';
 import YearDetail from './pages/YearDetail';
 import CustomRange from './pages/CustomRange';
 import BackupRestore from './pages/BackupRestore';
-import { Home, BarChart2, FileText, Settings, Euro, CalendarDays, CalendarRange, DatabaseBackup } from 'lucide-react';
+import { Home, BarChart2, FileText, Settings, Euro, CalendarDays, CalendarRange, Receipt } from 'lucide-react';
+import NavDropdown from './components/NavDropdown';
 import ThemeToggle from './components/ThemeToggle';
 import Footer from './components/Footer';
 
@@ -27,7 +28,7 @@ const App: React.FC = () => {
             <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
               <div className="flex items-center gap-3">
                 <BarChart2 className="h-6 w-6 text-primary" />
-                <h1 className="text-2xl font-bold">Energy Tracker</h1>
+                <h1 className="text-2xl font-bold">Home Energy Usage Tracker</h1>
               </div>
               <nav className="flex gap-2">
                 <Link to="/">
@@ -48,36 +49,20 @@ const App: React.FC = () => {
                     Zeitraum
                   </Button>
                 </Link>
-                <Link to="/readings/new">
-                  <Button variant="ghost" size="sm" className="gap-2">
-                    <FileText className="h-4 w-4" />
-                    Zählerstände
-                  </Button>
-                </Link>
-                <Link to="/tariffs">
-                  <Button variant="ghost" size="sm" className="gap-2">
-                    <Euro className="h-4 w-4" />
-                    Tarife
-                  </Button>
-                </Link>
-                <Link to="/advance-payments">
-                  <Button variant="ghost" size="sm" className="gap-2">
-                    <Euro className="h-4 w-4" />
-                    Abschläge
-                  </Button>
-                </Link>
-                <Link to="/meters">
-                  <Button variant="ghost" size="sm" className="gap-2">
-                    <Settings className="h-4 w-4" />
-                    Zähler
-                  </Button>
-                </Link>
-                <Link to="/backup-restore">
-                  <Button variant="ghost" size="sm" className="gap-2">
-                    <DatabaseBackup className="h-4 w-4" />
-                    Backup/Restore
-                  </Button>
-                </Link>
+                <NavDropdown
+                  label="Erfassung"
+                  items={[
+                    { to: '/readings/new', label: 'Zählerstände', icon: <FileText className="h-4 w-4" /> },
+                  ]}
+                />
+                <NavDropdown
+                  label="Verwaltung"
+                  items={[
+                    { to: '/tariffs', label: 'Tarife', icon: <Euro className="h-4 w-4" /> },
+                    { to: '/advance-payments', label: 'Abschläge', icon: <Receipt className="h-4 w-4" /> },
+                    { to: '/meters', label: 'Zähler', icon: <Settings className="h-4 w-4" /> },
+                  ]}
+                />
                 <ThemeToggle />
               </nav>
             </div>

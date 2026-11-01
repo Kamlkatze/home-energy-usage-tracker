@@ -57,7 +57,7 @@ flowchart LR
 - **Advance payment management**: Track monthly Abschläge per meter with category (gas, cold water, wastewater, power import), time-range validity, overlap protection, optional comment field, and an "Alle" button showing all categories at once in the list view
 - **Meter replacement chain**: When a physical meter is swapped, link the new meter to its predecessor via `replaces_meter_id`. Cost calculations automatically follow the chain, summing each meter's contribution — no negative consumption from a counter reset on the new device. The edit dialog only proposes same-type meters as predecessors and excludes the meter being edited itself (a meter can never be its own predecessor), while keeping an already-selected predecessor selectable. Meter types are editable via forms but changing a meter with existing readings is rejected by the API.
 - **Advance payment comparison**: Compare paid/planned monthly Abschläge against the estimated or actual annual cost to see whether you'll receive a refund (Guthaben) or owe a Nachzahlung
-- **Backup & Restore UI**: The `/backup-restore` page ("Backup/Restore" in the main nav) downloads a full SQL dump named `DATE_ALEMBICREVISION_energy_data_backup.sql` with an embedded `BACKUP-META` header, and restores an uploaded dump after an explicit confirmation dialog. Restore validates the dump's Alembic revision (exact match, or an ancestor of the current head which is auto-migrated via `alembic upgrade head`), takes an automatic safety dump into `./.dockerdata/backups` and rolls back to it if the restore fails
+- **Backup & Restore UI**: The `/backup-restore` page ("Backup/Restore" link in the footer) downloads a full SQL dump named `DATE_ALEMBICREVISION_energy_data_backup.sql` with an embedded `BACKUP-META` header, and restores an uploaded dump after an explicit confirmation dialog. Restore validates the dump's Alembic revision (exact match, or an ancestor of the current head which is auto-migrated via `alembic upgrade head`), takes an automatic safety dump into `./.dockerdata/backups` and rolls back to it if the restore fails
 - **Local deployment**: All data stays on your machine, no cloud services
 - **No authentication**: Single-user, local operation only
 
@@ -1155,7 +1155,7 @@ If `docker compose build` (dev or prod) fails at `RUN npm ci` with `ERESOLVE cou
 ## Backup & Restore
 
 ### Via the Web UI (recommended)
-The **Backup/Restore** page (`/backup-restore`, tab in the main nav) offers both directions:
+The **Backup/Restore** page (`/backup-restore`, link in the footer) offers both directions:
 
 1. **Backup herunterladen**: creates a full schema+data SQL dump directly from the running
    application and saves it as `YYYY-MM-DD_<alembic-revision>_energy_data_backup.sql`

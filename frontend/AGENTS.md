@@ -29,8 +29,8 @@ Applies to everything under `frontend/`, **in addition to** the root `AGENTS.md`
 
 - Reuse the shared building blocks instead of reimplementing per page:
   `hooks/useColumnSort.ts` (`useColumnSort` + pure `sortRows`) and
-  `components/SortableHeader.tsx` / `components/TableSearch.tsx` (used by `TariffList`
-  and `AdvancePaymentList`).
+  `components/SortableHeader.tsx` / `components/TableSearch.tsx` (used by `TariffList`,
+  `AdvancePaymentList` and `MeterList`).
 - `SortableHeader` renders a real `<button type="button">` (a11y rule: no clickable
   `<th>` without a button); pass the active sort via `sort={{ key, dir }}` and add an
   arrow icon (`ArrowUp`/`ArrowDown` when active, dimmed `ArrowUpDown` otherwise).
