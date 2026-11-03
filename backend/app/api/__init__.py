@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from .advance_payments import router as advance_payments_router
+from .auth import router as auth_router
 from .backup import router as backup_router
 from .costs import router as costs_router
 from .electricity import router as electricity_router
@@ -12,6 +13,7 @@ from .tariff_periods import router as tariff_periods_router
 
 api_router = APIRouter()
 
+api_router.include_router(auth_router, prefix="/auth", tags=["auth"])
 api_router.include_router(advance_payments_router, prefix="/advance-payments", tags=["advance-payments"])
 api_router.include_router(backup_router, prefix="/backup", tags=["backup"])
 api_router.include_router(costs_router, prefix="/costs", tags=["costs"])

@@ -61,6 +61,11 @@ class Settings(BaseSettings):
     BACKUP_DIR: str = "/backups"
     BACKUP_KEEP_SAFETY: int = 10
     BACKUP_MAX_UPLOAD_BYTES: int = 64 * 1024 * 1024
+    # Session/auth settings. COOKIE_SECURE must be set to true once the app
+    # is served over HTTPS (the cookie is then only sent over TLS).
+    SESSION_COOKIE_NAME: str = "et_session"
+    SESSION_LIFETIME_HOURS: int = 168
+    COOKIE_SECURE: bool = False
     
     class Config:
         env_file = ".env"
