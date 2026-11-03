@@ -15,6 +15,7 @@ import YearDetail from './pages/YearDetail';
 import CustomRange from './pages/CustomRange';
 import BackupRestore from './pages/BackupRestore';
 import Login from './pages/Login';
+import Profile from './pages/Profile';
 import { Home, BarChart2, FileText, Settings, Euro, CalendarDays, CalendarRange, Receipt } from 'lucide-react';
 import NavDropdown from './components/NavDropdown';
 import ThemeToggle from './components/ThemeToggle';
@@ -90,6 +91,7 @@ const ProtectedLayout: React.FC = () => (
         <Route path="/years/:year" element={<YearDetail />} />
         <Route path="/custom-range" element={<CustomRange />} />
         <Route path="/backup-restore" element={<BackupRestore />} />
+        <Route path="/profile" element={<Profile />} />
       </Routes>
     </main>
 
