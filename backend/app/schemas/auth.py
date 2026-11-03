@@ -28,3 +28,30 @@ class PasswordChangeRequest(BaseModel):
     new_password: str = Field(min_length=1, max_length=512)
     # When true, all other sessions of the user are invalidated
     logout_other_sessions: bool = False
+
+
+class TotpSetupResponse(BaseModel):
+    # Raw secret for manual entry + provisioning URI for QR rendering
+    secret: str
+    otpauth_url: str
+
+
+class TotpEnableRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: str = Field(min_length=6, max_length=10)
+
+
+class TotpDisableRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # Disabling 2FA requires re-authentication (password + valid code)
+    password: str = Field(min_length=1, max_length=512)
+    code: str = Field(min_length=6, max_length=10)
+
+
+class TotpStatusResponse(BaseModel):
+    enabled: bool
+    # True while a setup has been started but not yet confirmed with a
+    # valid code - the frontend can offer to continue the enrollment
+    pending_setup: bool

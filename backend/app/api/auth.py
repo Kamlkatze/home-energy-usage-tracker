@@ -8,7 +8,15 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..database import get_db
 from ..models import AuthSession, User
-from ..schemas.auth import LoginRequest, PasswordChangeRequest, UserResponse
+from ..schemas.auth import (
+    LoginRequest,
+    PasswordChangeRequest,
+    TotpDisableRequest,
+    TotpEnableRequest,
+    TotpSetupResponse,
+    TotpStatusResponse,
+    UserResponse,
+)
 from ..security import (
     PasswordStrengthError,
     dummy_verify_password,
@@ -208,3 +216,97 @@ def change_password(
             db.delete(session)
     db.commit()
     return PasswordChangeResponse(message="Passwort wurde geändert.")
+
+
+@router.get("/totp")
+def totp_status(user: User = Depends(get_current_user)) -> TotpStatusResponse:
+    """Report whether TOTP is enabled or a setup is pending."""
+    return TotpStatusResponse(
+        enabled=user.totp_enabled,
+        pending_setup=not user.totp_enabled and user.totp_secret is not None,
+    )
+
+
+@router.post("/totp/setup")
+def totp_setup(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> TotpSetupResponse:
+    """Start TOTP enrollment: generate a new secret and provisioning URI.
+
+    The secret is stored but TOTP stays disabled until /totp/enable
+    confirms possession of the authenticator with a valid code. Calling
+    setup again replaces any pending (unconfirmed) secret.
+    """
+    if user.totp_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Zwei-Faktor-Authentifizierung ist bereits aktiviert.",
+        )
+    secret = pyotp.random_base32()
+    user.totp_secret = secret
+    db.commit()
+    otpauth_url = pyotp.totp.TOTP(secret).provisioning_uri(
+        name=user.username, issuer_name=settings.TOTP_ISSUER
+    )
+    return TotpSetupResponse(secret=secret, otpauth_url=otpauth_url)
+
+
+@router.post("/totp/enable")
+def totp_enable(
+    body: TotpEnableRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> TotpStatusResponse:
+    """Confirm TOTP enrollment with a valid code and activate 2FA."""
+    if user.totp_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Zwei-Faktor-Authentifizierung ist bereits aktiviert.",
+        )
+    if user.totp_secret is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Zwei-Faktor-Einrichtung wurde noch nicht gestartet.",
+        )
+    if not pyotp.TOTP(user.totp_secret).verify(body.code, valid_window=TOTP_VALID_WINDOWS):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ungültiger Zwei-Faktor-Code.",
+        )
+    user.totp_enabled = True
+    db.commit()
+    return TotpStatusResponse(enabled=True, pending_setup=False)
+
+
+@router.post("/totp/disable")
+def totp_disable(
+    body: TotpDisableRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> TotpStatusResponse:
+    """Deactivate TOTP.
+
+    Sensitive operation: requires re-authentication with the current
+    password plus a valid TOTP code (proves both knowledge and
+    possession).
+    """
+    if not user.totp_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Zwei-Faktor-Authentifizierung ist nicht aktiviert.",
+        )
+    if not verify_password(user.password_hash, body.password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Aktuelles Passwort ist falsch.",
+        )
+    if not pyotp.TOTP(user.totp_secret or "").verify(body.code, valid_window=TOTP_VALID_WINDOWS):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ungültiger Zwei-Faktor-Code.",
+        )
+    user.totp_enabled = False
+    user.totp_secret = None
+    db.commit()
+    return TotpStatusResponse(enabled=False, pending_setup=False)

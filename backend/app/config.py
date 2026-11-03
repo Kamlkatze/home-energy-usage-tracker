@@ -66,6 +66,8 @@ class Settings(BaseSettings):
     SESSION_COOKIE_NAME: str = "et_session"
     SESSION_LIFETIME_HOURS: int = 168
     COOKIE_SECURE: bool = False
+    # Issuer name shown in authenticator apps for TOTP enrollment
+    TOTP_ISSUER: str = "Energy Tracker"
     
     class Config:
         env_file = ".env"
