@@ -815,6 +815,21 @@ The 30 % threshold is a fixed statutory value from EEG 2009 § 33 Abs. 2, not co
 ### Health
 - `GET /health` - Health check endpoint, returns `{"status": "healthy"}`.
 
+### Authentication & User Management
+All business endpoints require an authenticated session (session cookie `et_session`, HttpOnly, SameSite=Lax; `Secure` flag via `COOKIE_SECURE`). Only `/health`, `/api/auth/login` and `/api/auth/logout` are public.
+
+- `POST /api/auth/login` - Body `{"username", "password", "totp_code"?}`. Sets the session cookie. TOTP-enabled users get **401** with `{"detail": {"message": "Zwei-Faktor-Code erforderlich.", "totp_required": true}}` until a valid code is sent. All credential failures return the same generic **401** message (no user enumeration); repeated failures trigger an exponential account lockout (**429**, capped at 15 minutes)
+- `POST /api/auth/logout` - Invalidates the session server-side and clears the cookie (idempotent, **204**)
+- `GET /api/auth/me` - Returns the authenticated user (`{"id", "username", "role", "totp_enabled"}`)
+- `POST /api/auth/change-password` - Requires the current password (re-authentication); optional `logout_other_sessions` invalidates all other sessions
+- `GET /api/auth/totp` - TOTP status `{"enabled", "pending_setup"}`
+- `POST /api/auth/totp/setup` - Starts TOTP enrollment, returns `{"secret", "otpauth_url"}` for QR rendering; repeated calls replace unconfirmed secrets
+- `POST /api/auth/totp/enable` - Confirms enrollment with a valid code and activates 2FA
+- `POST /api/auth/totp/disable` - Requires the current password **and** a valid code; clears the enrollment
+- `GET /api/admin/users` | `POST /api/admin/users` | `PATCH /api/admin/users/{id}` - Admin-only user management (list, create, role/is_active/password-reset/`reset_totp`). Self-demotion/self-deactivation and removing the last active admin are rejected with **400**; a password reset invalidates all sessions of the target user
+- **First admin**: create it with `cd backend && uv run python -m app.seed_admin` (interactive) or `uv run python -m app.seed_admin --username admin --password "..."`; inside the prod container: `docker compose exec backend /opt/venv/bin/python -m app.seed_admin`
+- Password policy (NIST SP 800-63B): minimum 15 characters without MFA, 8 characters with MFA enabled; maximum 512 characters. Passwords are hashed with Argon2id
+
 ## Database Schema
 
 <!-- ERD:START -->
@@ -1097,14 +1112,12 @@ home-energy-usage-tracker/
 
 ## Security Note
 
-This application is designed for **local, single-user operation only**. It does not include:
-- User authentication
-- Role-based access control
-- HTTPS (in local deployment)
-- Rate limiting
-- Input sanitization beyond basic validation
+The application includes session-based authentication (HttpOnly session cookie, Argon2id password hashing, optional TOTP two-factor, admin role with user management) and protects all business endpoints including `/backup/restore`. Login throttling uses an exponential account lockout per account.
 
-For production use with multiple users or internet exposure, additional security measures are required.
+Remaining limitations:
+- **No HTTPS by default** (local/LAN deployment): passwords and session cookies travel unencrypted on the network. For internet exposure, terminate TLS with a reverse proxy in front of nginx and set `COOKIE_SECURE=true` so the session cookie is only sent over HTTPS
+- **No general rate limiting** beyond the login lockout
+- TOTP secrets are stored unencrypted in the database (required for QR enrollment; acceptable for a self-hosted single-database setup)
 
 ## Troubleshooting
 
