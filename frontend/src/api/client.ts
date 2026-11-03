@@ -1,5 +1,5 @@
 import axios, { AxiosError } from 'axios';
-import { Meter, MeterUpdateData, AdvancePaymentDiffByCategory, ConsumptionTimeseriesItem, MeterType, BackupInfo, BackupRestoreResult, AppMeta } from '../types';
+import { Meter, MeterUpdateData, AdvancePaymentDiffByCategory, ConsumptionTimeseriesItem, MeterType, BackupInfo, BackupRestoreResult, AppMeta, AuthUser, TotpStatus } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 
@@ -8,7 +8,88 @@ const apiClient = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  // Session-cookie auth: the HttpOnly cookie must travel with requests in
+  // the cross-origin dev setup (vite :3000 -> backend :8000). In prod the
+  // same-origin nginx /api proxy makes this a no-op.
+  withCredentials: true,
 });
+
+// Endpoints that may legitimately return 401 without the session being
+// broken: the login flow itself (wrong password), the idempotent logout
+// and the initial /me check (no session yet). Everything else returning
+// 401 means the session expired or was revoked -> notify the app so the
+// AuthContext drops the user and the route guard redirects to /login.
+const AUTH_EXEMPT_URLS = ['/api/auth/login', '/api/auth/logout', '/api/auth/me'];
+
+export function isAuthExemptUrl(url: string | undefined): boolean {
+  if (!url) return false;
+  return AUTH_EXEMPT_URLS.some((exempt) => url.startsWith(exempt));
+}
+
+apiClient.interceptors.response.use(
+  (response) => response,
+  (error: AxiosError) => {
+    if (error.response?.status === 401 && !isAuthExemptUrl(error.config?.url)) {
+      window.dispatchEvent(new CustomEvent('auth:unauthorized'));
+    }
+    return Promise.reject(error);
+  },
+);
+
+export const authApi = {
+  login: async (username: string, password: string, totpCode?: string): Promise<AuthUser> => {
+    const payload: Record<string, string> = { username, password };
+    if (totpCode) {
+      payload.totp_code = totpCode;
+    }
+    const response = await apiClient.post('/api/auth/login', payload);
+    return response.data as AuthUser;
+  },
+
+  logout: async (): Promise<void> => {
+    await apiClient.post('/api/auth/logout');
+  },
+
+  me: async (): Promise<AuthUser> => {
+    const response = await apiClient.get('/api/auth/me');
+    return response.data as AuthUser;
+  },
+
+  changePassword: async (
+    currentPassword: string,
+    newPassword: string,
+    logoutOtherSessions = false,
+  ): Promise<void> => {
+    await apiClient.post('/api/auth/change-password', {
+      current_password: currentPassword,
+      new_password: newPassword,
+      logout_other_sessions: logoutOtherSessions,
+    });
+  },
+
+  getTotpStatus: async (): Promise<TotpStatus> => {
+    const response = await apiClient.get('/api/auth/totp');
+    return response.data as TotpStatus;
+  },
+
+  startTotpSetup: async (): Promise<{ secret: string; otpauth_url: string }> => {
+    const response = await apiClient.post('/api/auth/totp/setup');
+    return response.data as { secret: string; otpauth_url: string };
+  },
+
+  enableTotp: async (code: string): Promise<TotpStatus> => {
+    const response = await apiClient.post('/api/auth/totp/enable', { code });
+    return response.data as TotpStatus;
+  },
+
+  disableTotp: async (password: string, code: string): Promise<TotpStatus> => {
+    const response = await apiClient.post('/api/auth/totp/disable', {
+      password,
+      code,
+    });
+    return response.data as TotpStatus;
+  },
+};
 
 export const metersApi = {
   getTypes: async () => {

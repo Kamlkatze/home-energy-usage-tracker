@@ -75,6 +75,24 @@ export const metaApi = {
   getMeta: vi.fn(),
 };
 
+export const AUTH_USER = {
+  id: 1,
+  username: 'testadmin',
+  role: 'admin',
+  totp_enabled: false,
+};
+
+export const authApi = {
+  login: vi.fn(),
+  logout: vi.fn(),
+  me: vi.fn(),
+  changePassword: vi.fn(),
+  getTotpStatus: vi.fn(),
+  startTotpSetup: vi.fn(),
+  enableTotp: vi.fn(),
+  disableTotp: vi.fn(),
+};
+
 export const BACKUP_INFO = {
   db_revision: '3d6f19fc27d2',
   head_revision: '3d6f19fc27d2',
@@ -155,4 +173,13 @@ export function resetApiMocks(): void {
   });
 
   metaApi.getMeta.mockResolvedValue(APP_META);
+
+  authApi.login.mockResolvedValue(AUTH_USER);
+  authApi.logout.mockResolvedValue(undefined);
+  authApi.me.mockResolvedValue(AUTH_USER);
+  authApi.changePassword.mockResolvedValue(undefined);
+  authApi.getTotpStatus.mockResolvedValue({ enabled: false, pending_setup: false });
+  authApi.startTotpSetup.mockResolvedValue({ secret: 'JBSWY3DPEHPK3PXP', otpauth_url: 'otpauth://totp/Energy%20Tracker:testadmin' });
+  authApi.enableTotp.mockResolvedValue({ enabled: true, pending_setup: false });
+  authApi.disableTotp.mockResolvedValue({ enabled: false, pending_setup: false });
 }
