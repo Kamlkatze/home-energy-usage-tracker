@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..database import get_db
 from ..models import AuthSession, User
+from ..models.user import UserRole
 from ..security import hash_session_token
 
 
@@ -61,4 +62,14 @@ def get_authenticated(
 
 def get_current_user(user: tuple[User, AuthSession] = Depends(get_authenticated)) -> User:
     """Return only the user for endpoints that do not need the session row."""
+    return user[0]
+
+
+def get_current_admin(user: tuple[User, AuthSession] = Depends(get_authenticated)) -> User:
+    """Require the authenticated user to have the admin role."""
+    if user[0].role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Administratorrechte erforderlich.",
+        )
     return user[0]

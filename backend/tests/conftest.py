@@ -2,6 +2,7 @@
 Test configuration and fixtures for the energy tracker backend.
 """
 import os
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -9,9 +10,20 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.config import settings
 from app.database import get_db
 from app.main import app
+from app.models import AuthSession, User
 from app.models.base import Base
+from app.models.user import UserRole
+from app.security import generate_session_token, hash_password, hash_session_token
+
+# Default admin account used by the `client` fixture (all business
+# endpoints require authentication since the global route guard).
+TEST_ADMIN_USERNAME = "testadmin"
+TEST_ADMIN_PASSWORD = "test admin fixture password"
+# Hash is computed once per test session (Argon2 is deliberately slow).
+TEST_ADMIN_PASSWORD_HASH = hash_password(TEST_ADMIN_PASSWORD)
 
 # Tests MUST run against PostgreSQL: the tariff_periods EXCLUDE constraint
 # (overlap prevention) and daterange/btree_gist have no SQLite equivalent,
@@ -100,16 +112,58 @@ def db_session(engine):
         session.rollback()
         session.close()
 
-@pytest.fixture(scope="function")
-def client(db_session):
-    """Create a TestClient with overridden database dependency."""
-    def override_get_db():
+def _override_get_db(db_session):
+    def override():
         try:
             yield db_session
         finally:
             pass
-    
-    app.dependency_overrides[get_db] = override_get_db
+
+    return override
+
+
+def _create_test_admin_with_session(db_session) -> str:
+    """Create the test admin plus a valid AuthSession row directly in the
+    database (fast: no Argon2 verification per test) and return the
+    raw session token for the cookie."""
+    user = User(
+        username=TEST_ADMIN_USERNAME,
+        password_hash=TEST_ADMIN_PASSWORD_HASH,
+        role=UserRole.ADMIN,
+    )
+    db_session.add(user)
+    db_session.commit()
+    token = generate_session_token()
+    db_session.add(
+        AuthSession(
+            user_id=user.id,
+            token_hash=hash_session_token(token),
+            expires_at=datetime.now(UTC) + timedelta(hours=2),
+            last_used_at=datetime.now(UTC),
+        )
+    )
+    db_session.commit()
+    return token
+
+
+@pytest.fixture(scope="function")
+def client(db_session):
+    """Authenticated TestClient: logged in as TEST_ADMIN via a session
+    cookie, so the ~240 business endpoint tests keep working under the
+    global route guard without individual changes."""
+    app.dependency_overrides[get_db] = _override_get_db(db_session)
+    token = _create_test_admin_with_session(db_session)
+    with TestClient(app) as test_client:
+        test_client.cookies.set(settings.SESSION_COOKIE_NAME, token)
+        yield test_client
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture(scope="function")
+def anon_client(db_session):
+    """Unauthenticated TestClient (no session cookie) for tests that
+    verify 401 behaviour of protected endpoints."""
+    app.dependency_overrides[get_db] = _override_get_db(db_session)
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()

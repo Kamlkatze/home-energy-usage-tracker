@@ -19,9 +19,9 @@ def test_totp_status_defaults(db_session, client):
     assert response.json() == {"enabled": False, "pending_setup": False}
 
 
-def test_totp_requires_authentication(client):
-    assert client.get("/api/auth/totp").status_code == 401
-    assert client.post("/api/auth/totp/setup").status_code == 401
+def test_totp_requires_authentication(anon_client):
+    assert anon_client.get("/api/auth/totp").status_code == 401
+    assert anon_client.post("/api/auth/totp/setup").status_code == 401
 
 
 def test_totp_setup_returns_secret_and_otpauth_url(db_session, client):

@@ -28,7 +28,12 @@ from ..security import (
 )
 from .deps import get_authenticated, get_current_user
 
-router = APIRouter()
+router = APIRouter(tags=["auth"])
+
+# Public part of the auth API: reachable without a session cookie.
+# logout is public by design - it is idempotent and only deletes the
+# caller's own cookie/session.
+public_router = APIRouter(tags=["auth"])
 
 # Generic error message for all credential failures (prevents user
 # enumeration, see OWASP Authentication Cheat Sheet).
@@ -82,7 +87,7 @@ def _verify_totp(user: User, code: str | None) -> bool:
     return pyotp.TOTP(user.totp_secret).verify(code, valid_window=TOTP_VALID_WINDOWS)
 
 
-@router.post("/login")
+@public_router.post("/login")
 def login(body: LoginRequest, response: Response, db: Session = Depends(get_db)) -> UserResponse:
     """Authenticate with username/password (plus TOTP code if enabled).
 
@@ -143,7 +148,7 @@ def login(body: LoginRequest, response: Response, db: Session = Depends(get_db))
     return UserResponse.model_validate(user)
 
 
-@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+@public_router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
 def logout(
     request: Request,
     response: Response,

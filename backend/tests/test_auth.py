@@ -57,8 +57,8 @@ def test_login_success_me_returns_user(db_session, client):
     assert response.json()["role"] == "user"
 
 
-def test_me_requires_authentication(client):
-    response = client.get("/api/auth/me")
+def test_me_requires_authentication(anon_client):
+    response = anon_client.get("/api/auth/me")
     assert response.status_code == 401
     assert "detail" in response.json()
 
@@ -79,17 +79,20 @@ def test_login_unknown_user_same_generic_error(db_session, client):
     assert unknown.json()["detail"] == known.json()["detail"]
 
 
-def test_logout_invalidates_session(db_session, client):
+def test_logout_invalidates_session(db_session, anon_client):
+    # anon_client has no fixture session cookie; a second (fixture) cookie
+    # in the jar would otherwise resurface after the logout cookie is
+    # deleted (httpx keeps same-name cookies as separate jar entries).
     create_user(db_session)
-    login(client)
-    assert client.get("/api/auth/me").status_code == 200
-    response = client.post("/api/auth/logout")
+    login(anon_client)
+    assert anon_client.get("/api/auth/me").status_code == 200
+    response = anon_client.post("/api/auth/logout")
     assert response.status_code == 204
-    assert client.get("/api/auth/me").status_code == 401
+    assert anon_client.get("/api/auth/me").status_code == 401
 
 
-def test_logout_without_session_is_idempotent(client):
-    assert client.post("/api/auth/logout").status_code == 204
+def test_logout_without_session_is_idempotent(anon_client):
+    assert anon_client.post("/api/auth/logout").status_code == 204
 
 
 def test_account_lockout_after_first_failure(db_session, client):
