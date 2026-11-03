@@ -1,5 +1,5 @@
 import axios, { AxiosError } from 'axios';
-import { Meter, MeterUpdateData, AdvancePaymentDiffByCategory, ConsumptionTimeseriesItem, MeterType, BackupInfo, BackupRestoreResult, AppMeta, AuthUser, TotpStatus } from '../types';
+import { Meter, MeterUpdateData, AdvancePaymentDiffByCategory, ConsumptionTimeseriesItem, MeterType, BackupInfo, BackupRestoreResult, AppMeta, AuthUser, TotpStatus, AdminUser, AdminUserUpdateData, UserRole } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 
@@ -88,6 +88,27 @@ export const authApi = {
       code,
     });
     return response.data as TotpStatus;
+  },
+};
+
+export const adminApi = {
+  listUsers: async (): Promise<AdminUser[]> => {
+    const response = await apiClient.get('/api/admin/users');
+    return response.data as AdminUser[];
+  },
+
+  createUser: async (username: string, password: string, role: UserRole): Promise<AdminUser> => {
+    const response = await apiClient.post('/api/admin/users', {
+      username,
+      password,
+      role,
+    });
+    return response.data as AdminUser;
+  },
+
+  updateUser: async (id: number, data: AdminUserUpdateData): Promise<AdminUser> => {
+    const response = await apiClient.patch(`/api/admin/users/${id}`, data);
+    return response.data as AdminUser;
   },
 };
 

@@ -16,18 +16,24 @@ import CustomRange from './pages/CustomRange';
 import BackupRestore from './pages/BackupRestore';
 import Login from './pages/Login';
 import Profile from './pages/Profile';
+import AdminUsers from './pages/AdminUsers';
 import { Home, BarChart2, FileText, Settings, Euro, CalendarDays, CalendarRange, Receipt } from 'lucide-react';
 import NavDropdown from './components/NavDropdown';
 import ThemeToggle from './components/ThemeToggle';
 import Footer from './components/Footer';
 import RequireAuth from './components/RequireAuth';
+import RequireAdmin from './components/RequireAdmin';
 import UserMenu from './components/UserMenu';
 import { AuthProvider } from './context/AuthContext';
+import { useAuth } from './hooks/useAuth';
+import { Users } from 'lucide-react';
 
 // Layout of the protected part of the app: header with navigation, the
 // routed pages and the footer. Rendered inside <RequireAuth> so every
 // business page requires an authenticated session.
-const ProtectedLayout: React.FC = () => (
+const ProtectedLayout: React.FC = () => {
+  const { user } = useAuth();
+  return (
   <div className="min-h-screen bg-background">
     <header className="border-b">
       <div className="container mx-auto px-4 py-4">
@@ -67,6 +73,9 @@ const ProtectedLayout: React.FC = () => (
                 { to: '/tariffs', label: 'Tarife', icon: <Euro className="h-4 w-4" /> },
                 { to: '/advance-payments', label: 'Abschläge', icon: <Receipt className="h-4 w-4" /> },
                 { to: '/meters', label: 'Zähler', icon: <Settings className="h-4 w-4" /> },
+                ...(user?.role === 'admin'
+                  ? [{ to: '/admin/users', label: 'Benutzer', icon: <Users className="h-4 w-4" /> }]
+                  : []),
               ]}
             />
             <ThemeToggle />
@@ -92,12 +101,21 @@ const ProtectedLayout: React.FC = () => (
         <Route path="/custom-range" element={<CustomRange />} />
         <Route path="/backup-restore" element={<BackupRestore />} />
         <Route path="/profile" element={<Profile />} />
+        <Route
+          path="/admin/users"
+          element={
+            <RequireAdmin>
+              <AdminUsers />
+            </RequireAdmin>
+          }
+        />
       </Routes>
     </main>
 
     <Footer />
   </div>
-);
+  );
+};
 
 const App: React.FC = () => {
   return (

@@ -93,6 +93,30 @@ export const authApi = {
   disableTotp: vi.fn(),
 };
 
+export const ADMIN_USER_SELF = {
+  id: 1,
+  username: 'testadmin',
+  role: 'admin',
+  is_active: true,
+  totp_enabled: false,
+  created_at: '2024-01-01T00:00:00Z',
+};
+
+export const ADMIN_USER_OTHER = {
+  id: 2,
+  username: 'bob',
+  role: 'user',
+  is_active: true,
+  totp_enabled: true,
+  created_at: '2024-02-01T00:00:00Z',
+};
+
+export const adminApi = {
+  listUsers: vi.fn(),
+  createUser: vi.fn(),
+  updateUser: vi.fn(),
+};
+
 export const BACKUP_INFO = {
   db_revision: '3d6f19fc27d2',
   head_revision: '3d6f19fc27d2',
@@ -182,4 +206,8 @@ export function resetApiMocks(): void {
   authApi.startTotpSetup.mockResolvedValue({ secret: 'JBSWY3DPEHPK3PXP', otpauth_url: 'otpauth://totp/Energy%20Tracker:testadmin' });
   authApi.enableTotp.mockResolvedValue({ enabled: true, pending_setup: false });
   authApi.disableTotp.mockResolvedValue({ enabled: false, pending_setup: false });
+
+  adminApi.listUsers.mockResolvedValue([ADMIN_USER_SELF, ADMIN_USER_OTHER]);
+  adminApi.createUser.mockResolvedValue(ADMIN_USER_OTHER);
+  adminApi.updateUser.mockResolvedValue(ADMIN_USER_OTHER);
 }
