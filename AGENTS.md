@@ -100,3 +100,10 @@ Scope-specific rules live in nested files and apply **in addition** to this one:
    all services with `build:`) rebuilt it from `Dockerfile.dev` (vite, no nginx) and later prod
    recreates ran the wrong image (port 3500 resets). Fixed with distinct tags
    `home-energy-usage-tracker_frontend:prod` / `:dev` in the compose files
+9. podman-compose puts all containers of the project (dev **and** prod compose share the
+   project name `home-energy-usage-tracker`) into one pod + one network. `docker compose down`
+   (prod file) fails with a cascade of "no container found"/"not all containers could be
+   removed from pod"/"network is being used" errors while the dev `db-test` container is still
+   running inside that pod. Fix: run `docker compose -f docker-compose.dev.yml down` first
+   (or stop db-test), then `docker compose down`. The remaining "no such container/pod" errors
+   on a second `down` are harmless cosmetics (blind cleanup, exit code 0)
