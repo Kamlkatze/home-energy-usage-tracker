@@ -13,39 +13,43 @@ Two approaches are supported:
 1. **Dedicated Test Database (Recommended for development)**:
    - A `db-test` service runs in `docker-compose.dev.yml` on port 5433
    - Database URL: `postgresql://postgres:postgres@localhost:5433/energy_tracker_test`
-   - Set `TEST_DATABASE_URL` environment variable to use this
+   - This URL is the **default** in `tests/conftest.py` – no explicit setting required
    - Schema is created via Alembic migrations (not `Base.metadata.create_all()`)
 
-2. **SQLite In-Memory (Fallback)**:
-   - Used when `TEST_DATABASE_URL` is not set
+2. **SQLite (explicit only, not recommended)**:
+   - Only used when `TEST_DATABASE_URL` is **explicitly** set to a SQLite URL –
+     the default is PostgreSQL (`energy_tracker_test` on localhost:5433)
    - Schema created via `Base.metadata.create_all()`
-   - Doesn't test PostgreSQL-specific features
+   - Tests that rely on PostgreSQL-specific features (EXCLUDE/daterange
+     constraints) **FAIL on SQLite by design** – never weaken them to pass
 
 ### Running Tests
 
 ```bash
-# With PostgreSQL test database (recommended)
+# With PostgreSQL test database (recommended; default TEST_DATABASE_URL)
 # Start test database container, if not yet started:
 docker compose -f docker-compose.dev.yml up -d db-test
 # Start tests
 cd backend
-TEST_DATABASE_URL="postgresql://postgres:postgres@localhost:5433/energy_tracker_test" \
-  uv run --extra dev pytest
+uv run --extra dev pytest
 
 # Stop Docker container again
 cd ..
 docker compose -f docker-compose.dev.yml down db-test
 
-# With SQLite (fallback)
+# With SQLite (explicit TEST_DATABASE_URL only; EXCLUDE-constraint tests
+# fail there by design - PostgreSQL is the default and required)
 cd backend
-uv run --extra dev pytest
+TEST_DATABASE_URL="sqlite:///./test.db" uv run --extra dev pytest
 ```
 
 ### Test Isolation
 
-- Each test runs in a transaction that's rolled back afterwards
+- All tables are truncated (RESTART IDENTITY CASCADE) before each test
+- The `client` fixture is authenticated as a test admin (session row + cookie
+  injected directly); use the `anon_client` fixture to assert 401 behaviour
 - This keeps tests fast and independent
-- The database schema is created once per test session
+- The database schema is created once per test session (via Alembic)
 
 ### Integrity Error Handling
 
@@ -57,7 +61,9 @@ The application has a global exception handler for `sqlalchemy.exc.IntegrityErro
 
 Known constraint mappings:
 - `uq_meter_reading_date` → "Für diesen Zähler existiert bereits ein Zählerstand an diesem Datum."
-- `uq_meter_valid_from` → "Für diesen Zähler existiert bereits ein Tarifzeitraum mit diesem Startdatum."
+- `uq_meter_valid_from` → "Für diesen Zähler existiert bereits ein Tarifzeitraum mit diesem Startdatum." (legacy, pre-tariff_kind)
+- `excl_tariff_period_no_overlap` / `excl_advance_payment_no_overlap` → "... überschneidet sich der Zeitraum / der Abschlagszeitraum mit einem bestehenden Eintrag."
+- `excl_advance_payment_wastewater` / `excl_advance_payment_non_wastewater` → same message as above for advance payments
 
 ## Why PostgreSQL for Tests?
 

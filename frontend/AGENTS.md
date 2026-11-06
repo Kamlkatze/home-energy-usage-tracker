@@ -12,6 +12,27 @@ Applies to everything under `frontend/`, **in addition to** the root `AGENTS.md`
 - Money/quantity values arrive from the API as **Decimal strings in JSON** – keep them as strings
   in TS types and format only for display (UI strings in German, see root AGENTS.md)
 
+## Authentication (session cookie)
+
+- `AuthProvider` in `src/context/AuthContext.tsx` performs the initial `/me`
+  check (`loading` state) and exposes `useAuth()` from `src/hooks/useAuth.ts`.
+  The context object lives separately in `src/context/authContext.ts` because
+  `react-refresh/only-export-components` forbids mixing component and
+  non-component exports in one file
+- Route guards: `RequireAuth` wraps every business route (`/login` is the only
+  public frontend route, redirects carry `state.from` for the way back);
+  `RequireAdmin` additionally checks `role === 'admin'` and must respect
+  `loading` or it redirects before `/me` resolved
+- `src/api/client.ts`: `authApi` + `adminApi`; the response interceptor turns a
+  401 on any **non-auth** endpoint into an `auth:unauthorized` window event
+  (exempt: `/api/auth/login|logout|me`), `withCredentials: true` is required for
+  the cross-origin dev setup. The AuthContext listens for that event and drops
+  the user, which makes the guard redirect to `/login`
+- `ui/checkbox.tsx` and `ui/select.tsx` are **native** input/select wrappers –
+  Radix-style APIs (`onCheckedChange`, `onValueChange`) are silent no-ops; use
+  `onChange`
+- TOTP QR rendering uses `qrcode.react` (peer supports React 19)
+
 ## Data fetching (React 19 + useFetch)
 
 - All page data fetching goes through `src/hooks/useFetch.ts`
@@ -86,6 +107,14 @@ Applies to everything under `frontend/`, **in addition to** the root `AGENTS.md`
   `npm ci` in a scratch copy of package.json+lock before `docker compose build`
 - `@testing-library/react@16` needs `@testing-library/dom` as an **explicit** devDependency under
   such installs
+- Test mocks: `src/test/mocks/api.ts` covers every API object incl. `authApi`
+  and `adminApi` (global `vi.mock('../api/client')` in `setup.ts` must list new
+  exports, otherwise route components break). Unit tests that unmock the client
+  (`client.test.ts`, `authApi.test.ts`, `advancePaymentsApi.test.ts`) must add
+  `interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } }`
+  stubs to their mocked axios instance because the real client registers
+  interceptors at module load. `renderWithProviders` provides only the router –
+  tests for auth-dependent components wrap `AuthProvider` manually
 - TypeScript is intentionally at 6.x, **not 7**: typescript-eslint (all releases incl. canary)
   declares peer `typescript <6.1.0`, so TS 7 would break `npm ci` strict peer resolution in both
   Dockerfiles. Revisit when typescript-eslint publishes a release with a TS 7 peer range

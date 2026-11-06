@@ -15,6 +15,15 @@ erDiagram
         datetime created_at "NOT NULL"
     }
 
+    auth_sessions {
+        int id PK
+        int user_id FK "NOT NULL"
+        string token_hash "NOT NULL"
+        datetime expires_at "NOT NULL"
+        datetime last_used_at "NOT NULL"
+        datetime created_at "NOT NULL"
+    }
+
     meters {
         int id PK
         enum meter_type "NOT NULL"
@@ -52,7 +61,21 @@ erDiagram
         datetime created_at "NOT NULL"
     }
 
+    users {
+        int id PK
+        string username "NOT NULL"
+        string password_hash "NOT NULL"
+        enum role "NOT NULL"
+        boolean is_active "NOT NULL"
+        string totp_secret
+        boolean totp_enabled "NOT NULL"
+        int failed_login_count "NOT NULL"
+        datetime locked_until
+        datetime created_at "NOT NULL"
+    }
+
     meters ||..o{ advance_payments : "meters_advance_payments_fk"
+    users ||..o{ auth_sessions : "users_auth_sessions_fk"
     meters ||..o{ meters : "meters_meters_fk"
     meters ||..o{ readings : "meters_readings_fk"
     meters ||..o{ tariff_periods : "meters_tariff_periods_fk"

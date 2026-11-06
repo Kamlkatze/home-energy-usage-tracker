@@ -17,6 +17,12 @@ const { mockAxiosInstance } = vi.hoisted(() => ({
     post: vi.fn(),
     put: vi.fn(),
     delete: vi.fn(),
+    // The real client registers response interceptors (401 handling) on
+    // module load; the tests only need the registration to be a no-op.
+    interceptors: {
+      request: { use: vi.fn() },
+      response: { use: vi.fn() },
+    },
   },
 }));
 

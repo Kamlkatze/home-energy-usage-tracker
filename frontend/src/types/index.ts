@@ -6,6 +6,40 @@ export type MeterType =
   | 'electricity_export'
   | 'electricity_production';
 
+export type UserRole = 'admin' | 'user';
+
+// Response of POST /api/auth/login and GET /api/auth/me
+export interface AuthUser {
+  id: number;
+  username: string;
+  role: UserRole;
+  totp_enabled: boolean;
+}
+
+// Response of GET /api/auth/totp, POST /api/auth/totp/enable and
+// POST /api/auth/totp/disable
+export interface TotpStatus {
+  enabled: boolean;
+  pending_setup: boolean;
+}
+
+// Admin user management (GET/POST/PATCH /api/admin/users)
+export interface AdminUser {
+  id: number;
+  username: string;
+  role: UserRole;
+  is_active: boolean;
+  totp_enabled: boolean;
+  created_at: string;
+}
+
+export interface AdminUserUpdateData {
+  role?: UserRole;
+  is_active?: boolean;
+  new_password?: string;
+  reset_totp?: boolean;
+}
+
 export type TariffKind = 'consumption' | 'feed_in' | 'self_consumption' | 'wastewater' | 'feed_in_eeg2009';
 
 // One entry of GET /api/meters/types: the unit is server-derived from

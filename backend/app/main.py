@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import IntegrityError
 
-from .api import api_router
+from .api import api_router, public_router
 from .config import settings
 
 app = FastAPI(
@@ -81,7 +81,10 @@ async def integrity_error_handler(request: Request, exc: IntegrityError):
     )
 
 
+# Protected business endpoints (session cookie required)
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)
+# Public auth endpoints (login/logout) - included without the guard
+app.include_router(public_router, prefix=settings.API_V1_PREFIX)
 
 
 if __name__ == "__main__":

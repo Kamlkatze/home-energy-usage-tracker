@@ -9,14 +9,15 @@
   <img src="https://img.shields.io/badge/Docker-Compose-2496ED.svg" alt="Docker Compose">
 </p>
 
-Home Energy Usage Tracker is a self-hosted, single-user application for recording meter
+Home Energy Usage Tracker is a self-hosted application for recording meter
 readings (electricity import/export/production, gas, cold and garden water) and managing
 tariff periods and monthly advance payments. Based on the readings it computes
 consumption, costs, and annual projections — including meter replacement chains,
 wastewater billing, and EEG 2009/Simple feed-in compensation — and visualizes the results in
 per-meter charts and year-over-year overviews. Everything runs locally via a single
 `docker compose up -d`: all data stays in your own PostgreSQL instance, with no cloud
-services, no authentication, and no external network access.
+services, no external network access, and built-in authentication (session cookies
+with Argon2id password hashing, optional TOTP two-factor, admin/user roles).
 
 ## Architecture
 
@@ -815,6 +816,21 @@ The 30 % threshold is a fixed statutory value from EEG 2009 § 33 Abs. 2, not co
 ### Health
 - `GET /health` - Health check endpoint, returns `{"status": "healthy"}`.
 
+### Authentication & User Management
+All business endpoints require an authenticated session (session cookie `et_session`, HttpOnly, SameSite=Lax; `Secure` flag via `COOKIE_SECURE`). Only `/health`, `/api/auth/login` and `/api/auth/logout` are public.
+
+- `POST /api/auth/login` - Body `{"username", "password", "totp_code"?}`. Sets the session cookie. TOTP-enabled users get **401** with `{"detail": {"message": "Zwei-Faktor-Code erforderlich.", "totp_required": true}}` until a valid code is sent. All credential failures return the same generic **401** message (no user enumeration); repeated failures trigger an exponential account lockout (**429**, capped at 15 minutes)
+- `POST /api/auth/logout` - Invalidates the session server-side and clears the cookie (idempotent, **204**)
+- `GET /api/auth/me` - Returns the authenticated user (`{"id", "username", "role", "totp_enabled"}`)
+- `POST /api/auth/change-password` - Requires the current password (re-authentication); optional `logout_other_sessions` invalidates all other sessions
+- `GET /api/auth/totp` - TOTP status `{"enabled", "pending_setup"}`
+- `POST /api/auth/totp/setup` - Starts TOTP enrollment, returns `{"secret", "otpauth_url"}` for QR rendering; repeated calls replace unconfirmed secrets
+- `POST /api/auth/totp/enable` - Confirms enrollment with a valid code and activates 2FA
+- `POST /api/auth/totp/disable` - Requires the current password **and** a valid code; clears the enrollment
+- `GET /api/admin/users` | `POST /api/admin/users` | `PATCH /api/admin/users/{id}` - Admin-only user management (list, create, role/is_active/password-reset/`reset_totp`). Self-demotion/self-deactivation and removing the last active admin are rejected with **400**; a password reset invalidates all sessions of the target user
+- **First admin**: create it with `cd backend && uv run python -m app.seed_admin` (interactive) or `uv run python -m app.seed_admin --username admin --password "..."`; inside the prod container: `docker compose exec backend /opt/venv/bin/python -m app.seed_admin`
+- Password policy (NIST SP 800-63B): minimum 15 characters without MFA, 8 characters with MFA enabled; maximum 512 characters. Passwords are hashed with Argon2id
+
 ## Database Schema
 
 <!-- ERD:START -->
@@ -835,6 +851,15 @@ erDiagram
         date valid_to
         numeric monthly_amount "NOT NULL"
         string comment
+        datetime created_at "NOT NULL"
+    }
+
+    auth_sessions {
+        int id PK
+        int user_id FK "NOT NULL"
+        string token_hash "NOT NULL"
+        datetime expires_at "NOT NULL"
+        datetime last_used_at "NOT NULL"
         datetime created_at "NOT NULL"
     }
 
@@ -875,7 +900,21 @@ erDiagram
         datetime created_at "NOT NULL"
     }
 
+    users {
+        int id PK
+        string username "NOT NULL"
+        string password_hash "NOT NULL"
+        enum role "NOT NULL"
+        boolean is_active "NOT NULL"
+        string totp_secret
+        boolean totp_enabled "NOT NULL"
+        int failed_login_count "NOT NULL"
+        datetime locked_until
+        datetime created_at "NOT NULL"
+    }
+
     meters ||..o{ advance_payments : "meters_advance_payments_fk"
+    users ||..o{ auth_sessions : "users_auth_sessions_fk"
     meters ||..o{ meters : "meters_meters_fk"
     meters ||..o{ readings : "meters_readings_fk"
     meters ||..o{ tariff_periods : "meters_tariff_periods_fk"
@@ -998,11 +1037,14 @@ home-energy-usage-tracker/
 ├── backend/
 │   ├── app/
 │   │   ├── api/
-│   │   │   ├── __init__.py           # Router registration
+│   │   │   ├── __init__.py           # Router registration (global session guard on api_router)
 │   │   │   ├── advance_payments.py   # CRUD endpoints for advance payments
+│   │   │   ├── admin.py              # Admin-only user management endpoints
+│   │   │   ├── auth.py               # Login/logout/me, password change, TOTP enrollment
 │   │   │   ├── costs.py              # Cost, wastewater, yearly-projection, consumption-timeseries,
 │   │   │   │                         #   and advance-payment-diff endpoints (helpers live in services/)
-│   │   │   ├── deps.py               # Dependency injection (database session)
+│   │   │   ├── deps.py               # Dependency injection (database session, get_authenticated/
+│   │   │   │                         #   get_current_user/get_current_admin session guards)
 │   │   │   ├── electricity.py         # EEG 2009 feed-in compensation endpoint
 │   │   │   ├── meters.py             # CRUD endpoints for meters
 │   │   │   ├── projections.py        # Projection endpoints for annual consumption
@@ -1014,15 +1056,18 @@ home-energy-usage-tracker/
 │   │   │   ├── base.py               # Base model with id and timestamp mixin
 │   │   │   ├── meter.py              # Meter ORM model with MeterType enum
 │   │   │   ├── reading.py            # Reading ORM model
-│   │   │   └── tariff_period.py      # TariffPeriod ORM model with TariffKind enum
+│   │   │   ├── tariff_period.py      # TariffPeriod ORM model with TariffKind enum
+│   │   │   └── user.py               # User + AuthSession ORM models, UserRole enum
 │   │   ├── schemas/
 │   │   │   ├── __init__.py           # Exports all Pydantic schemas
 │   │   │   ├── advance_payment.py    # AdvancePayment schemas (Create, Update, Response)
+│   │   │   ├── auth.py               # LoginRequest, UserResponse, password/TOTP schemas
 │   │   │   ├── cost.py               # Cost, wastewater, advance-payment-diff, and consumption-timeseries schemas
 │   │   │   ├── meter.py              # Meter schemas (Create, Update, Response)
 │   │   │   ├── projection.py         # Projection response schema
 │   │   │   ├── reading.py            # Reading schemas
 │   │   │   ├── tariff_period.py      # TariffPeriod schemas with TariffKind
+│   │   │   ├── user.py               # Admin user-management schemas
 │   │   │   └── yearly_projection_cost.py # Yearly projection with cost response schema
 │   │   ├── services/
 │   │   │   ├── cost_calculation.py   # Pure cost math (proration, multi-period rounding, gas conversion)
@@ -1033,7 +1078,9 @@ home-energy-usage-tracker/
 │   │   ├── __init__.py
 │   │   ├── config.py                 # Configuration with pydantic-settings
 │   │   ├── database.py               # SQLAlchemy engine and session factory
-│   │   └── main.py                   # FastAPI application with middleware
+│   │   ├── main.py                   # FastAPI application with middleware
+│   │   ├── seed_admin.py             # CLI to create admin users (python -m app.seed_admin)
+│   │   └── security.py               # Argon2id hashing, session tokens, password policy
 │   ├── alembic/                       # Database migrations
 │   ├── tests/                         # Backend tests
 │   ├── pyproject.toml                # Python dependencies (uv)
@@ -1044,17 +1091,19 @@ home-energy-usage-tracker/
 │   └── Dockerfile                    # Production backend image
 ├── frontend/
 │   ├── src/
-│   │   ├── api/                      # API client
-│   │   ├── components/               # React components (EditMeterModal, ThemeToggle)
+│   │   ├── api/                      # API client (authApi, adminApi, metersApi, ...)
+│   │   ├── components/               # React components (EditMeterModal, ThemeToggle,
+│   │   │                             #   RequireAuth, RequireAdmin, UserMenu)
 │   │   ├── components/ui/            # shadcn/ui components
 │   │   ├── components/year-detail/    # Year detail page components (MeterBlock, ElectricitySection, WaterSection, GasSection, ReadingEditDialog)
 │   │   ├── components/shared/        # Shared chart/formatting helpers (chartHelpers.ts, ChartTooltip.tsx)
 │   │   ├── components/custom-range/  # Custom range page components (AreaBlock)
-│   │   ├── pages/                    # Page components
+│   │   ├── context/                  # AuthProvider (AuthContext.tsx + authContext.ts)
+│   │   ├── pages/                    # Page components (incl. Login, Profile, AdminUsers)
 │   │   ├── types/                    # TypeScript interfaces
-│   │   ├── hooks/                    # Custom React hooks
+│   │   ├── hooks/                    # Custom React hooks (useFetch, useAuth, ...)
 │   │   ├── lib/                      # Utility functions
-│   │   ├── App.tsx                   # Main application
+│   │   ├── App.tsx                   # Main application (public /login + guarded layout)
 │   │   └── main.tsx                  # React entry point
 │   ├── dist/                         # Production build output
 │   ├── node_modules/                 # Node.js dependencies
@@ -1074,14 +1123,12 @@ home-energy-usage-tracker/
 
 ## Security Note
 
-This application is designed for **local, single-user operation only**. It does not include:
-- User authentication
-- Role-based access control
-- HTTPS (in local deployment)
-- Rate limiting
-- Input sanitization beyond basic validation
+The application includes session-based authentication (HttpOnly session cookie, Argon2id password hashing, optional TOTP two-factor, admin role with user management) and protects all business endpoints including `/backup/restore`. Login throttling uses an exponential account lockout per account.
 
-For production use with multiple users or internet exposure, additional security measures are required.
+Remaining limitations:
+- **No HTTPS by default** (local/LAN deployment): passwords and session cookies travel unencrypted on the network. For internet exposure, terminate TLS with a reverse proxy in front of nginx and set `COOKIE_SECURE=true` so the session cookie is only sent over HTTPS
+- **No general rate limiting** beyond the login lockout
+- TOTP secrets are stored unencrypted in the database (required for QR enrollment; acceptable for a self-hosted single-database setup)
 
 ## Troubleshooting
 

@@ -29,9 +29,10 @@ Scope-specific rules live in nested files and apply **in addition** to this one:
 - Test:    `cd backend && uv run --extra dev pytest` (needs the `db-test` container from
   docker-compose.dev.yml on port 5433; default TEST_DATABASE_URL is PostgreSQL there – tests
   requiring the EXCLUDE constraint FAIL on SQLite, by design)
-- FE test: `cd frontend && npm run test` (Vitest, 137 tests: 17 route smoke tests + 55 focused
-  component tests in `src/test/*.test.tsx` + 65 unit tests for API layer/hooks in
-  `src/test/*.test.ts`)
+- FE test: `cd frontend && npm run test` (Vitest, 200 tests: 19 route smoke tests across
+  `src/test/smoke/` + 102 focused component tests in `src/test/*.test.tsx` (incl. the auth
+  pages Login/Profile/AdminUsers) + 79 unit tests in `src/test/*.test.ts` for the API
+  layer (client, authApi, advancePaymentsApi) and hooks)
 - Lint:    `cd backend && uv run --extra dev ruff check --fix && uv run --extra dev mypy app/models`
 - FE lint: `cd frontend && npm run lint` (ESLint 9 flat config; exits 1 if any warning –
   target is **0 errors**, currently 38 known warnings)
@@ -65,6 +66,12 @@ Scope-specific rules live in nested files and apply **in addition** to this one:
   in docker-compose.yml
 - Frontend: prod served by nginx on host port **3500** (mapping `3500:80`), API proxied under `/api`;
   dev via Dockerfile.dev on port 3000 (vite), native `npm run dev` uses 5173
+- Authentication: session-cookie auth (HttpOnly cookie `et_session`, Argon2id hashes, roles
+  `admin`/`user`, optional TOTP). All business endpoints are guarded globally via
+  `api_router = APIRouter(dependencies=[Depends(get_current_user)])`; only `/health`,
+  `/api/auth/login` and `/api/auth/logout` are public (public_router). First admin:
+  `cd backend && uv run python -m app.seed_admin` (in prod:
+  `/opt/venv/bin/python -m app.seed_admin`). Details: `backend/AGENTS.md`
 - Uses podman (rootless) by default with `DOCKER_HOST=unix:///run/user/1000/podman/podman.sock`
 
 ## Docker & infrastructure learnings
@@ -93,3 +100,10 @@ Scope-specific rules live in nested files and apply **in addition** to this one:
    all services with `build:`) rebuilt it from `Dockerfile.dev` (vite, no nginx) and later prod
    recreates ran the wrong image (port 3500 resets). Fixed with distinct tags
    `home-energy-usage-tracker_frontend:prod` / `:dev` in the compose files
+9. podman-compose puts all containers of the project (dev **and** prod compose share the
+   project name `home-energy-usage-tracker`) into one pod + one network. `docker compose down`
+   (prod file) fails with a cascade of "no container found"/"not all containers could be
+   removed from pod"/"network is being used" errors while the dev `db-test` container is still
+   running inside that pod. Fix: run `docker compose -f docker-compose.dev.yml down` first
+   (or stop db-test), then `docker compose down`. The remaining "no such container/pod" errors
+   on a second `down` are harmless cosmetics (blind cleanup, exit code 0)

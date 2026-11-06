@@ -23,8 +23,13 @@
 
 ## 2. Existing Pages / Routes
 
+All business routes sit behind `RequireAuth` (session required, redirect to `/login`); `/login` is the only public route.
+
 | Route | File | Description |
 |---|---|---|
+| `/login` | `pages/Login.tsx` | **Public** login page (session cookie auth). Username/password form; shows the TOTP second-factor field only when the backend answers with `totp_required`; displays backend errors (generic credential message, lockout 429). After success navigates back to the originally requested route (`state.from`). |
+| `/profile` | `pages/Profile.tsx` | Profile of the logged-in user: password change (current/new/confirm, "Alle anderen Geräte abmelden" checkbox; backend strength/credential errors shown verbatim) and TOTP management (status display, enrollment with QR code via `qrcode.react` + manual secret entry + code confirmation, disable with password + code). |
+| `/admin/users` | `pages/AdminUsers.tsx` | Admin-only user management (behind `RequireAdmin`, nav entry "Benutzer" only for admins): user table (role/status/two-factor), create-user dialog (username/password/role), activate/deactivate, role toggle (own row: no self-demote/deactivate buttons), password-reset dialog (mentions session invalidation), TOTP-reset confirmation dialog. Backend protection errors (e.g. last-admin rule, duplicate username) are shown verbatim. |
 | `/` | `pages/Home.tsx` | Landing page with description cards (electricity, gas, water) plus grouped nav-link sections: "Auswertung" (Jahresübersicht, Zeitraum), "Erfassung" (Zählerstände) and "Verwaltung" (Zähler, Tarife, Abschläge). Static content only – no live data or summary queries. |
 | `/meters` | `pages/MeterList.tsx` | Lists all meters in a sortable/searchable table (columns: Zähler, Nummer, Typ, Einheit, Erstellt, Aktionen) with type filter buttons ("Alle" + one per meter type) and free-text search (label, meter number, type label). Predecessor/successor chain shown under the Zähler cell; replaced meters dimmed. Default sort: newest (`created_at`) first. Supports **edit** (inline modal) and **delete** (Dialog with confirmation). "Neuer Zähler" link. German UI. |
 | `/meters/new` | `pages/MeterForm.tsx` | Create meter form: label, meter number (optional), type (select from server‑fetched types), predecessor (optional, same‑type only). Unit is read-only (server-derived). Submits to `POST /api/meters/`. |
@@ -67,6 +72,9 @@ All follow the shadcn/ui pattern (Tailwind + `cn()` helper, forwardRef, displayN
 ### Business components (`components/`)
 | Component | File | Notes |
 |---|---|---|
+| `RequireAuth` | `RequireAuth.tsx` | Route guard: spinner while the initial `/me` check runs; redirects unauthenticated users to `/login` carrying `state.from`. Wraps the whole protected layout in `App.tsx`. |
+| `RequireAdmin` | `RequireAdmin.tsx` | Admin-only route guard (`role === 'admin'` → otherwise redirect to `/`). Respects the `loading` state so it never redirects before the user is known. |
+| `UserMenu` | `UserMenu.tsx` | Header widget: username as link to `/profile` + "Abmelden" button (calls `logout()` from `useAuth`). Hidden when not authenticated. |
 | `EditMeterModal` | `EditMeterModal.tsx` | Dialog for editing a meter: name, number, predecessor dropdown. Meter type and unit are read-only. The predecessor dropdown only lists same-type meters and excludes the meter itself (a meter can never be its own predecessor); it keeps the currently selected predecessor selectable. |
 | `ThemeToggle` | `ThemeToggle.tsx` | Dark/light mode toggle button in nav bar. Stores preference in `localStorage.theme`. |
 | `SortableHeader` | `SortableHeader.tsx` | Reusable sortable table header. Renders a real `<button>` (a11y-friendly) with an arrow indicator (↑/↓ when active, dimmed ↑↓ otherwise). Props: `label`, `sortKey`, `sort`, `onSort`. Used by `TariffList` and `AdvancePaymentList`. |
@@ -97,6 +105,7 @@ All follow the shadcn/ui pattern (Tailwind + `cn()` helper, forwardRef, displayN
 ### Hooks
 | Hook | File | Notes |
 |---|---|---|
+| `useAuth` | `hooks/useAuth.ts` | Access to the auth context (`{ user, loading, login, logout }`). Throws when used outside the `AuthProvider` (in `context/AuthContext.tsx`). The context object itself lives in `context/authContext.ts` (react-refresh/only-export-components: provider file must export only components). On mount the provider runs the initial `GET /api/auth/me` check; it also listens for the `auth:unauthorized` window event (dispatched by the 401 interceptor in `client.ts`) and drops the user. |
 | `useMeterTypes` | `hooks/useMeterTypes.ts` | Fetches meter types from `GET /api/meters/types` once per session (module-level cache). Returns `MeterTypeInfo[]`. Also exports `meterTypeLabel()` helper. |
 | `useFetch` | `hooks/useFetch.ts` | Generic data-fetching hook used by **all 11 route pages**: `useFetch<T>(fetchFn, deps) => { data, loading, error }`. Auto-fetches on mount and whenever `deps` change. All state updates happen inside Promise callbacks (React 19 lint-compliant, no `set-state-in-effect` violations), stale/abandoned responses are ignored via an `active` flag, errors land in `error` (message string) and are logged centrally once via `console.error`. See section 11 for the rationale and usage patterns. |
 | `useColumnSort` | `hooks/useColumnSort.ts` | Reusable sorting state for tables. `useColumnSort(initialKey, initialDir='desc') => { sort, toggleSort }` + the pure helper `sortRows(rows, sort, getValue)`. `getValue(row, key)` returns `string | number | null` per sort key (nulls sort last); dates are compared as strings (works for `YYYY-MM-DD`). Used by `TariffList` (manual override of a default composite sort) and `AdvancePaymentList` (default newest first). |
@@ -114,6 +123,7 @@ Defines: `MeterType`, `TariffKind`, `MeterTypeInfo`, `Meter`, `Reading`, `Tariff
 ## 4. API Integration
 
 - **Pattern:** Plain axios instance (`api/client.ts`) with module-level API objects (no React Query, no generated client, no custom fetch wrapper).
+- **Auth:** the instance is created with `withCredentials: true` (session cookie also travels in the cross-origin dev setup) and registers a response interceptor that dispatches an `auth:unauthorized` window event on any 401 outside the auth flow (`/api/auth/login|logout|me` are exempt) – the `AuthContext` listens for it and drops the user so the route guard redirects to `/login`. There is no token storage in JS: authentication relies entirely on the HttpOnly session cookie.
 - **Base URL:** `import.meta.env.VITE_API_URL || ''` – empty string means same-origin, relying on the Vite dev proxy or nginx reverse proxy in production.
 - **Dev proxy** (`vite.config.ts`): `/api` → `process.env.VITE_PROXY_TARGET` (falls back to `http://localhost:8000`). Containerized dev (`docker-compose.dev.yml`) sets `VITE_PROXY_TARGET: http://backend:8000` so the frontend container reaches the backend via its docker-compose service name; the backend mounts routes under `/api`, so the path is passed through without rewriting.
 
@@ -121,6 +131,8 @@ Defines: `MeterType`, `TariffKind`, `MeterTypeInfo`, `Meter`, `Reading`, `Tariff
 
 | Object | Endpoints | Used in |
 |---|---|---|
+| `authApi` | `POST /login`, `POST /logout`, `GET /me`, `POST /change-password`, `GET /totp`, `POST /totp/setup`, `POST /totp/enable`, `POST /totp/disable` | `AuthContext` (login/logout/me), `Login`, `Profile` |
+| `adminApi` | `GET /admin/users`, `POST /admin/users`, `PATCH /admin/users/:id` | `AdminUsers` |
 | `metersApi` | `GET /types`, `GET /`, `GET /current`, `GET /:id`, `POST /`, `PUT /:id`, `DELETE /:id`, `GET /:id/readings` | `useMeterTypes`, `MeterList`, `EditMeterModal`, `MeterDetail`, `MeterForm`, `AddReading` (uses `getAll` with toggle for replaced meters + `getLastReading`), `TariffForm`, `YearDetail` (chain resolution + readings fetch) |
 | `readingsApi` | `GET /`, `GET /:id`, `POST /`, `PUT /:id`, `DELETE /:id` | `AddReading` (POST), `ReadingEditDialog` in `YearDetail` (PUT, DELETE) |
 | `tariffsApi` | `GET /`, `GET /:id`, `POST /`, `PUT /:id`, `DELETE /:id` | `TariffForm` (POST), `TariffList` (GET, PUT, DELETE) |
@@ -181,7 +193,7 @@ Vitest is the render-safety net for dependency migrations (Vite 7, React 19) —
 | `npm run test:watch` | Watch mode, re-runs on file changes. |
 | `npm run test:ui` | Interactive browser UI (via `@vitest/ui`). |
 
-Currently: **128 tests, all green** — 14 smoke tests across `src/test/smoke/` (one per top-level route component), 49 focused component tests in `src/test/*.test.tsx` (AddReading, EditMeterModal, MeterForm, TariffForm, YearDetail, YearsOverview), and 65 unit tests for the API layer and hooks in `src/test/*.test.ts` (client, advancePaymentsApi, useColumnSort).
+Currently: **200 tests, all green** — 19 route smoke tests across `src/test/smoke/` (13 files, one per top-level route component), 102 focused component tests in `src/test/*.test.tsx` (AddReading, AdminUsers, AuthContext, BackupRestore, EditMeterModal, Footer, Login, MeterForm, NavDropdown, Profile, TariffForm, YearDetail, YearsOverview), and 79 unit tests for the API layer and hooks in `src/test/*.test.ts` (client, authApi, advancePaymentsApi, useColumnSort).
 
 **Coverage (Sept 27 2026):** overall **72.1 % statements/lines**, **74.2 % branches**, **53.1 % functions** (`@vitest/coverage-v8`, provider `v8`). Configured in the `test.coverage` block of `vite.config.ts` — `reporter: ['text', 'html']`, report written to `coverage/`. Excluded from the report: `src/test/`, `*.test.*`, `*.d.ts`, `src/main.tsx` (entry point), `src/vite-env.d.ts`, `dist/`, and config files (`vite.config.ts`, `tailwind.config.*`, `postcss.config.*`, `eslint.config.*`). `src/api/client.ts`, `src/api/advancePaymentsApi.ts` and `src/hooks/useColumnSort.ts` are at **100 %** across all metrics; the remaining gaps are page/component rendering logic that is only smoke-tested.
 
@@ -192,17 +204,25 @@ src/test/
 ├── setup.ts          # jest-dom matchers + global API mocks (+ per-test reset)
 ├── mocks/
 │   └── api.ts        # mock implementations of all API client objects
-├── utils.tsx         # renderWithProviders() helper
+│                     #   (incl. authApi, adminApi — AUTH_USER/ADMIN_USER_* fixtures)
+├── utils.tsx         # renderWithProviders() helper (MemoryRouter only –
+│                     #   auth-dependent tests wrap <AuthProvider> manually)
 ├── *.test.ts(x)      # focused component tests + unit tests for API layer/hooks
-│                     #   (AddReading, EditMeterModal, MeterForm, TariffForm,
-│                     #   YearDetail, YearsOverview; client, advancePaymentsApi,
+│                     #   (AddReading, AdminUsers, AuthContext, BackupRestore, EditMeterModal,
+│                     #   Footer, Login, MeterForm, NavDropdown, Profile, TariffForm,
+│                     #   YearDetail, YearsOverview; client, authApi, advancePaymentsApi,
 │                     #   useColumnSort)
 └── smoke/            # one *.test.tsx per route component
 ```
 
-- **`setup.ts`** imports `@testing-library/jest-dom/vitest` and registers `vi.mock(...)` for `src/api/client` and `src/api/advancePaymentsApi` **globally**, so no route component ever hits the network. A global `beforeEach` resets every mock to its default implementation for isolation.
-- **`mocks/api.ts`** implements every function of `metersApi`, `readingsApi`, `tariffsApi`, `costsApi`, `electricityApi`, and `advancePaymentsApi` as `vi.fn()`. Defaults resolve to empty/minimal data so pages render their empty state (and Recharts never mounts, since it renders poorly in jsdom). `resetApiMocks()` restores these defaults before each test.
-- **`utils.tsx`** exports `renderWithProviders(ui, { path, initialEntries })`. The app's only global provider (besides `React.StrictMode` in `main.tsx`) is the router — there is no QueryClient or custom context — so the helper wraps the component in a `MemoryRouter` (with `Routes` + a matching `path`) so `useParams`/`useNavigate` work.
+Unit tests that unmock the real client (`client.test.ts`, `authApi.test.ts`,
+`advancePaymentsApi.test.ts`) must include `interceptors: { request: {use:
+vi.fn()}, response: {use: vi.fn()} }` stubs on their mocked axios instance —
+the real client registers response interceptors (401 handling) at module load.
+
+- **`setup.ts`** imports `@testing-library/jest-dom/vitest` and registers `vi.mock(...)` for `src/api/client` and `src/api/advancePaymentsApi` **globally**, so no route component ever hits the network. The `../api/client` mock also exports `authApi`, `adminApi` and `isAuthExemptUrl` (so auth-dependent components and guards render without network access). A global `beforeEach` resets every mock to its default implementation for isolation.
+- **`mocks/api.ts`** implements every function of `metersApi`, `readingsApi`, `tariffsApi`, `costsApi`, `electricityApi`, `advancePaymentsApi`, `authApi`, and `adminApi` as `vi.fn()`. Defaults resolve to empty/minimal data so pages render their empty state (and Recharts never mounts, since it renders poorly in jsdom); `authApi.me` resolves the `AUTH_USER` fixture (admin, so guarded pages and `RequireAdmin` render). `resetApiMocks()` restores these defaults before each test.
+- **`utils.tsx`** exports `renderWithProviders(ui, { path, initialEntries })`. It wraps the component in a `MemoryRouter` (with `Routes` + a matching `path`) so `useParams`/`useNavigate` work. Auth-dependent components additionally need the `AuthProvider` — tests wrap it manually (see `AuthContext.test.tsx`, `Login.test.tsx`).
 
 ### Writing a new test
 

@@ -22,6 +22,12 @@ vi.mock('../api/client', async () => {
     electricityApi: api.electricityApi,
     backupApi: api.backupApi,
     metaApi: api.metaApi,
+    authApi: api.authApi,
+    adminApi: api.adminApi,
+    isAuthExemptUrl: (url?: string) =>
+      ['/api/auth/login', '/api/auth/logout', '/api/auth/me'].some((exempt) =>
+        Boolean(url && url.startsWith(exempt)),
+      ),
     default: {},
   };
 });
