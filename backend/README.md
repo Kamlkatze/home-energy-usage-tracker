@@ -29,6 +29,24 @@ uvicorn app.main:app --reload
 docker compose up -d --build
 ```
 
+### First Admin User
+
+All endpoints require an authenticated session. Create the first admin with the CLI:
+
+```bash
+# Native development
+cd backend && uv run python -m app.seed_admin
+
+# Production container (interactive; password is read without echo)
+podman exec -it home-energy-usage-tracker_backend_1 \
+  /opt/venv/bin/python -m app.seed_admin
+```
+
+The script only creates ADMIN-role users; regular users are created by an
+admin via `POST /api/admin/users` or the "Benutzer anlegen" dialog in the UI
+(`Verwaltung → Benutzer`). See the root README section
+"Authentication & User Management" for the full endpoint documentation.
+
 ### Development Commands
 
 ```bash
@@ -63,6 +81,10 @@ uv run --extra dev pytest tests/test_advance_payments.py
 uv run --extra dev pytest tests/test_advance_payment_diff.py
 uv run --extra dev pytest tests/test_advance_payment_diff.py -k "by_category"
 uv run --extra dev pytest tests/test_consumption_timeseries.py
+uv run --extra dev pytest tests/test_auth.py          # login/logout/me, password change, lockout
+uv run --extra dev pytest tests/test_auth_totp.py     # TOTP enrollment endpoints
+uv run --extra dev pytest tests/test_admin.py         # admin user management + route guard
+uv run --extra dev pytest tests/test_seed_admin.py    # seed_admin CLI
 
 # Run with verbose output
 uv run --extra dev pytest -v
@@ -84,6 +106,10 @@ uv run --extra dev pytest -v
 - EEG 2009 feed-in compensation calculation
 - Decimal serialization as strings
 - **Current meters** (`GET /api/meters/current`): empty DB, standalone meters, replacement chain filtering, mixed chain + standalone
+- **Authentication**: login (session cookie flags, generic credential error, exponential account lockout incl. lock-extension and 15-minute cap, inactive users, TOTP second factor), `/me` without session, logout session invalidation, password change (re-auth, strength policy, other-session invalidation)
+- **TOTP enrollment**: setup (secret + otpauth URL, pending status, secret replacement), enable (valid/invalid code), disable (password + code, enrollment cleared), full login flow after activation
+- **Admin user management**: list/create (duplicate 409, weak password 400), role/activation updates, admin password reset invalidating target sessions, self-protection rules, `RequireAdmin`-equivalent 403 behaviour
+- **seed_admin CLI**: admin creation, duplicate/weak-password rejection, interactive and non-interactive flows
 
 ## Data Model
 
@@ -219,6 +245,34 @@ Response (200):
   - `excl_advance_payment_wastewater` (WHERE `category = 'wastewater'`): no overlap for the same `water_cold_meter_id`
 
 > Note: `Meter.advance_payments` (relationship) explicitly sets `foreign_keys="AdvancePayment.meter_id"` and uses `cascade="all"` because `advance_payments` now has three FKs pointing to `meters.id`.
+
+### User (`app/models/user.py`)
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | integer PK | |
+| `username` | string(100) unique | |
+| `password_hash` | string(255) | Argon2id hash (`argon2-cffi`), never plaintext |
+| `role` | enum | `admin`, `user` (lowercase values in DB) |
+| `is_active` | boolean | deactivated users cannot log in; existing sessions are rejected |
+| `totp_secret` | string(64) nullable | Base32 TOTP secret, stored unencrypted (required for QR enrollment) |
+| `totp_enabled` | boolean | only `true` after a valid code confirmed the enrollment |
+| `failed_login_count` | integer | lockout counter (per account, not per IP) |
+| `locked_until` | datetime nullable | exponential lockout: `min(2**N, 900)` seconds per failed attempt |
+| `created_at` | datetime | |
+
+Password policy (NIST SP 800-63B): minimum 15 characters without MFA, 8 with MFA, maximum 512. There is no delete endpoint – deactivate users instead (`is_active`).
+
+### AuthSession (`app/models/user.py`)
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | integer PK | |
+| `user_id` | integer FK → users.id | `ON DELETE CASCADE` |
+| `token_hash` | string(64) unique | SHA-256 of the session token; the raw token lives only in the HttpOnly cookie `et_session` |
+| `expires_at` | datetime | rejected (and deleted) once expired |
+| `last_used_at` | datetime | updated on every authenticated request |
+| `created_at` | datetime | |
 
 ## Cost Calculation
 
@@ -374,3 +428,4 @@ All migrations live in `alembic/versions/`. IDs are 12-character MD5 hashes.
 | `b65e5e4f6fbc` | Add `feed_in_eeg2009` to TariffKind enum; add eeg_tier1_rate, eeg_tier2_rate, metering_point_fee_yearly columns |
 | `60757ca5eeef` | Add category to advance payments (AdvancePaymentCategory enum, water_cold_meter_id/water_garden_meter_id columns, CHECK + partial EXCLUDE constraints) |
 | `3d6f19fc27d2` | Add optional `comment` column to tariff_periods and advance_payments |
+| `1c04106072f9` | Add users and auth_sessions tables (UserRole enum, session cookie storage; downgrade drops the `userrole` enum explicitly) |

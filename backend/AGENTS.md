@@ -90,6 +90,42 @@ Applies to everything under `backend/`, **in addition to** the root `AGENTS.md`
   `ProjectionService.calculate_projection()`, passed through in `costs.py` when constructing
   `YearlyProjectionWithCostResponse`
 
+## Authentication (session cookie)
+
+- Models: `User` (`password_hash` Argon2id, `role` admin/user lowercase enum,
+  `totp_secret`/`totp_enabled`, `failed_login_count`/`locked_until` lockout) and
+  `AuthSession` (only the SHA-256 `token_hash` is stored; the raw token lives
+  exclusively in the HttpOnly cookie `et_session`, name via
+  `settings.SESSION_COOKIE_NAME`; FK `ondelete=CASCADE`)
+- Security helpers in `app/security.py`: Argon2id via `argon2-cffi`,
+  `validate_password_strength` (min 15 chars without MFA, 8 with MFA, max 512 –
+  NIST SP 800-63B), `dummy_verify_password()` burns a real verify call for
+  unknown usernames (timing-based user-enenumeration mitigation)
+- Route guarding: `api_router = APIRouter(dependencies=[Depends(get_current_user)])`
+  protects every business endpoint automatically; only `/health`,
+  `/api/auth/login` and `/api/auth/logout` are public (`public_router`, included
+  without the guard in `main.py`). New business routers must be registered on
+  `api_router`, never on `public_router`
+- Login (`app/api/auth.py`): all credential failures return the same generic
+  German 401 message (`INVALID_CREDENTIALS`, no user enumeration). Exponential
+  lockout: the Nth failed attempt (including attempts while locked) locks for
+  `min(2**N, 900)` seconds → **429**; success resets the counter. TOTP-enabled
+  users without a code get 401 with `detail={"message": ..., "totp_required": true}`
+  so the frontend can show the code field
+- Admin rules (`app/api/admin.py` + `get_current_admin`): 403 for non-admins;
+  self-demotion/self-deactivation → 400; the "last active admin" check is pure
+  defense-in-depth (unreachable via the API because the caller is always an
+  active admin). Admin password reset deletes all sessions of the target. There
+  is **no DELETE** – deactivate instead
+- Tests: the `client` fixture in `conftest.py` is auto-authenticated as
+  `TEST_ADMIN` (session row + cookie injected directly, no Argon2 cost per
+  test); use `anon_client` for 401-assertions. Beware: httpx keeps same-name
+  cookies as **separate jar entries** when attributes differ – tests that
+  exercise login/logout cookie replacement must use `anon_client`
+- `app/seed_admin.py` creates ADMIN-role users from the CLI, bypassing auth by
+  design (local shell access dominates app auth); duplicate username and
+  password policy are enforced
+
 ## Resolved pitfalls (history, don't re-introduce)
 
 - Enum double-create bug: do not call `meter_type_enum.create()` explicitly when
