@@ -89,6 +89,45 @@ Applies to everything under `backend/`, **in addition to** the root `AGENTS.md`
   `start_reading.value + projected_annual`. Calculated in
   `ProjectionService.calculate_projection()`, passed through in `costs.py` when constructing
   `YearlyProjectionWithCostResponse`
+- **Billed-quantity rounding** (`round_billed_consumption()` in
+  `app/services/cost_calculation.py`, Nov 2026): utility invoices bill **whole units**
+  (m³/kWh), so every cost calculation fed by an **actual metered delta** rounds the
+  consumption to whole units (`ROUND_HALF_UP`) before costing AND reports the rounded value
+  as the consumption. Applied in: `/api/costs/` (single + chain; chain segments are
+  rescaled proportionally to the rounded total via `_rescale_segments` so they sum exactly
+  to the billed quantity), `/api/costs/wastewater/` (wastewater = rounded cold − rounded
+  garden, whole m³ by construction), `/api/costs/category-summary` (per chain; per-chain
+  wastewater quantities are rounded again after the garden share is subtracted),
+  `/api/costs/consumption-timeseries` (per-point `consumption_since_previous` + costs) and
+  the yearly-projection **actual-cost** path (only the cost input; `actual_consumption_to_date`
+  stays unrounded). **Not rounded**: projections (estimates, not invoices) and the EEG
+  feed-in compensation (income). Negative-consumption validation always runs on the RAW delta
+- **Category summary** (`GET /api/costs/category-summary?from=&to=`, `app/api/costs.py`):
+  aggregates consumption + cost per category (electricity = `electricity_import` chains,
+  water = `water_cold` chains, wastewater = derived cold − garden, gas = `gas` chains) over
+  an arbitrary date range. Auto-discovers logical meter chains per `MeterType` (no meter
+  IDs). Uses the **billing-period (Stichtag) convention**, deliberately different from the
+  per-meter `/api/costs/` endpoint: start reading = last reading **on or before** `from`
+  (matches how annual utility invoices are cut; fallback to first reading ≥ `from` for
+  meters installed mid-period), end reading = last reading ≤ `to`, consumption = full delta
+  between both readings; cost window = `[max(from, start_date), min(to, end_date)]` (base
+  fee accrues from `from`). For chains, `_get_chain_consumption()` is called from the start
+  reading's date and the segments are clamped to the cost window. Each category carries
+  `readings`: the boundary readings (date + value) the consumption was derived from – the
+  wastewater entries additionally carry the garden readings (`garden_*` fields, attached
+  when exactly one garden chain provided data). Cost failures (missing tariff, missing gas
+  conversion factors, negative consumption) never fail the request: cost fields become
+  `null` per category and the German reason is reported via `message`; consumption stays
+  available. Advance payments and the EEG feed-in compensation are intentionally NOT
+  included (separate providers / separate endpoint). No cross-category rounding-cascade:
+  category totals are the sum of per-chain billed quantities
+- `_accumulate_chain_costs_raw()` in `app/services/meter_chain_costs.py`: like
+  `_compute_chain_cost()` but returns the unrounded (base, metering, energy) raw triple so
+  callers can accumulate across several chains and round once at the output boundary
+- Tests: `tests/test_category_summary.py` covers the endpoint (all four categories with
+  exact arithmetic, Stichtag start before the range incl. the 12-full-months base-fee case,
+  mid-period-install fallback, garden subtraction/floor/missing-readings hint, missing
+  wastewater tariff, gas conversion factors, chain aggregation, query-param alias)
 
 ## Authentication (session cookie)
 

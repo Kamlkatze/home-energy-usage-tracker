@@ -90,11 +90,11 @@ def test_yearly_projection_with_cost_basic_case(client):
     # Check cost calculations
     # Actual cost to date: Jan 1 to Feb 15 (45 days, exclusive end)
     # Consumption from Dec 31 to Feb 15: 200 over 46 days
-    # Prorated for Jan 1 to Feb 15: 200 * 45/46 = 195.652
-    # Energy cost: 195.652 * 0.30 = 58.6956
+    # Prorated for Jan 1 to Feb 15: 200 * 45/46 = 195.652 -> billed 196
+    # Energy cost: 196 * 0.30 = 58.80
     # Base fee: Jan full (31/31) + Feb 1-14 (14/29) = 10.00 + 10.00*14/29 = 14.8276
-    # Total actual cost: 58.6956 + 14.8276 = 73.5232 → 73.52
-    assert Decimal(data["actual_cost_to_date"]) == Decimal("73.52")
+    # Total actual cost: 58.80 + 14.8276 = 73.6276 → 73.63
+    assert Decimal(data["actual_cost_to_date"]) == Decimal("73.63")
     
     # Projected annual consumption: (200 / 46) * 365 ≈ 1586.9565
     # Projected energy cost: 1586.9565 * 0.30 = 476.08695
@@ -209,10 +209,10 @@ def test_yearly_projection_completed_year(client):
     assert Decimal(data["projected_annual_cost"]) == Decimal("493.61")
 
     # Actual cost path: prorated consumption 1000 * 364/365 = 997.2602...
-    # Energy cost: 997.2602... * 0.35 = 349.0411...
+    # -> billed 997; Energy cost: 997 * 0.35 = 348.95
     # Base fee: 12.00 * (11 + 30/31) = 143.6129...
-    # Total: 492.6540... -> 492.65
-    assert Decimal(data["actual_cost_to_date"]) == Decimal("492.65")
+    # Total: 492.5629... -> 492.56
+    assert Decimal(data["actual_cost_to_date"]) == Decimal("492.56")
 
 
 def test_yearly_projection_completed_year_reading_after_year_end(client):
@@ -229,10 +229,10 @@ def test_yearly_projection_completed_year_reading_after_year_end(client):
     With the clamp, the end reading is 2023-12-31:
       total_consumption = 1000.000 over 365 days
       cost period [2023-01-01, 2023-12-31) = 364 days overlap
-      prorated = 1000.000 * 364/365 = 997.2602...
-      Energy cost: 997.2602... * 0.35 = 349.0411...
+      prorated = 1000.000 * 364/365 = 997.2602... -> billed 997
+      Energy cost: 997 * 0.35 = 348.95
       Base fee: 12.00 * (11 + 30/31) = 143.6129...
-      Total: 492.6540... -> 492.65 (identical to no-later-reading case)
+      Total: 492.5629... -> 492.56 (identical to no-later-reading case)
     """
     meter_id = _create_meter(client)
 
@@ -259,7 +259,7 @@ def test_yearly_projection_completed_year_reading_after_year_end(client):
     assert Decimal(data["projected_annual_consumption"]) == Decimal("1000.000")
     assert Decimal(data["projected_annual_cost"]) == Decimal("493.61")
     # The actual cost must equal the full-2023 cost, NOT the multi-year one.
-    assert Decimal(data["actual_cost_to_date"]) == Decimal("492.65")
+    assert Decimal(data["actual_cost_to_date"]) == Decimal("492.56")
     assert data["message"] is None
 
 
@@ -297,7 +297,7 @@ def test_yearly_projection_completed_year_gas_reading_after_year_end(client):
     assert response.status_code == 200
     data = response.json()
     assert data["basis"] == "actual_full_year"
-    assert Decimal(data["actual_cost_to_date"]) == Decimal("1100.63")
+    assert Decimal(data["actual_cost_to_date"]) == Decimal("1100.34")
     assert Decimal(data["projected_annual_cost"]) == Decimal("1103.65")
     assert data["message"] is None
 
@@ -406,9 +406,9 @@ def test_yearly_projection_gas_ongoing_year(client):
       projected_annual = 200/46 * 365 ≈ 1586.9565 m³ (stays in m³)
 
     Actual cost to date [2024-01-01, 2024-02-15):
-      prorated = 200.000 * 45/46 = 195.6521... m³
-      kWh = 195.6521... * 0.9612 * 11.482 = 2159.3149... kWh
-      cost = 2159.3149... * 0.10000 = 215.9314... -> 215.93
+      prorated = 200.000 * 45/46 = 195.6521... -> billed 196 m³
+      kWh = 196 * 0.9612 * 11.482 = 2163.1537... kWh
+      cost = 2163.1537... * 0.10000 = 216.3154... -> 216.32
 
     Projected annual cost (active tariff, base fee 0):
       kWh = 1586.9565... * 0.9612 * 11.482 = 17514.4431... kWh
@@ -442,7 +442,7 @@ def test_yearly_projection_gas_ongoing_year(client):
     assert Decimal(data["projected_annual_consumption"]) == Decimal(
         (Decimal("200.000") / Decimal(46)) * Decimal(365)
     )
-    assert Decimal(data["actual_cost_to_date"]) == Decimal("215.93")
+    assert Decimal(data["actual_cost_to_date"]) == Decimal("216.32")
     assert Decimal(data["projected_annual_cost"]) == Decimal("1751.44")
     assert data["message"] is None
 
@@ -490,9 +490,9 @@ def test_yearly_projection_gas_completed_year(client):
     Projection: actual_full_year, 1000.000 m³ (stays in m³).
 
     Actual cost path [2023-01-01, 2023-12-31):
-      prorated = 1000.000 * 364/365 = 997.2602... m³
-      kWh = 997.2602... * 0.9612 * 11.482 = 11006.2614... kWh
-      cost = 11006.2614... * 0.10000 = 1100.6261... -> 1100.63
+      prorated = 1000.000 * 364/365 = 997.2602... -> billed 997 m³
+      kWh = 997 * 0.9612 * 11.482 = 11003.3889... kWh
+      cost = 11003.3889... * 0.10000 = 1100.3389... -> 1100.34
 
     Projected cost (full year):
       kWh = 1000.000 * 0.9612 * 11.482 = 11036.4984 kWh
@@ -523,7 +523,7 @@ def test_yearly_projection_gas_completed_year(client):
     assert data["basis"] == "actual_full_year"
     assert Decimal(data["actual_consumption_to_date"]) == Decimal("1000.000")
     assert Decimal(data["projected_annual_consumption"]) == Decimal("1000.000")
-    assert Decimal(data["actual_cost_to_date"]) == Decimal("1100.63")
+    assert Decimal(data["actual_cost_to_date"]) == Decimal("1100.34")
     assert Decimal(data["projected_annual_cost"]) == Decimal("1103.65")
     assert data["message"] is None
 
@@ -559,7 +559,7 @@ def test_yearly_projection_non_gas_unaffected_by_gas_fields(client):
     assert data["unit"] == "kWh"
     # Identical to test_yearly_projection_with_cost_basic_case:
     # no conversion applied despite gas fields on the tariff.
-    assert Decimal(data["actual_cost_to_date"]) == Decimal("73.52")
+    assert Decimal(data["actual_cost_to_date"]) == Decimal("73.63")
     assert Decimal(data["projected_annual_cost"]) == Decimal("596.09")
 
 

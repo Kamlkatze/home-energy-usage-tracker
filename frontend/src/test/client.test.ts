@@ -418,6 +418,27 @@ describe('costsApi', () => {
       costsApi.getConsumptionTimeseries('2024-01-01', '2024-12-31'),
     ).resolves.toEqual(unexpected);
   });
+
+  it('getCategorySummary sends from/to params and returns the data', async () => {
+    const summary = { from_date: '2024-01-01', to_date: '2024-12-31', electricity: null };
+    mockAxiosInstance.get.mockResolvedValue({ data: summary });
+
+    await expect(
+      costsApi.getCategorySummary('2024-01-01', '2024-12-31'),
+    ).resolves.toEqual(summary);
+    expect(mockAxiosInstance.get).toHaveBeenCalledWith(
+      '/api/costs/category-summary',
+      { params: { from: '2024-01-01', to: '2024-12-31' } },
+    );
+  });
+
+  it('getCategorySummary propagates network errors', async () => {
+    mockAxiosInstance.get.mockRejectedValue(new Error('Network Error'));
+
+    await expect(
+      costsApi.getCategorySummary('2024-01-01', '2024-12-31'),
+    ).rejects.toThrow('Network Error');
+  });
 });
 
 describe('electricityApi', () => {

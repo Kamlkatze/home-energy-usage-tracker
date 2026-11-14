@@ -190,6 +190,37 @@ def _compute_chain_cost(
     return base_fee_total, total_cost, first_price_per_unit
 
 
+def _accumulate_chain_costs_raw(
+    db: Session,
+    chain: list[models.Meter],
+    segments: list[tuple[models.Meter, date, date, Decimal]],
+    tariff_kind: models.TariffKind,
+) -> tuple[Decimal, Decimal, Decimal]:
+    """Accumulate unrounded (base_fee_raw, metering_fee_raw, energy_cost_raw)
+    across chain segments.
+
+    Like _compute_chain_cost, but returns the raw components without
+    rounding so callers can accumulate across several chains and round
+    once at the output boundary (AGENTS.md).
+    """
+    base_fee_total_raw = Decimal(0)
+    metering_fee_total_raw = Decimal(0)
+    energy_cost_raw = Decimal(0)
+
+    for meter, seg_from, seg_to, seg_consumption in segments:
+        tariffs = _get_overlapping_tariffs(db, meter.id, tariff_kind, seg_from, seg_to)
+        _seg_base_raw, _seg_metering_raw, _seg_energy_raw = (
+            _compute_cost_fields_multiperiod_raw(
+                seg_consumption, tariffs, seg_from, seg_to, meter_type=meter.meter_type,
+            )
+        )
+        base_fee_total_raw += _seg_base_raw
+        metering_fee_total_raw += _seg_metering_raw
+        energy_cost_raw += _seg_energy_raw
+
+    return base_fee_total_raw, metering_fee_total_raw, energy_cost_raw
+
+
 def _rescale_segments(
     segments: list[tuple[models.Meter, date, date, Decimal]],
     original_total: Decimal,

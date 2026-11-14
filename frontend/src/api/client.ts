@@ -1,5 +1,5 @@
 import axios, { AxiosError } from 'axios';
-import { Meter, MeterUpdateData, AdvancePaymentDiffByCategory, ConsumptionTimeseriesItem, MeterType, BackupInfo, BackupRestoreResult, AppMeta, AuthUser, TotpStatus, AdminUser, AdminUserUpdateData, UserRole } from '../types';
+import { Meter, MeterUpdateData, AdvancePaymentDiffByCategory, ConsumptionTimeseriesItem, CategorySummary, MeterType, BackupInfo, BackupRestoreResult, AppMeta, AuthUser, TotpStatus, AdminUser, AdminUserUpdateData, UserRole } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 
@@ -298,6 +298,13 @@ export const costsApi = {
       params.meter_type = meterType;
     }
     const response = await apiClient.get('/api/costs/consumption-timeseries', { params });
+    return response.data;
+  },
+
+  getCategorySummary: async (from: string, to: string): Promise<CategorySummary> => {
+    const response = await apiClient.get('/api/costs/category-summary', {
+      params: { from, to },
+    });
     return response.data;
   },
 };

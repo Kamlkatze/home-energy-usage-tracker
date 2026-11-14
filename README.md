@@ -53,7 +53,7 @@ flowchart LR
 - **Track multiple meters**: Gas, cold/garden water (m³), electricity import/export/production (kWh) — the unit is derived automatically from the meter type
 - **Record readings**: Simple form to add meter readings with dates and optional notes; edit or delete existing readings directly in the year detail tables via inline dialog. By default only current meters are shown — replaced meters can be displayed via an "Alte Zähler anzeigen" toggle.
 - **Visualize consumption**: Separate line charts per energy type (Strom, Wasser, Gas) on the years-overview page, plus per-meter charts on the year detail page showing usage trends over time, with toggle between absolute meter readings and cumulative consumption since Jan 1 (starts at 0, even-number axis bounds)
-- **Custom time-range analysis**: The `/custom-range` page ("Zeitraum" in the main nav, directly after "Jahresübersicht") lets you pick any from/to date (default: current year) and filter by energy type (Strom/Wasser/Gas). Each active area shows a combined multi-line chart and real readings in per-meter tables side-by-side, with consumption and value between readings (no projections), fetched via `GET /api/costs/consumption-timeseries`. The cost column is labelled "Verbrauch seit letzter Ablesung" and "Kosten seit letzter Ablesung"; for Einspeisung/Erzeugung it is "Vergütung seit letzter Ablesung". For cost meters each value is broken down on a second line into Arbeitspreis / Grundpreis / Messstellenbetrieb. Einspeisung/Erzeugung without a pure `feed_in` tariff (e.g. EEG-2009 or none) show "-" instead of "—". When production + export meters exist, a summary card additionally shows the **EEG-2009-Einspeisevergütung** for the selected period (reusing `GET /api/electricity/feed-in-compensation` with the `feed_in_eeg2009` tariff), broken down into gross compensation and the deducted metering point fee.
+- **Custom time-range analysis**: The `/custom-range` page ("Zeitraum" in the main nav, directly after "Jahresübersicht") lets you pick any from/to date (default: current year) and filter by energy type (Strom/Wasser/Gas). Each active area shows a combined multi-line chart and real readings in per-meter tables side-by-side, with consumption and value between readings (no projections), fetched via `GET /api/costs/consumption-timeseries`. The cost column is labelled "Verbrauch seit letzter Ablesung" and "Kosten seit letzter Ablesung"; for Einspeisung/Erzeugung it is "Vergütung seit letzter Ablesung". For cost meters each value is broken down on a second line into Arbeitspreis / Grundpreis / Messstellenbetrieb. Einspeisung/Erzeugung without a pure `feed_in` tariff (e.g. EEG-2009 or none) show "-" instead of "—". When production + export meters exist, a summary card additionally shows the **EEG-2009-Einspeisevergütung** for the selected period (reusing `GET /api/electricity/feed-in-compensation` with the `feed_in_eeg2009` tariff), broken down into gross compensation and the deducted metering point fee. Above the charts, a **Kostenübersicht** card (via `GET /api/costs/category-summary`) shows one gray box per category — **Strom (Bezug)**, **Kaltwasser**, **Abwasser** (reported separately, as utility invoices do) and **Gas** — each with the billed consumption, the cost (broken down into Arbeitspreis/Grundpreis/Messstellenbetrieb on demand) and the underlying boundary readings (`Startdatum: Zählerstand → Enddatum: Zählerstand`; for Abwasser incl. the subtracted garden readings). Billing uses the **Stichtag convention** (start = last reading on/before the from-date, like annual utility invoices) and rounds billed quantities to whole m³/kWh — so the numbers match real annual invoices.
 - **Tariff management**: Track price per unit and base fees for different periods, with optional comment field for provider name and category filter buttons (Strom Bezug/Gas/Wasser) in the list view
 - **Advance payment management**: Track monthly Abschläge per meter with category (gas, cold water, wastewater, power import), time-range validity, overlap protection, optional comment field, and an "Alle" button showing all categories at once in the list view
 - **Meter replacement chain**: When a physical meter is swapped, link the new meter to its predecessor via `replaces_meter_id`. Cost calculations automatically follow the chain, summing each meter's contribution — no negative consumption from a counter reset on the new device. The edit dialog only proposes same-type meters as predecessors and excludes the meter being edited itself (a meter can never be its own predecessor), while keeping an already-selected predecessor selectable. Meter types are editable via forms but changing a meter with existing readings is rejected by the API.
@@ -483,6 +483,8 @@ Each advance payment carries a `category` (`gas`, `cold_water`, `wastewater`, `p
 ### Costs
 - `GET /api/costs/?meter_id={id}&from={date}&to={date}` - Calculate the consumption cost for one meter between two dates (query parameters: `meter_id`, `from`, `to`). Returns **404** when no reading or no covering tariff period is found, **422** when `from > to` or the computed consumption is negative.
 
+**Billed-quantity rounding:** The metered consumption (end − start reading, or the chain total) is rounded to **whole units** (m³/kWh, `ROUND_HALF_UP`) before the cost is calculated and is reported rounded in the response — matching how utility invoices bill (meters are read as integer values). For chains, the per-segment consumptions are rescaled proportionally so they sum exactly to the rounded total. See `round_billed_consumption()` in `backend/app/services/cost_calculation.py`.
+
 **Multi-period support:** If the date range spans multiple tariff periods, consumption is allocated proportionally by days in each overlapping period. Base fees are prorated using calendar-accurate month lengths (full months count as 1, partial months by actual days in that month). The `price_per_unit` field in the response shows the first period's price for backward compatibility; the total cost correctly accounts for all periods.
 
 **Meter replacement chain support:** If the requested meter has a `replaces_meter_id` (directly or transitively), the endpoint automatically follows the chain. Consumption is computed as the sum of each meter's contribution over its active segment (determined by the first reading date of the successor). Tariffs are looked up per meter in the chain so a tariff change at the predecessor is fully reflected. Rounding happens only once at the final output boundary — never per segment — to avoid accumulated cent errors.
@@ -493,15 +495,15 @@ Each advance payment carries a `category` (`gas`, `cold_water`, `wastewater`, `p
   "meter_id": 1,
   "from_date": "2024-01-10",
   "to_date": "2024-03-10",
-  "consumption": "150.500",
+  "consumption": "151",
   "unit": "kWh",
   "price_per_unit": "0.35490",
   "base_fee_total": "25.00",
-  "total_cost": "78.41"
+  "total_cost": "78.59"
 }
 ```
 
-- `GET /api/costs/wastewater/?water_cold_meter_id={id}&water_garden_meter_id={id}&from={date}&to={date}` - Calculate the wastewater cost between two dates. Wastewater is a derived value, not a real meter: `wastewater_consumption = max(0, cold-water consumption - garden-water consumption)`, billed against a `wastewater` tariff period attached to the **cold-water meter's** id (query parameters: `water_cold_meter_id`, `water_garden_meter_id` (optional), `from`, `to`). Returns **404** when no reading or no covering wastewater tariff period is found, **422** when `from > to` or the cold-water consumption is negative. Supports multiple tariff periods like the main cost endpoint.
+- `GET /api/costs/wastewater/?water_cold_meter_id={id}&water_garden_meter_id={id}&from={date}&to={date}` - Calculate the wastewater cost between two dates. Wastewater is a derived value, not a real meter: `wastewater_consumption = max(0, cold-water consumption - garden-water consumption)`, billed against a `wastewater` tariff period attached to the **cold-water meter's** id (query parameters: `water_cold_meter_id`, `water_garden_meter_id` (optional), `from`, `to`). Returns **404** when no reading or no covering wastewater tariff period is found, **422** when `from > to` or the cold-water consumption is negative. Supports multiple tariff periods like the main cost endpoint. Cold and garden consumption are each rounded to **whole m³** before the subtraction (both arrive as whole units on the invoice), so the derived wastewater quantity is whole as well.
 
 #### Garden meter omitted vs. garden meter without readings (important distinction)
 - **`water_garden_meter_id` omitted entirely**: treated as "no garden meter installed". `garden_consumption = 0` and the entire cold-water consumption counts as wastewater. No garden readings are required. `water_garden_meter_id` is `null` in the response.
@@ -515,13 +517,59 @@ Each advance payment carries a `category` (`gas`, `cold_water`, `wastewater`, `p
   "water_garden_meter_id": 2,
   "from_date": "2024-01-10",
   "to_date": "2024-03-10",
-  "cold_consumption": "150.500",
-  "garden_consumption": "59.500",
-  "wastewater_consumption": "91.000",
+  "cold_consumption": "151",
+  "garden_consumption": "60",
+  "wastewater_consumption": "91",
   "unit": "m³",
   "price_per_unit": "2.10000",
   "base_fee_total": "12.00",
   "total_cost": "203.10"
+}
+```
+
+### Category Summary (per-category totals for an arbitrary date range)
+- `GET /api/costs/category-summary?from={date}&to={date}` - Aggregates consumption and cost per category for the `/custom-range` "Kostenübersicht" card. Auto-discovers all logical meter chains per type (no meter IDs): **electricity** = `electricity_import` (Bezugskosten), **water** = `water_cold`, **wastewater** = derived `cold − garden` (reported **separately**, billed against the `wastewater` tariff on the cold-water meter), **gas** = `gas` (m³→kWh via tariff factors). Categories without meters/readings in the range are `null`.
+
+**Billing-period (Stichtag) convention** — deliberately different from the per-meter `/api/costs/` endpoint, matching how annual utility invoices are cut:
+- **Start reading**: last reading **on or before** `from` (the Stichtag closing the previous period); fallback to the first reading ≥ `from` for meters installed mid-period
+- **End reading**: last reading on or before `to`
+- **Consumption**: full delta between both readings (so a range 22.10.2025–22.10.2026 with readings 21.10.2025/22.10.2026 yields the full annual delta)
+- **Cost window**: `[max(from, start_reading_date), min(to, end_reading_date)]` — base/metering fees accrue from `from`; consumption is billed over the same window
+- Consumptions are rounded to **whole units** before costing (see `/api/costs/`)
+
+**Readings transparency:** Each category carries `readings` — the boundary readings (date + value) its consumption was derived from, per contributing meter; wastewater entries additionally carry the subtracted garden readings (`garden_*` fields when exactly one garden chain provided data). Chain entries span the whole replacement chain (first reading on the predecessor, last on the successor).
+
+**Error handling:** Cost problems never fail the request — the affected category's cost fields become `null` and a German `message` explains why (missing tariff, missing gas conversion factors `gas_z_zahl`/`gas_brennwert`, negative consumption); the consumption stays visible. Advance payments and the EEG feed-in compensation are intentionally NOT included (separate providers; EEG has its own endpoint/card).
+
+#### Example GET /api/costs/category-summary?from=2024-01-10&to=2024-03-10 response (abridged):
+```json
+{
+  "from_date": "2024-01-10",
+  "to_date": "2024-03-10",
+  "electricity": {
+    "consumption": "251",
+    "unit": "kWh",
+    "energy_cost": "70.30",
+    "base_fee_total": "32.00",
+    "metering_fee_total": "6.00",
+    "total_cost": "108.30",
+    "message": null,
+    "readings": [
+      { "meter_id": 1, "meter_label": "Strom 1", "start_date": "2024-01-10", "start_value": "1000.000",
+        "end_date": "2024-03-10", "end_value": "1150.500", "consumption": "151",
+        "garden_meter_label": null, "garden_start_date": null, "garden_start_value": null,
+        "garden_end_date": null, "garden_end_value": null, "garden_consumption": null }
+    ]
+  },
+  "water": { "consumption": "151", "unit": "m³", "energy_cost": "302.00", "base_fee_total": "0.00",
+             "metering_fee_total": "0.00", "total_cost": "302.00", "message": null, "readings": [ ... ] },
+  "wastewater": { "consumption": "91", "unit": "m³", "energy_cost": "191.10", "base_fee_total": "12.00",
+                  "metering_fee_total": "0.00", "total_cost": "203.10", "message": null,
+                  "readings": [ { "...": "cold-water readings", "garden_meter_label": "Garten",
+                                  "garden_start_value": "20.000", "garden_end_value": "79.500",
+                                  "garden_consumption": "60" } ] },
+  "gas": { "consumption": "120", "unit": "m³", "energy_cost": "114.00", "base_fee_total": "10.00",
+           "metering_fee_total": "0.00", "total_cost": "124.00", "message": null, "readings": [ ... ] }
 }
 ```
 
@@ -567,7 +615,7 @@ The 30 % threshold is a fixed statutory value from EEG 2009 § 33 Abs. 2, not co
 **Calculation Logic:**
 1. **Projection**: Uses the same logic as `/api/meters/{id}/projection` to get projected annual consumption
 2. **Active tariff**: Finds the consumption tariff active on `as_of_date` for the meter
-3. **Actual cost**: Calculates cost from Jan 1 of `year` to `as_of_date` using existing cost calculation logic. For completed years (i.e. `year` before the `as_of_date` year), the period is clamped to Dec 31 of `year`: readings after that date do not inflate the consumption, and base/metering fees are prorated only over the viewed year
+3. **Actual cost**: Calculates cost from Jan 1 of `year` to `as_of_date` using existing cost calculation logic. For completed years (i.e. `year` before the `as_of_date` year), the period is clamped to Dec 31 of `year`: readings after that date do not inflate the consumption, and base/metering fees are prorated only over the viewed year. The day-prorated consumption is rounded to **whole units** (m³/kWh, `ROUND_HALF_UP`) before costing — the actual-cost path mirrors the invoice calculation, while the displayed `actual_consumption_to_date` and all projection values stay unrounded (estimates)
 4. **Projected cost**: Estimates annual cost using projected consumption and active tariff's rates
 
 **Edge cases:**
@@ -734,7 +782,7 @@ The 30 % threshold is a fixed statutory value from EEG 2009 § 33 Abs. 2, not co
 
 **Chain resolution:** Same logical meter identification as `/api/costs/years-overview` — only meters NOT referenced by any other meter's `replaces_meter_id` are top-level entries. Predecessor readings count toward the logical meter's history.
 
-**Per-point calculation:** For each reading within `[from, to]`, the consumption delta is `current_value - previous_value` (previous reading is the chronologically prior reading anywhere in the chain). Cost is calculated for the sub-period `[previous_reading_date, current_reading_date)` using the same multi-period tariff logic (gas m³→kWh conversion included). The cost is broken down per point into `energy_cost_since_previous` (Arbeitspreis), `base_fee_since_previous` (Grundpreis) and `metering_fee_since_previous` (Messstellenbetrieb, prorated monthly like the Grundpreis); these three fields sum exactly to `cost_since_previous`. For **`electricity_export`** (Strom Einspeisung) and **`electricity_production`** (Strom Erzeugung) meters the value is instead an **Einspeisevergütung**: it is computed from the `feed_in` tariff (`kWh × rate`, no base fee) and reported in `cost_since_previous` (and `energy_cost_since_previous`; `base_fee_since_previous` is `null`, `metering_fee_since_previous` is `"0.00"`) — a `consumption` tariff is ignored for these meter types. Missing tariffs or negative consumption result in `null` cost/consumption/breakdown fields per point.
+**Per-point calculation:** For each reading within `[from, to]`, the consumption delta is `current_value - previous_value` (previous reading is the chronologically prior reading anywhere in the chain), rounded to **whole units** (m³/kWh, `ROUND_HALF_UP` — the billed quantity per reading interval). Cost is calculated for the sub-period `[previous_reading_date, current_reading_date)` using the same multi-period tariff logic (gas m³→kWh conversion included). The cost is broken down per point into `energy_cost_since_previous` (Arbeitspreis), `base_fee_since_previous` (Grundpreis) and `metering_fee_since_previous` (Messstellenbetrieb, prorated monthly like the Grundpreis); these three fields sum exactly to `cost_since_previous`. For **`electricity_export`** (Strom Einspeisung) and **`electricity_production`** (Strom Erzeugung) meters the value is instead an **Einspeisevergütung**: it is computed from the `feed_in` tariff (`kWh × rate`, no base fee) and reported in `cost_since_previous` (and `energy_cost_since_previous`; `base_fee_since_previous` is `null`, `metering_fee_since_previous` is `"0.00"`) — a `consumption` tariff is ignored for these meter types. Missing tariffs or negative consumption result in `null` cost/consumption/breakdown fields per point.
 
 **Meter/chain omission:** Logical meters with zero readings in `[from, to]` are omitted from the response entirely (no empty `points` list).
 
@@ -1041,7 +1089,7 @@ home-energy-usage-tracker/
 │   │   │   ├── advance_payments.py   # CRUD endpoints for advance payments
 │   │   │   ├── admin.py              # Admin-only user management endpoints
 │   │   │   ├── auth.py               # Login/logout/me, password change, TOTP enrollment
-│   │   │   ├── costs.py              # Cost, wastewater, yearly-projection, consumption-timeseries,
+│   │   │   ├── costs.py              # Cost, wastewater, category-summary, yearly-projection, consumption-timeseries,
 │   │   │   │                         #   and advance-payment-diff endpoints (helpers live in services/)
 │   │   │   ├── deps.py               # Dependency injection (database session, get_authenticated/
 │   │   │   │                         #   get_current_user/get_current_admin session guards)
@@ -1062,7 +1110,7 @@ home-energy-usage-tracker/
 │   │   │   ├── __init__.py           # Exports all Pydantic schemas
 │   │   │   ├── advance_payment.py    # AdvancePayment schemas (Create, Update, Response)
 │   │   │   ├── auth.py               # LoginRequest, UserResponse, password/TOTP schemas
-│   │   │   ├── cost.py               # Cost, wastewater, advance-payment-diff, and consumption-timeseries schemas
+│   │   │   ├── cost.py               # Cost, wastewater, category-summary, advance-payment-diff, and consumption-timeseries schemas
 │   │   │   ├── meter.py              # Meter schemas (Create, Update, Response)
 │   │   │   ├── projection.py         # Projection response schema
 │   │   │   ├── reading.py            # Reading schemas
@@ -1070,7 +1118,8 @@ home-energy-usage-tracker/
 │   │   │   ├── user.py               # Admin user-management schemas
 │   │   │   └── yearly_projection_cost.py # Yearly projection with cost response schema
 │   │   ├── services/
-│   │   │   ├── cost_calculation.py   # Pure cost math (proration, multi-period rounding, gas conversion)
+│   │   │   ├── cost_calculation.py   # Pure cost math (proration, multi-period rounding, gas conversion,
+│   │   │   │                         #   round_billed_consumption: whole-unit billing quantities)
 │   │   │   ├── cost_queries.py       # DB lookup / validation helpers for cost endpoints
 │   │   │   ├── meter_chain.py        # Meter replacement chain resolution
 │   │   │   ├── meter_chain_costs.py  # Replacement-chain consumption & cost logic

@@ -29,9 +29,9 @@ Scope-specific rules live in nested files and apply **in addition** to this one:
 - Test:    `cd backend && uv run --extra dev pytest` (needs the `db-test` container from
   docker-compose.dev.yml on port 5433; default TEST_DATABASE_URL is PostgreSQL there – tests
   requiring the EXCLUDE constraint FAIL on SQLite, by design)
-- FE test: `cd frontend && npm run test` (Vitest, 200 tests: 19 route smoke tests across
+- FE test: `cd frontend && npm run test` (Vitest, 203 tests: 20 route smoke tests across
   `src/test/smoke/` + 102 focused component tests in `src/test/*.test.tsx` (incl. the auth
-  pages Login/Profile/AdminUsers) + 79 unit tests in `src/test/*.test.ts` for the API
+  pages Login/Profile/AdminUsers) + 81 unit tests in `src/test/*.test.ts` for the API
   layer (client, authApi, advancePaymentsApi) and hooks)
 - Lint:    `cd backend && uv run --extra dev ruff check --fix && uv run --extra dev mypy app/models`
 - FE lint: `cd frontend && npm run lint` (ESLint 9 flat config; exits 1 if any warning –
@@ -107,3 +107,12 @@ Scope-specific rules live in nested files and apply **in addition** to this one:
    running inside that pod. Fix: run `docker compose -f docker-compose.dev.yml down` first
    (or stop db-test), then `docker compose down`. The remaining "no such container/pod" errors
    on a second `down` are harmless cosmetics (blind cleanup, exit code 0)
+10. podman-compose `up -d --build` rebuilds the image but does **not** reliably recreate the
+    running container with it – the frontend kept serving the old bundle (same asset filename,
+    old code) although `frontend:prod` was rebuilt seconds earlier. Fix: after image-affecting
+    changes run `docker compose up -d --force-recreate backend frontend`. Verify with
+    `podman inspect <container> --format '{{.Image}}'` vs. `podman images` (IDs must match);
+    for the frontend also check the served asset hash in `curl localhost:3500` differs from
+    the previous one. Recreating the backend via `--force-recreate` makes nginx's statically
+    resolved `proxy_pass` stale – recreate (not restart) frontend together with backend, or
+    `docker compose restart frontend` afterwards (see learning 7)

@@ -208,10 +208,10 @@ def test_normal_meter_cost_unchanged(client):
     """A meter with no replacement chain uses the original calculation logic.
 
     Readings 1000.000 (2024-01-10) and 1150.500 (2024-03-10):
-      consumption     = 150.500 kWh
+      consumption     = 150.500 -> billed 151 kWh
       days_in_range   = 60
       base_fee_total  = 12.50 * (22/31 + 1 + 9/31) = 25.00
-      total_cost      = 150.500 * 0.35490 + 25.00 = 78.41
+      total_cost      = 151 * 0.35490 + 25.00 = 78.59
     """
     meter_id = _create_meter(client, label="Standalone")
     _create_reading(client, meter_id, "1000.000", "2024-01-10")
@@ -226,9 +226,9 @@ def test_normal_meter_cost_unchanged(client):
 
     assert response.status_code == 200
     data = response.json()
-    assert Decimal(data["consumption"]) == Decimal("150.500")
+    assert Decimal(data["consumption"]) == Decimal(151)
     assert Decimal(data["base_fee_total"]) == Decimal("25.00")
-    assert Decimal(data["total_cost"]) == Decimal("78.41")
+    assert Decimal(data["total_cost"]) == Decimal("78.59")
 
 
 # ---------------------------------------------------------------------------

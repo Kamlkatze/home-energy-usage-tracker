@@ -106,3 +106,53 @@ class ConsumptionTimeseriesItem(BaseModel):
     meter_type: str
     unit: str
     points: list[ConsumptionTimeseriesPoint]
+
+
+class CategorySummaryReading(BaseModel):
+    """Boundary readings a category's consumption was derived from.
+
+    For wastewater entries the optional garden_* fields carry the garden
+    meter readings whose consumption was subtracted from the cold-water
+    consumption of this chain.
+    """
+
+    meter_id: int
+    meter_label: str
+    start_date: date
+    start_value: str
+    end_date: date
+    end_value: str
+    consumption: str
+    garden_meter_label: str | None = None
+    garden_start_date: date | None = None
+    garden_start_value: str | None = None
+    garden_end_date: date | None = None
+    garden_end_value: str | None = None
+    garden_consumption: str | None = None
+
+
+class CategorySummaryCategory(BaseModel):
+    """Aggregated consumption and cost for one category over a date range.
+
+    Cost fields are null (with a message) when the cost cannot be computed
+    for at least one contributing meter (e.g. missing tariff or missing gas
+    conversion factors). Consumption stays available in that case.
+    """
+
+    consumption: str | None = None
+    unit: str | None = None
+    energy_cost: str | None = None
+    base_fee_total: str | None = None
+    metering_fee_total: str | None = None
+    total_cost: str | None = None
+    message: str | None = None
+    readings: list[CategorySummaryReading] = []
+
+
+class CategorySummaryResponse(BaseModel):
+    from_date: date
+    to_date: date
+    electricity: CategorySummaryCategory | None = None
+    water: CategorySummaryCategory | None = None
+    wastewater: CategorySummaryCategory | None = None
+    gas: CategorySummaryCategory | None = None
