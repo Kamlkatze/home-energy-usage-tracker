@@ -227,7 +227,7 @@ describe('YearDetail', () => {
 
       // Water: actual + projected wastewater consumption and costs.
       expect(screen.getAllByText('11.1 m³').length).toBeGreaterThan(0); // wastewater actual
-      expect(screen.getAllByText('13.0 m³').length).toBeGreaterThan(0); // wastewater projected
+      expect(screen.getAllByText('13 m³').length).toBeGreaterThan(0); // wastewater projected (whole units without decimals)
       expect(screen.getAllByText('203.10 €').length).toBeGreaterThan(0); // wastewater total cost
     });
 

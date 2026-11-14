@@ -60,10 +60,11 @@ def test_calculate_wastewater_costs_happy_path_both_meters(client):
     """Full calculation with both meters provided, exact arithmetic.
 
     Cold meter readings 1000.000 (2024-01-10) and 1150.500 (2024-03-10):
-      cold_consumption = 1150.500 - 1000.000 = 150.500
+      cold_consumption = 1150.500 - 1000.000 = 150.500 -> billed 151
     Garden meter readings 20.000 (2024-01-10) and 79.500 (2024-03-10):
-      garden_consumption = 79.500 - 20.000  = 59.500
-      wastewater         = 150.500 - 59.500 = 91.000
+      garden_consumption = 79.500 - 20.000  = 59.500 -> billed 60
+      wastewater         = 151 - 60         = 91 (both billed quantities
+      are whole m³, see round_billed_consumption)
     days_in_range  = (2024-03-10 - 2024-01-10).days = 60
     base_fee_total = 6.00 * (22/31 + 1 + 9/31)    = 12.00
     total_cost     = 91.000 * 2.10000 + 12.00    = 203.10
@@ -94,9 +95,9 @@ def test_calculate_wastewater_costs_happy_path_both_meters(client):
     assert data["from_date"] == "2024-01-10"
     assert data["to_date"] == "2024-03-10"
     assert data["unit"] == "m³"
-    assert Decimal(data["cold_consumption"]) == Decimal("150.500")
-    assert Decimal(data["garden_consumption"]) == Decimal("59.500")
-    assert Decimal(data["wastewater_consumption"]) == Decimal("91.000")
+    assert Decimal(data["cold_consumption"]) == Decimal(151)
+    assert Decimal(data["garden_consumption"]) == Decimal(60)
+    assert Decimal(data["wastewater_consumption"]) == Decimal(91)
     assert Decimal(data["price_per_unit"]) == Decimal("2.10000")
     assert Decimal(data["base_fee_total"]) == Decimal("12.00")
     assert Decimal(data["total_cost"]) == Decimal("203.10")
@@ -105,8 +106,8 @@ def test_calculate_wastewater_costs_happy_path_both_meters(client):
 def test_calculate_wastewater_costs_garden_meter_omitted(client):
     """Omitting water_garden_meter_id means garden_consumption = 0.
 
-    The entire cold-water consumption counts as wastewater; no garden
-    readings are required and water_garden_meter_id is null.
+    The entire (billed) cold-water consumption counts as wastewater; no
+    garden readings are required and water_garden_meter_id is null.
     """
     cold_meter_id = _create_meter(client, "water_cold")
     _create_reading(client, cold_meter_id, "1000.000", "2024-01-10")
@@ -126,8 +127,8 @@ def test_calculate_wastewater_costs_garden_meter_omitted(client):
     data = response.json()
     assert data["water_garden_meter_id"] is None
     assert Decimal(data["garden_consumption"]) == Decimal(0)
-    assert Decimal(data["wastewater_consumption"]) == Decimal("150.500")
-    assert Decimal(data["total_cost"]) == Decimal("328.05")
+    assert Decimal(data["wastewater_consumption"]) == Decimal(151)
+    assert Decimal(data["total_cost"]) == Decimal("329.10")
 
 
 def test_calculate_wastewater_costs_garden_exceeds_cold_floored_at_zero(client):

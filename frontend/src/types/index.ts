@@ -137,6 +137,42 @@ export interface ConsumptionTimeseriesItem {
   points: ConsumptionTimeseriesPoint[];
 }
 
+export interface CategorySummaryReading {
+  meter_id: number;
+  meter_label: string;
+  start_date: string;
+  start_value: string;
+  end_date: string;
+  end_value: string;
+  consumption: string;
+  garden_meter_label?: string | null;
+  garden_start_date?: string | null;
+  garden_start_value?: string | null;
+  garden_end_date?: string | null;
+  garden_end_value?: string | null;
+  garden_consumption?: string | null;
+}
+
+export interface CategorySummaryCategory {
+  consumption: string | null;
+  unit: string | null;
+  energy_cost: string | null;
+  base_fee_total: string | null;
+  metering_fee_total: string | null;
+  total_cost: string | null;
+  message: string | null;
+  readings: CategorySummaryReading[];
+}
+
+export interface CategorySummary {
+  from_date: string;
+  to_date: string;
+  electricity: CategorySummaryCategory | null;
+  water: CategorySummaryCategory | null;
+  wastewater: CategorySummaryCategory | null;
+  gas: CategorySummaryCategory | null;
+}
+
 export interface YearlyProjection {
   meter_id: number;
   year: number;

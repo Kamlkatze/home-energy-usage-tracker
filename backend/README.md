@@ -81,6 +81,7 @@ uv run --extra dev pytest tests/test_advance_payments.py
 uv run --extra dev pytest tests/test_advance_payment_diff.py
 uv run --extra dev pytest tests/test_advance_payment_diff.py -k "by_category"
 uv run --extra dev pytest tests/test_consumption_timeseries.py
+uv run --extra dev pytest tests/test_category_summary.py  # per-category totals for arbitrary date ranges
 uv run --extra dev pytest tests/test_auth.py          # login/logout/me, password change, lockout
 uv run --extra dev pytest tests/test_auth_totp.py     # TOTP enrollment endpoints
 uv run --extra dev pytest tests/test_admin.py         # admin user management + route guard
@@ -98,6 +99,8 @@ uv run --extra dev pytest -v
 - Cost calculation: meter replacement chain (chained consumption, tariff change within chain, negative-consumption prevention)
 - Meter replacement validation: `replaces_meter_id` self-reference rejection, type mismatch rejection
 - Wastewater cost calculation
+- Category summary (`GET /api/costs/category-summary`): all four categories with exact arithmetic, Stichtag start reading before the range, mid-period-install fallback, garden subtraction/floor/missing-readings hint, missing tariffs, gas conversion factors, chain aggregation, billed-quantity rounding
+- Billed-quantity rounding (whole m³/kWh, `ROUND_HALF_UP`) across `/api/costs/`, wastewater, category summary, timeseries and the yearly-projection actual-cost path
 - Annual consumption projection
 - Yearly projection with cost
 - Years overview (logical meter resolution, chain-aware yearly consumption/cost across all years with readings)
@@ -279,8 +282,17 @@ Password policy (NIST SP 800-63B): minimum 15 characters without MFA, 8 with MFA
 **`app/api/costs.py`**  (calculation helpers live in `app/services/cost_calculation.py`,
 `cost_queries.py`, and `meter_chain_costs.py`)
 
+**Billed-quantity rounding:** `round_billed_consumption()` (in `cost_calculation.py`) rounds
+actual metered consumption to **whole units** (m³/kWh, `ROUND_HALF_UP`) before costing and for
+the reported consumption value — utility invoices bill whole units because meters are read as
+integer values. Applied in `/api/costs/`, `/api/costs/wastewater/`,
+`/api/costs/category-summary`, `/api/costs/consumption-timeseries` (per point) and the
+yearly-projection actual-cost path (cost input only). Projections and the EEG feed-in
+compensation stay unrounded. Chain segments are rescaled proportionally so they sum exactly
+to the rounded total.
+
 ### Single meter
-Consumption = `end_reading.value − start_reading.value`. Base fee is prorated using
+Consumption = `end_reading.value − start_reading.value`, rounded to whole units. Base fee is prorated using
 calendar-accurate month lengths (full months count as 1, partial months by actual
 days in that month). Multi-period ranges allocate consumption proportionally by
 overlapping days. Gas meters convert m³ → kWh per-period via
@@ -292,8 +304,8 @@ When the requested meter has a `replaces_meter_id` (or a chain of them), the end
 1. Builds the chain oldest→newest via `get_meter_chain()` (in `app/services/meter_chain.py`).
 2. Determines the transition date between each pair of meters = first reading date of the successor.
 3. Computes each meter's consumption over its own active segment (`_get_chain_consumption()`).
-4. Looks up tariffs **per meter** in the chain and accumulates costs **without intermediate rounding** (`_compute_cost_fields_multiperiod_raw()`).
-5. Rounds the final sum once at the output boundary (AGENTS.md rule).
+4. Looks up tariffs **per meter** in the chain and accumulates costs **without intermediate rounding** (`_compute_cost_fields_multiperiod_raw()`; raw accumulation across chains is available via `_accumulate_chain_costs_raw()`).
+5. Rounds the final sum once at the output boundary (AGENTS.md rule); the chain consumption is rounded to whole units first and the segment consumptions are rescaled proportionally to it.
 
 This prevents negative consumption from a counter reset on the new meter and correctly
 applies any tariff changes that happened during the period.
@@ -384,11 +396,39 @@ The optional `meter_type` query parameter (a `MeterType` enum value, e.g. `elect
 - `cost_since_previous` computed via multi-period cost logic over `[previous_reading_date, current_reading_date)` (null if no tariff covers that sub-period, or on gas conversion factor errors). Reuses `_get_overlapping_tariffs` and `_compute_cost_fields_multiperiod_breakdown`.
 - The cost is broken down per point into `energy_cost_since_previous` (Arbeitspreis), `base_fee_since_previous` (Grundpreis) and `metering_fee_since_previous` (Messstellenbetrieb); the three sum exactly to `cost_since_previous`. Both the Grundpreis and the Messstellenbetrieb are prorated calendar-accurately from their respective monthly fee fields; the Grundpreis was already included before, the Messstellenbetrieb is now also included in the total cost (`_accumulate_costs`).
 - Gas consumption is converted m³→kWh per tariff period using `gas_z_zahl × gas_brennwert`.
+- The per-point consumption delta is rounded to **whole units** (m³/kWh, `ROUND_HALF_UP`, `round_billed_consumption`) before costing and in the reported `consumption_since_previous` — the billed quantity per reading interval.
 - Missing tariffs or negative consumption per point result in null fields (never fail the whole request). For `electricity_export`/`electricity_production` meters the value is an Einspeisevergütung from the `feed_in` tariff (no base fee): `cost_since_previous`/`energy_cost_since_previous` hold the Vergütung, `base_fee_since_previous` is null and `metering_fee_since_previous` is `"0.00"`.
 
 **Omission:** Meters/chain with zero readings in `[from, to]` are omitted from the response.
 
 Returns **200** always; **422** when `from > to`.
+
+### Category Summary
+
+**`GET /api/costs/category-summary?from={date}&to={date}`**
+
+Aggregates consumption and cost per category (electricity, water, wastewater, gas) over an
+arbitrary date range for the frontend "Kostenübersicht" card on `/custom-range`. Auto-discovers
+the logical meter chains per `MeterType` (no meter IDs): electricity = `electricity_import`,
+water = `water_cold`, wastewater = derived cold − garden (reported **separately**, billed
+against the `wastewater` tariff on the cold-water meters), gas = `gas` (m³→kWh via tariff
+factors; missing factors → cost `null` + message).
+
+**Billing-period (Stichtag) convention** (deliberately different from `/api/costs/`): start
+reading = last reading **on or before** `from` (fallback: first reading ≥ `from` for meters
+installed mid-period), end reading = last reading ≤ `to`; consumption = full delta between
+both readings; cost window = `[max(from, start_date), min(to, end_date)]`. For chains,
+`_get_chain_consumption()` runs from the start reading's date and segments are clamped to the
+cost window. Consumptions are rounded to whole units before costing.
+
+Each category carries `readings` — the boundary readings (date + value) per contributing
+meter; wastewater entries carry the subtracted garden readings (`garden_*` fields). Cost
+failures (missing tariff, gas factors, negative consumption) never fail the request: cost
+fields become `null` with a German `message`, consumption stays available. Advance payments
+and the EEG feed-in compensation are intentionally not included. Returns **422** only when
+`from > to`.
+
+Returns **200** always otherwise; categories without meters/readings in the range are `null`.
 
 ## Projection Service
 

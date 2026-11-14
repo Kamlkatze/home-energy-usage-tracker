@@ -57,6 +57,17 @@ _GAS_CONVERSION_FIELDS_MESSAGE = (
 )
 
 
+def round_billed_consumption(consumption: Decimal) -> Decimal:
+    """Round metered consumption to whole units (m³ / kWh) with
+    ROUND_HALF_UP, matching how utility invoices bill: meters are read as
+    integer values, so the billed quantity is a whole number of units.
+
+    Applied to actual metered consumption deltas before cost calculation.
+    Projections stay unrounded (they are estimates, not invoices).
+    """
+    return consumption.quantize(Decimal(1), rounding=ROUND_HALF_UP)
+
+
 def _combine_messages(*messages: str | None) -> str | None:
     """Combine non-empty messages into a single one, deduplicating identical entries.
 

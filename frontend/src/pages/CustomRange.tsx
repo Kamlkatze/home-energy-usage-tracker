@@ -2,14 +2,14 @@ import React, { useState } from 'react';
 import { Zap, Droplets, Flame, Loader2, type LucideIcon } from 'lucide-react';
 import { costsApi, electricityApi } from '../api/client';
 import { useFetch } from '../hooks/useFetch';
-import { ConsumptionTimeseriesItem, FeedInCompensation, MeterType } from '../types';
+import { ConsumptionTimeseriesItem, FeedInCompensation, CategorySummary, CategorySummaryCategory, MeterType } from '../types';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Checkbox } from '../components/ui/checkbox';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import AreaBlock from '../components/custom-range/AreaBlock';
-import { formatEuro } from '../components/shared/chartHelpers';
+import { formatEuro, formatConsumption, formatReadingValue } from '../components/shared/chartHelpers';
 
 // Earliest date used by the "Alle Daten" quick select until the actual first
 // reading is known (the API omits empty periods, so 2000 is safe).
@@ -138,6 +138,35 @@ const CustomRange: React.FC = () => {
     },
     [appliedRange.from, appliedRange.to, filters.electricity, data]
   );
+
+  // Per-category totals (Strom-Bezug, Kaltwasser, Abwasser, Gas) for the
+  // applied range; boxes are filtered by the toggles at render time.
+  const { data: summary, loading: summaryLoading, error: summaryError } = useFetch<CategorySummary | null>(
+    async () => {
+      try {
+        return await costsApi.getCategorySummary(appliedRange.from, appliedRange.to);
+      } catch (err: unknown) {
+        throw new Error(getErrorMessage(err, 'Fehler beim Laden der Kostenübersicht.'));
+      }
+    },
+    [appliedRange.from, appliedRange.to],
+  );
+
+  type SummaryBox = { label: string; cat: CategorySummaryCategory };
+
+  const summaryBoxes: SummaryBox[] = [];
+  if (summary) {
+    if (filters.electricity && summary.electricity) {
+      summaryBoxes.push({ label: 'Strom (Bezug)', cat: summary.electricity });
+    }
+    if (filters.water) {
+      if (summary.water) summaryBoxes.push({ label: 'Kaltwasser', cat: summary.water });
+      if (summary.wastewater) summaryBoxes.push({ label: 'Abwasser', cat: summary.wastewater });
+    }
+    if (filters.gas && summary.gas) {
+      summaryBoxes.push({ label: 'Gas', cat: summary.gas });
+    }
+  }
 
   const handleQuickSelect = (id: QuickSelectId): void => {
     const now = new Date();
@@ -283,6 +312,70 @@ const CustomRange: React.FC = () => {
         </Card>
       ) : (
         <div className="space-y-6">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">Kostenübersicht</CardTitle>
+              <CardDescription>
+                {formatDate(appliedRange.from)} – {formatDate(appliedRange.to)}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {summaryLoading && (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Lade Kostenübersicht...
+                </div>
+              )}
+              {summaryError && (
+                <div className="text-xs text-destructive">{summaryError}</div>
+              )}
+              {summary && (summaryBoxes.length > 0 ? (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {summaryBoxes.map((box) => (
+                    <div key={box.label} className="bg-muted rounded p-2">
+                      <p className="text-[10px] text-muted-foreground">{box.label}</p>
+                      <p className="text-sm font-semibold">
+                        {formatConsumption(box.cat.consumption, box.cat.unit ?? '')}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">
+                        Kosten: {formatEuro(box.cat.total_cost)}
+                      </p>
+                      {box.cat.message && (
+                        <p className="text-[10px] text-muted-foreground mt-0.5">
+                          {box.cat.message}
+                        </p>
+                      )}
+                      {box.cat.readings.map((r) => (
+                        <div
+                          key={r.meter_id}
+                          className="text-[10px] text-muted-foreground mt-0.5"
+                        >
+                          <p>
+                            {box.cat.readings.length > 1 && `${r.meter_label}: `}
+                            {formatDate(r.start_date)}: {formatReadingValue(r.start_value, box.cat.unit ?? '')}
+                            {' \u2192 '}
+                            {formatDate(r.end_date)}: {formatReadingValue(r.end_value, box.cat.unit ?? '')}
+                          </p>
+                          {r.garden_meter_label && (
+                            <p>
+                              Garten: {formatDate(r.garden_start_date ?? '')}: {formatReadingValue(r.garden_start_value ?? '', box.cat.unit ?? '')}
+                              {' \u2192 '}
+                              {formatDate(r.garden_end_date ?? '')}: {formatReadingValue(r.garden_end_value ?? '', box.cat.unit ?? '')}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Keine Daten für die ausgewählten Bereiche.
+                </p>
+              ))}
+            </CardContent>
+          </Card>
+
           {filters.electricity && prodMeter && expMeter && (
             <Card>
               <CardHeader className="pb-2">

@@ -14,6 +14,9 @@ export function formatEuro(value: string | null): string {
 export function formatConsumption(value: string | null, unit: string): string {
   if (value === null) return '\u2014';
   const num = parseFloat(value);
+  // Billed quantities arrive as whole units (m³/kWh, see
+  // round_billed_consumption) – display them without decimals.
+  if (Number.isInteger(num)) return `${num} ${unit}`;
   return unit === 'kWh' ? `${Math.round(num)} ${unit}` : `${num.toFixed(1)} ${unit}`;
 }
 

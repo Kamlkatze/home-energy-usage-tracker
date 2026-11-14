@@ -66,10 +66,10 @@ def test_calculate_costs_happy_path(client):
     """Full calculation with exact arithmetic.
 
     Readings 1000.000 (2024-01-10) and 1150.500 (2024-03-10):
-      consumption     = 1150.500 - 1000.000              = 150.500 kWh
+      consumption     = 1150.500 - 1000.000 = 150.500 -> billed 151 kWh
       days_in_range   = (2024-03-10 - 2024-01-10).days    = 60
       base_fee_total  = 12.50 * (22/31 + 1 + 9/31)       = 25.00
-      total_cost      = 150.500 * 0.35490 + 25.00        = 78.41245 -> 78.41
+      total_cost      = 151 * 0.35490 + 25.00            = 78.58990 -> 78.59
     """
     meter_id = _create_meter(client)  # electricity_import -> unit kWh
     _create_reading(client, meter_id, "1000.000", "2024-01-10")
@@ -91,10 +91,10 @@ def test_calculate_costs_happy_path(client):
     assert data["from_date"] == "2024-01-10"
     assert data["to_date"] == "2024-03-10"
     assert data["unit"] == "kWh"
-    assert Decimal(data["consumption"]) == Decimal("150.500")
+    assert Decimal(data["consumption"]) == Decimal(151)
     assert Decimal(data["price_per_unit"]) == Decimal("0.35490")
     assert Decimal(data["base_fee_total"]) == Decimal("25.00")
-    assert Decimal(data["total_cost"]) == Decimal("78.41")
+    assert Decimal(data["total_cost"]) == Decimal("78.59")
 
 
 def test_calculate_costs_no_reading_at_or_after_from(client):
@@ -296,7 +296,8 @@ def test_calculate_costs_multiple_periods_different_price_per_unit(client):
     """Cost calculation spanning 2 tariff periods with different price_per_unit only.
 
     Range: 2024-01-10 to 2024-03-10 (60 days)
-    Readings: 1000.000 (2024-01-10), 1150.500 (2024-03-10) -> consumption = 150.500 kWh
+    Readings: 1000.000 (2024-01-10), 1150.500 (2024-03-10)
+    -> consumption = 150.500 -> billed 151 kWh
     
     Period 1: 2024-01-01 to 2024-02-15 (36 days overlap with range)
       price_per_unit = 0.30000, base_fee_monthly = 10.00
@@ -305,8 +306,8 @@ def test_calculate_costs_multiple_periods_different_price_per_unit(client):
     
     Calculation:
       Consumption allocated proportionally by days:
-        Period 1: 150.500 * 37/60 = 92.808333... kWh
-        Period 2: 150.500 * 23/60 = 57.691666... kWh
+        Period 1: 151 * 37/60 = 93.116666... kWh
+        Period 2: 151 * 23/60 = 57.883333... kWh
       
       Base fee (same for both periods):
         Period 1: 10.00 * 37/30 = 12.333333...
@@ -314,11 +315,11 @@ def test_calculate_costs_multiple_periods_different_price_per_unit(client):
         Total base_fee_total = 20.000000 -> 20.00
       
       Energy cost:
-        Period 1: 92.808333 * 0.30000 = 27.842500
-        Period 2: 57.691666 * 0.40000 = 23.076666
-        Total energy = 50.919166
+        Period 1: 93.116666 * 0.30000 = 27.935000
+        Period 2: 57.883333 * 0.40000 = 23.153333
+        Total energy = 51.088333
       
-      total_cost = 20.000000 + 50.919166 = 70.919166 -> 70.92 (ROUND_HALF_UP)
+      total_cost = 20.000000 + 51.088333 = 71.088333 -> 71.09 (ROUND_HALF_UP)
     """
     meter_id = _create_meter(client)
     _create_reading(client, meter_id, "1000.000", "2024-01-10")
@@ -348,19 +349,20 @@ def test_calculate_costs_multiple_periods_different_price_per_unit(client):
     assert response.status_code == 200
     data = response.json()
     assert data["meter_id"] == meter_id
-    assert Decimal(data["consumption"]) == Decimal("150.500")
+    assert Decimal(data["consumption"]) == Decimal(151)
     # Note: price_per_unit in response is the FIRST period's price (for backward compatibility)
     # This matches the existing API contract
     assert Decimal(data["price_per_unit"]) == Decimal("0.30000")
     assert Decimal(data["base_fee_total"]) == Decimal("20.00")
-    assert Decimal(data["total_cost"]) == Decimal("70.92")
+    assert Decimal(data["total_cost"]) == Decimal("71.09")
 
 
 def test_calculate_costs_multiple_periods_different_base_fee_monthly(client):
     """Cost calculation spanning 2 tariff periods with different base_fee_monthly only.
 
     Range: 2024-01-10 to 2024-03-10 (60 days)
-    Readings: 1000.000 (2024-01-10), 1150.500 (2024-03-10) -> consumption = 150.500 kWh
+    Readings: 1000.000 (2024-01-10), 1150.500 (2024-03-10)
+    -> consumption = 150.500 -> billed 151 kWh
     
     Period 1: 2024-01-01 to 2024-02-15 (37 days overlap: Jan 10-31 = 22, Feb 1-15 = 15)
       price_per_unit = 0.35000, base_fee_monthly = 5.00
@@ -369,8 +371,8 @@ def test_calculate_costs_multiple_periods_different_base_fee_monthly(client):
     
     Calculation:
       Consumption allocated proportionally by days:
-        Period 1: 150.500 * 37/60 = 92.8083... kWh
-        Period 2: 150.500 * 23/60 = 57.6916... kWh
+        Period 1: 151 * 37/60 = 93.1166... kWh
+        Period 2: 151 * 23/60 = 57.8833... kWh
       
       Base fee (calendar-accurate months):
         Period 1: 5.00 * (22/31 + 15/29) = 6.1346...
@@ -378,11 +380,11 @@ def test_calculate_costs_multiple_periods_different_base_fee_monthly(client):
         Total base_fee_total (rounded): 17.7308... -> 17.73
       
       Energy cost (same price):
-        Period 1: 92.8083 * 0.35000 = 32.482905
-        Period 2: 57.6916 * 0.35000 = 20.19206
-        Total energy = 52.674965
+        Period 1: 93.1166 * 0.35000 = 32.590833
+        Period 2: 57.8833 * 0.35000 = 20.259167
+        Total energy = 52.850000
       
-      total_cost = 17.7308... + 52.674965 = 70.405773 -> 70.41 (ROUND_HALF_UP)
+      total_cost = 17.7308... + 52.850000 = 70.580773 -> 70.58 (ROUND_HALF_UP)
     """
     meter_id = _create_meter(client)
     _create_reading(client, meter_id, "1000.000", "2024-01-10")
@@ -411,19 +413,20 @@ def test_calculate_costs_multiple_periods_different_base_fee_monthly(client):
 
     assert response.status_code == 200
     data = response.json()
-    assert Decimal(data["consumption"]) == Decimal("150.500")
+    assert Decimal(data["consumption"]) == Decimal(151)
     # Note: price_per_unit in response is the FIRST period's price (for backward compatibility)
     # This matches the existing API contract
     assert Decimal(data["price_per_unit"]) == Decimal("0.35000")
     assert Decimal(data["base_fee_total"]) == Decimal("17.73")
-    assert Decimal(data["total_cost"]) == Decimal("70.41")
+    assert Decimal(data["total_cost"]) == Decimal("70.58")
 
 
 def test_calculate_costs_multiple_periods_both_values_different(client):
     """Cost calculation spanning 2 tariff periods with both values different.
 
     Range: 2024-01-10 to 2024-03-10 (60 days)
-    Readings: 1000.000 (2024-01-10), 1150.500 (2024-03-10) -> consumption = 150.500 kWh
+    Readings: 1000.000 (2024-01-10), 1150.500 (2024-03-10)
+    -> consumption = 150.500 -> billed 151 kWh
     
     Period 1: 2024-01-01 to 2024-02-15 (37 days overlap: Jan 10-31 = 22, Feb 1-15 = 15)
       price_per_unit = 0.30000, base_fee_monthly = 5.00
@@ -432,8 +435,8 @@ def test_calculate_costs_multiple_periods_both_values_different(client):
     
     Calculation:
       Consumption allocated proportionally by days:
-        Period 1: 150.500 * 37/60 = 92.808333 kWh
-        Period 2: 150.500 * 23/60 = 57.691667 kWh
+        Period 1: 151 * 37/60 = 93.116667 kWh
+        Period 2: 151 * 23/60 = 57.883333 kWh
       
       Base fee (calendar-accurate months):
         Period 1: 5.00 * (22/31 + 15/29) = 6.1346...
@@ -441,11 +444,11 @@ def test_calculate_costs_multiple_periods_both_values_different(client):
         Total base_fee_total (rounded): 17.7308... -> 17.73
       
       Energy cost:
-        Period 1: 92.808333 * 0.30000 = 27.842500
-        Period 2: 57.691667 * 0.40000 = 23.076667
-        Total energy = 50.919167
+        Period 1: 93.116667 * 0.30000 = 27.935000
+        Period 2: 57.883333 * 0.40000 = 23.153333
+        Total energy = 51.088333
       
-      total_cost = 17.7308... + 50.919167 = 68.649987 -> 68.65 (ROUND_HALF_UP)
+      total_cost = 17.7308... + 51.088333 = 68.819133 -> 68.82 (ROUND_HALF_UP)
     """
     meter_id = _create_meter(client)
     _create_reading(client, meter_id, "1000.000", "2024-01-10")
@@ -474,10 +477,10 @@ def test_calculate_costs_multiple_periods_both_values_different(client):
 
     assert response.status_code == 200
     data = response.json()
-    assert Decimal(data["consumption"]) == Decimal("150.500")
+    assert Decimal(data["consumption"]) == Decimal(151)
     assert Decimal(data["price_per_unit"]) == Decimal("0.30000")
     assert Decimal(data["base_fee_total"]) == Decimal("17.73")
-    assert Decimal(data["total_cost"]) == Decimal("68.65")
+    assert Decimal(data["total_cost"]) == Decimal("68.82")
 
 
 def test_calculate_costs_three_periods(client):
@@ -682,7 +685,8 @@ def test_calculate_costs_open_ended_period(client):
     """Cost calculation with an open-ended tariff period (valid_to = NULL).
 
     Range: 2024-01-10 to 2024-03-10 (60 days)
-    Readings: 1000.000 (2024-01-10), 1150.500 (2024-03-10) -> consumption = 150.500 kWh
+    Readings: 1000.000 (2024-01-10), 1150.500 (2024-03-10)
+    -> consumption = 150.500 -> billed 151 kWh
     
     Period 1: 2024-01-01 to 2024-02-15 (37 days overlap: Jan 10-31 = 22, Feb 1-15 = 15)
       price_per_unit = 0.30000, base_fee_monthly = 10.00
@@ -721,10 +725,10 @@ def test_calculate_costs_open_ended_period(client):
 
     assert response.status_code == 200
     data = response.json()
-    assert Decimal(data["consumption"]) == Decimal("150.500")
+    assert Decimal(data["consumption"]) == Decimal(151)
     assert Decimal(data["price_per_unit"]) == Decimal("0.30000")
     assert Decimal(data["base_fee_total"]) == Decimal("23.87")
-    assert Decimal(data["total_cost"]) == Decimal("74.78")
+    assert Decimal(data["total_cost"]) == Decimal("74.95")
 
 
 def test_calculate_costs_gas_conversion_applied(client):

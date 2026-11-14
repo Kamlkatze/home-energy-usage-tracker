@@ -1,5 +1,6 @@
 """Costs API endpoints; calculation helpers live in app/services/."""
 
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Literal
@@ -13,11 +14,13 @@ from ..models.advance_payment import AdvancePaymentCategory
 from ..services.cost_calculation import (
     _CENT,
     _GAS_CONVERSION_FIELDS_MESSAGE,
+    _accumulate_costs,
     _combine_messages,
     _compute_cost_fields_multiperiod,
     _compute_cost_fields_multiperiod_breakdown,
     _compute_cost_fields_multiperiod_raw,
     _prorate_monthly,
+    round_billed_consumption,
 )
 from ..services.cost_queries import (
     _get_active_tariff_for_date,
@@ -30,6 +33,7 @@ from ..services.cost_queries import (
 )
 from ..services.meter_chain import get_meter_chain
 from ..services.meter_chain_costs import (
+    _accumulate_chain_costs_raw,
     _compute_chain_cost,
     _get_chain_consumption,
     _rescale_segments,
@@ -57,8 +61,9 @@ def calculate_costs(
     if len(chain) == 1:
         # Fast path: no replacement chain, use original logic unchanged.
         start_reading, end_reading = _get_boundary_readings(db, meter_id, from_, to)
-        consumption = end_reading.value - start_reading.value
-        _raise_if_negative(consumption)
+        raw_consumption = end_reading.value - start_reading.value
+        _raise_if_negative(raw_consumption)
+        consumption = round_billed_consumption(raw_consumption)
 
         tariffs = _get_overlapping_tariffs(
             db, meter_id, models.TariffKind.CONSUMPTION, from_, to,
@@ -68,11 +73,14 @@ def calculate_costs(
         )
     else:
         # Chain path: follow the replacement chain.
-        total_consumption, segments = _get_chain_consumption(db, chain, from_, to)
+        raw_consumption, segments = _get_chain_consumption(db, chain, from_, to)
+        consumption = round_billed_consumption(raw_consumption)
+        # Rescale the per-segment consumptions so they sum exactly to the
+        # rounded (billed) total, keeping the proportional split.
+        segments = _rescale_segments(segments, raw_consumption, consumption)
         base_fee_total, total_cost, price_per_unit = _compute_chain_cost(
             db, chain, segments, models.TariffKind.CONSUMPTION,
         )
-        consumption = total_consumption
 
     return schemas.CostCalculationResponse(
         meter_id=meter_id,
@@ -108,12 +116,15 @@ def calculate_wastewater_costs(
         start_reading, end_reading = _get_boundary_readings(
             db, water_cold_meter_id, from_, to,
         )
-        cold_consumption = end_reading.value - start_reading.value
-        _raise_if_negative(cold_consumption)
+        cold_consumption = round_billed_consumption(
+            end_reading.value - start_reading.value
+        )
+        _raise_if_negative(end_reading.value - start_reading.value)
     else:
         cold_consumption, _cold_segments = _get_chain_consumption(
             db, cold_chain, from_, to,
         )
+        cold_consumption = round_billed_consumption(cold_consumption)
 
     # If the garden meter parameter is provided but has no readings in
     # the range, this IS an error (same lookup logic as above): the
@@ -126,14 +137,19 @@ def calculate_wastewater_costs(
             garden_start, garden_end = _get_boundary_readings(
                 db, water_garden_meter_id, from_, to,
             )
-            garden_consumption = garden_end.value - garden_start.value
+            garden_consumption = round_billed_consumption(
+                garden_end.value - garden_start.value
+            )
         else:
             garden_consumption, _ = _get_chain_consumption(
                 db, garden_chain, from_, to,
             )
+            garden_consumption = round_billed_consumption(garden_consumption)
         # A garden consumption exceeding the cold consumption is a data
         # quality issue that is not validated here; the wastewater
         # consumption is simply floored at 0.
+    # Both billed quantities are whole m³ (see round_billed_consumption),
+    # so the derived wastewater quantity is whole as well.
     wastewater_consumption = max(Decimal(0), cold_consumption - garden_consumption)
 
     # The wastewater tariff is attached to the cold-water meter (newest in chain).
@@ -288,7 +304,15 @@ def get_yearly_projection_with_cost(
                     # Prorate consumption based on overlap days
                     overlap_days = (cost_end_date - cost_start_date).days
                     if overlap_days > 0:
-                        prorated_consumption = total_consumption * Decimal(overlap_days) / Decimal(total_days)
+                        prorated_consumption = (
+                            total_consumption * Decimal(overlap_days) / Decimal(total_days)
+                        )
+                        # Billed quantity: whole units (projections stay
+                        # unrounded, but the actual-cost path mirrors the
+                        # invoice calculation).
+                        prorated_consumption = round_billed_consumption(
+                            prorated_consumption
+                        )
 
                         # Get tariffs covering the period
                         tariffs_period = _get_overlapping_tariffs(
@@ -1139,7 +1163,10 @@ def get_consumption_timeseries(
                     consumption_str = None
                     cost_str = None
                 else:
-                    consumption_str = str(consumption_delta)
+                    # Billed quantity per reading interval: whole units
+                    # (see round_billed_consumption).
+                    consumption = round_billed_consumption(consumption_delta)
+                    consumption_str = str(consumption)
                     try:
                         if meter.meter_type in (
                             models.MeterType.ELECTRICITY_EXPORT,
@@ -1157,7 +1184,7 @@ def get_consumption_timeseries(
                                 reading.reading_date,
                             )
                             _, _, verguetung_raw = _compute_cost_fields_multiperiod_raw(
-                                consumption_delta,
+                                consumption,
                                 tariffs,
                                 prev_reading.reading_date,
                                 reading.reading_date,
@@ -1179,7 +1206,7 @@ def get_consumption_timeseries(
                             )
                             base_fee, metering_fee, energy_cost = (
                                 _compute_cost_fields_multiperiod_breakdown(
-                                    consumption_delta,
+                                    consumption,
                                     tariffs,
                                     prev_reading.reading_date,
                                     reading.reading_date,
@@ -1221,3 +1248,489 @@ def get_consumption_timeseries(
         ))
 
     return results
+
+
+# ---------------------------------------------------------------------------
+# Category summary (per-category totals for an arbitrary date range)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _ChainData:
+    """Consumption, boundary readings, cost window and cost segments of one
+    logical meter chain."""
+
+    chain: list[models.Meter]
+    consumption: Decimal
+    segments: list[tuple[models.Meter, date, date, Decimal]] | None
+    unit: str
+    start_date: date
+    start_value: Decimal
+    end_date: date
+    end_value: Decimal
+    cost_start: date
+    cost_end: date
+
+
+def _logical_meters_of_type(
+    db: Session, meter_type: models.MeterType,
+) -> list[models.Meter]:
+    """Return the logical meters (chain roots) of one meter type.
+
+    Same chain-root logic as the consumption timeseries: a meter is a
+    logical meter when no other meter references it via replaces_meter_id.
+    """
+    referenced_ids = (
+        db.query(models.Meter.replaces_meter_id)
+        .filter(models.Meter.replaces_meter_id.isnot(None))
+        .distinct()
+        .subquery()
+    )
+    return (
+        db.query(models.Meter)
+        .outerjoin(referenced_ids, models.Meter.id == referenced_ids.c.replaces_meter_id)
+        .filter(
+            referenced_ids.c.replaces_meter_id.is_(None),
+            models.Meter.meter_type == meter_type,
+        )
+        .order_by(models.Meter.id.asc())
+        .all()
+    )
+
+
+def _resolve_chain_consumption(
+    db: Session,
+    chain: list[models.Meter],
+    from_: date,
+    to: date,
+) -> tuple[Decimal, models.Reading, models.Reading, list[tuple[models.Meter, date, date, Decimal]] | None] | None:
+    """Resolve boundary readings and consumption for a chain over
+    [from_, to] using the billing-period (Stichtag) convention.
+
+    Start: the last reading on or before ``from_`` (the Abrechnungsstichtag
+    that closes the previous period); fallback to the first reading on or
+    after ``from_`` for meters installed mid-period. End: the last reading
+    on or before ``to``. Consumption is the full delta between both
+    readings; callers derive the cost window as
+    [max(from_, start), min(to, end)].
+
+    Returns None when no measurable consumption exists in the period.
+    Raises HTTPException on negative consumption. For chains, the returned
+    cost segments are already clamped to the cost window.
+    """
+    chain_ids = [m.id for m in chain]
+    start_reading = (
+        db.query(models.Reading)
+        .filter(
+            models.Reading.meter_id.in_(chain_ids),
+            models.Reading.reading_date <= from_,
+        )
+        .order_by(models.Reading.reading_date.desc())
+        .first()
+    )
+    if start_reading is None:
+        # No reading before the period start (meter installed mid-period):
+        # fall back to the first reading within the period.
+        start_reading = (
+            db.query(models.Reading)
+            .filter(
+                models.Reading.meter_id.in_(chain_ids),
+                models.Reading.reading_date >= from_,
+            )
+            .order_by(models.Reading.reading_date.asc())
+            .first()
+        )
+    end_reading = (
+        db.query(models.Reading)
+        .filter(
+            models.Reading.meter_id.in_(chain_ids),
+            models.Reading.reading_date <= to,
+        )
+        .order_by(models.Reading.reading_date.desc())
+        .first()
+    )
+    if (
+        start_reading is None
+        or end_reading is None
+        or end_reading.reading_date <= start_reading.reading_date
+    ):
+        return None
+    raw_consumption = end_reading.value - start_reading.value
+    _raise_if_negative(raw_consumption)
+    consumption = round_billed_consumption(raw_consumption)
+
+    if len(chain) == 1:
+        segments = None
+    else:
+        # Clamp the cost segments to the cost window start: consumption
+        # before 'from_' belongs to the previous billing period's costs.
+        cost_start = max(from_, start_reading.reading_date)
+        _total, segments = _get_chain_consumption(
+            db, chain, start_reading.reading_date, to,
+        )
+        # Rescale the per-segment consumptions so they sum exactly to the
+        # rounded (billed) total, keeping the proportional split.
+        segments = [
+            (meter, max(seg_from, cost_start), seg_to, seg_consumption)
+            for meter, seg_from, seg_to, seg_consumption in _rescale_segments(
+                segments, _total, consumption,
+            )
+            if max(seg_from, cost_start) < seg_to
+        ] or None
+    return consumption, start_reading, end_reading, segments
+
+
+def _collect_chain_data(
+    db: Session,
+    meter_type: models.MeterType,
+    from_: date,
+    to: date,
+) -> tuple[list[_ChainData], list[str]]:
+    """Compute consumption (+ cost segments) for every logical meter chain
+    of a meter type over [from_, to] (Stichtag convention, see
+    _resolve_chain_consumption).
+
+    Chains without measurable consumption in the range are skipped silently
+    (they contribute nothing to the category, same as the timeseries). Data
+    errors (negative consumption) are collected as messages.
+    """
+    chain_data: list[_ChainData] = []
+    messages: list[str] = []
+    for root in _logical_meters_of_type(db, meter_type):
+        chain = get_meter_chain(db, root.id)
+        try:
+            resolved = _resolve_chain_consumption(db, chain, from_, to)
+        except HTTPException as exc:
+            detail = str(exc.detail)
+            if "Zählerstand" in detail:
+                # No readings in the range — skip silently.
+                continue
+            messages.append(detail)
+            continue
+        if resolved is None:
+            continue
+        consumption, start_reading, end_reading, segments = resolved
+        chain_data.append(_ChainData(
+            chain=chain, consumption=consumption, segments=segments, unit=chain[-1].unit,
+            start_date=start_reading.reading_date, start_value=start_reading.value,
+            end_date=end_reading.reading_date, end_value=end_reading.value,
+            cost_start=max(from_, start_reading.reading_date),
+            cost_end=min(to, end_reading.reading_date),
+        ))
+    return chain_data, messages
+
+
+def _accumulate_category_costs(
+    db: Session,
+    chain_data: list[_ChainData],
+    consumptions: list[Decimal],
+    tariff_kind: models.TariffKind,
+) -> tuple[Decimal, Decimal, Decimal]:
+    """Accumulate unrounded (base, metering, energy) cost raw values across
+    all chains of a category. Single meters are costed over their own cost
+    window [cost_start, cost_end], chains use their (already clamped)
+    per-meter segments. Raises HTTPException on the first chain whose
+    tariffs cannot be resolved (mirrors the per-meter endpoints).
+    """
+    base_raw = metering_raw = energy_raw = Decimal(0)
+    for cd, consumption in zip(chain_data, consumptions, strict=True):
+        if cd.segments is None:
+            tariffs = _get_overlapping_tariffs(
+                db, cd.chain[0].id, tariff_kind, cd.cost_start, cd.cost_end,
+            )
+            b, m, e = _accumulate_costs(
+                consumption, tariffs, cd.cost_start, cd.cost_end,
+                meter_type=cd.chain[0].meter_type,
+            )
+        else:
+            b, m, e = _accumulate_chain_costs_raw(db, cd.chain, cd.segments, tariff_kind)
+        base_raw += b
+        metering_raw += m
+        energy_raw += e
+    return base_raw, metering_raw, energy_raw
+
+
+def _round_cost_parts(
+    base_raw: Decimal, metering_raw: Decimal, energy_raw: Decimal,
+) -> tuple[str, str, str, str]:
+    """Round the three cost components at the output boundary and derive the
+    total as the exact sum of the rounded parts (same convention as the
+    consumption-timeseries breakdown, so displayed values add up)."""
+    base = base_raw.quantize(_CENT, rounding=ROUND_HALF_UP)
+    metering = metering_raw.quantize(_CENT, rounding=ROUND_HALF_UP)
+    energy = energy_raw.quantize(_CENT, rounding=ROUND_HALF_UP)
+    total = (base + metering + energy).quantize(_CENT, rounding=ROUND_HALF_UP)
+    return str(base), str(metering), str(energy), str(total)
+
+
+def _build_reading(
+    cd: _ChainData,
+    consumption: Decimal,
+    garden: "_GardenChainData | None" = None,
+    garden_share: Decimal | None = None,
+) -> schemas.CategorySummaryReading:
+    """Build one readings entry (boundary readings the consumption was
+    derived from); garden info is attached when a single garden chain was
+    used for the subtraction."""
+    entry = schemas.CategorySummaryReading(
+        meter_id=cd.chain[-1].id,
+        meter_label=cd.chain[-1].label,
+        start_date=cd.start_date,
+        start_value=str(cd.start_value),
+        end_date=cd.end_date,
+        end_value=str(cd.end_value),
+        consumption=str(consumption),
+    )
+    if garden is not None:
+        entry.garden_meter_label = garden.meter.label
+        entry.garden_start_date = garden.start_date
+        entry.garden_start_value = str(garden.start_value)
+        entry.garden_end_date = garden.end_date
+        entry.garden_end_value = str(garden.end_value)
+        if garden_share is not None:
+            entry.garden_consumption = str(garden_share)
+    return entry
+
+
+def _build_category(
+    consumption_total: Decimal | None,
+    unit: str | None,
+    cost_parts: tuple[str, str, str, str] | None,
+    messages: list[str],
+    readings: list[schemas.CategorySummaryReading] | None = None,
+) -> schemas.CategorySummaryCategory:
+    return schemas.CategorySummaryCategory(
+        consumption=None if consumption_total is None else str(consumption_total),
+        unit=unit,
+        energy_cost=cost_parts[2] if cost_parts else None,
+        base_fee_total=cost_parts[0] if cost_parts else None,
+        metering_fee_total=cost_parts[1] if cost_parts else None,
+        total_cost=cost_parts[3] if cost_parts else None,
+        message=_combine_messages(*messages) or None,
+        readings=readings or [],
+    )
+
+
+def _summarize_meter_type(
+    db: Session,
+    meter_type: models.MeterType,
+    from_: date,
+    to: date,
+) -> schemas.CategorySummaryCategory | None:
+    """Aggregate consumption + cost over all logical chains of a meter type.
+
+    Returns None when no chain has readings in the range. Consumption stays
+    available even when a cost component cannot be computed (missing tariff,
+    gas conversion factors) — the cost fields become null and the reason is
+    reported via message.
+    """
+    chain_data, messages = _collect_chain_data(db, meter_type, from_, to)
+    if not chain_data:
+        return None
+    consumption_total = sum((cd.consumption for cd in chain_data), Decimal(0))
+    cost_parts = None
+    try:
+        base_raw, metering_raw, energy_raw = _accumulate_category_costs(
+            db, chain_data, [cd.consumption for cd in chain_data],
+            models.TariffKind.CONSUMPTION,
+        )
+        cost_parts = _round_cost_parts(base_raw, metering_raw, energy_raw)
+    except HTTPException as exc:
+        messages.append(str(exc.detail))
+    return _build_category(
+        consumption_total, chain_data[0].unit, cost_parts, messages,
+        readings=[_build_reading(cd, cd.consumption) for cd in chain_data],
+    )
+
+
+def _summarize_water(
+    db: Session,
+    from_: date,
+    to: date,
+) -> tuple[schemas.CategorySummaryCategory | None, list[_ChainData], Decimal]:
+    """Aggregate cold-water consumption + cost; also returns the cold chain
+    data and the total cold consumption for the wastewater derivation."""
+    chain_data, messages = _collect_chain_data(db, models.MeterType.WATER_COLD, from_, to)
+    if not chain_data:
+        return None, [], Decimal(0)
+    consumption_total = sum((cd.consumption for cd in chain_data), Decimal(0))
+    cost_parts = None
+    try:
+        base_raw, metering_raw, energy_raw = _accumulate_category_costs(
+            db, chain_data, [cd.consumption for cd in chain_data],
+            models.TariffKind.CONSUMPTION,
+        )
+        cost_parts = _round_cost_parts(base_raw, metering_raw, energy_raw)
+    except HTTPException as exc:
+        messages.append(str(exc.detail))
+    return (
+        _build_category(
+            consumption_total, chain_data[0].unit, cost_parts, messages,
+            readings=[_build_reading(cd, cd.consumption) for cd in chain_data],
+        ),
+        chain_data,
+        consumption_total,
+    )
+
+
+_GARDEN_NO_READINGS_MESSAGE = (
+    "Gartenwasserzähler ohne Ablesungen im angegebenen Zeitraum – "
+    "die Abwassermenge entspricht dem vollen Kaltwasserverbrauch."
+)
+
+
+@dataclass
+class _GardenChainData:
+    """Consumption and boundary readings of one garden-water chain."""
+
+    meter: models.Meter
+    consumption: Decimal
+    start_date: date
+    start_value: Decimal
+    end_date: date
+    end_value: Decimal
+
+
+def _collect_garden_consumption(
+    db: Session,
+    from_: date,
+    to: date,
+) -> tuple[Decimal, list[_GardenChainData], list[str], bool]:
+    """Sum the consumption of all garden-water chains over [from_, to]
+    (Stichtag convention, see _resolve_chain_consumption).
+
+    Garden meters carry no own tariff; only their consumption matters (it
+    reduces the wastewater quantity). Chains without measurable consumption
+    contribute 0; when garden meters exist but none has readings,
+    has_data=False lets the caller add a hint message (wastewater then
+    equals the full cold-water consumption).
+    """
+    logical = _logical_meters_of_type(db, models.MeterType.WATER_GARDEN)
+    if not logical:
+        return Decimal(0), [], [], True
+    total = Decimal(0)
+    entries: list[_GardenChainData] = []
+    messages: list[str] = []
+    has_data = False
+    for root in logical:
+        chain = get_meter_chain(db, root.id)
+        try:
+            resolved = _resolve_chain_consumption(db, chain, from_, to)
+        except HTTPException as exc:
+            detail = str(exc.detail)
+            if "Zählerstand" in detail:
+                continue
+            messages.append(detail)
+            continue
+        if resolved is None:
+            continue
+        consumption, start_reading, end_reading, _segments = resolved
+        has_data = True
+        total += consumption
+        entries.append(_GardenChainData(
+            meter=chain[-1], consumption=consumption,
+            start_date=start_reading.reading_date, start_value=start_reading.value,
+            end_date=end_reading.reading_date, end_value=end_reading.value,
+        ))
+    return total, entries, messages, has_data
+
+
+def _summarize_wastewater(
+    db: Session,
+    cold_chain_data: list[_ChainData],
+    cold_total: Decimal,
+    from_: date,
+    to: date,
+) -> schemas.CategorySummaryCategory | None:
+    """Derive the wastewater category from the cold-water chain data.
+
+    wastewater_consumption = max(0, cold_total - garden_total); with
+    multiple cold chains the garden consumption is allocated proportionally
+    to each chain's cold consumption. The wastewater tariff is attached to
+    the cold-water meters (same rule as the wastewater endpoint).
+    """
+    if not cold_chain_data:
+        return None
+    garden_total, garden_entries, garden_messages, garden_has_data = (
+        _collect_garden_consumption(db, from_, to)
+    )
+    messages = list(garden_messages)
+    if not garden_has_data:
+        messages.append(_GARDEN_NO_READINGS_MESSAGE)
+
+    # Distribute the garden consumption proportionally across the cold
+    # chains (exact 1:1 for the common single-chain case). Each chain's
+    # billed wastewater quantity is a whole m³ (see round_billed_consumption).
+    consumptions: list[Decimal] = []
+    garden_shares: list[Decimal] = []
+    for cd in cold_chain_data:
+        if cold_total > 0:
+            garden_share = garden_total * cd.consumption / cold_total
+        else:
+            garden_share = Decimal(0)
+        garden_shares.append(garden_share)
+        consumptions.append(round_billed_consumption(
+            max(Decimal(0), cd.consumption - garden_share)
+        ))
+    wastewater_total = sum(consumptions, Decimal(0))
+
+    readings = [
+        # With exactly one garden chain the readings are unambiguous and
+        # attached to every cold chain entry (its proportional share is
+        # reported as garden_consumption).
+        _build_reading(
+            cd, consumption,
+            garden=garden_entries[0] if len(garden_entries) == 1 else None,
+            garden_share=garden_share if len(garden_entries) == 1 else None,
+        )
+        for cd, consumption, garden_share in zip(
+            cold_chain_data, consumptions, garden_shares, strict=True,
+        )
+    ]
+
+    cost_parts = None
+    try:
+        base_raw, metering_raw, energy_raw = _accumulate_category_costs(
+            db, cold_chain_data, consumptions,
+            models.TariffKind.WASTEWATER,
+        )
+        cost_parts = _round_cost_parts(base_raw, metering_raw, energy_raw)
+    except HTTPException as exc:
+        messages.append(str(exc.detail))
+    return _build_category(
+        wastewater_total, cold_chain_data[0].unit, cost_parts, messages,
+        readings=readings,
+    )
+
+
+@router.get("/category-summary", response_model=schemas.CategorySummaryResponse)
+def get_category_summary(
+    from_: date = Query(..., alias="from"),
+    to: date = Query(...),
+    db: Session = Depends(get_database_session),
+):
+    """Aggregate consumption and cost per category (electricity, water,
+    wastewater, gas) over an arbitrary date range.
+
+    Billing-period (Stichtag) convention: consumption is the full delta
+    from the last reading on/before 'from' to the last reading on/before
+    'to' (matching how annual utility invoices are cut); the base/metering
+    fees accrue from 'from' to the end of the cost window. Costs use the
+    calendar-accurate multi-period tariff logic. Advance payments and the
+    EEG feed-in compensation are intentionally NOT included here (separate
+    providers / separate endpoint).
+    """
+    _raise_if_from_after_to(from_, to)
+    water, cold_chain_data, cold_total = _summarize_water(db, from_, to)
+    return schemas.CategorySummaryResponse(
+        from_date=from_,
+        to_date=to,
+        electricity=_summarize_meter_type(
+            db, models.MeterType.ELECTRICITY_IMPORT, from_, to,
+        ),
+        water=water,
+        wastewater=_summarize_wastewater(
+            db, cold_chain_data, cold_total, from_, to,
+        ),
+        gas=_summarize_meter_type(db, models.MeterType.GAS, from_, to),
+    )

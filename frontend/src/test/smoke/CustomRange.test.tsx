@@ -109,4 +109,64 @@ describe('CustomRange page', () => {
     // A cost meter without an applicable tariff keeps the em dash "—"
     expect(screen.getAllByText('\u2014')).toHaveLength(1);
   });
+
+  it('shows the Kostenübersicht boxes above the chart for the active areas', async () => {
+    vi.mocked(costsApi.getCategorySummary).mockResolvedValue({
+      from_date: '2025-01-01',
+      to_date: '2025-12-31',
+      electricity: {
+        consumption: '250.500', unit: 'kWh', energy_cost: '70.15',
+        base_fee_total: '32.00', metering_fee_total: '6.00',
+        total_cost: '108.15', message: null,
+        readings: [{
+          meter_id: 3, meter_label: 'Strom Bezug',
+          start_date: '2025-01-10', start_value: '1000.000',
+          end_date: '2025-03-10', end_value: '1250.500',
+          consumption: '250.500',
+        }],
+      },
+      water: {
+        consumption: '150.500', unit: 'm³', energy_cost: '301.00',
+        base_fee_total: '0.00', metering_fee_total: '0.00',
+        total_cost: '301.00', message: null,
+        readings: [{
+          meter_id: 4, meter_label: 'Kaltwasser',
+          start_date: '2025-01-10', start_value: '1000.000',
+          end_date: '2025-03-10', end_value: '1150.500',
+          consumption: '150.500',
+        }],
+      },
+      wastewater: {
+        consumption: '91.000', unit: 'm³', energy_cost: '191.10',
+        base_fee_total: '12.00', metering_fee_total: '0.00',
+        total_cost: '203.10', message: null,
+        readings: [{
+          meter_id: 4, meter_label: 'Kaltwasser',
+          start_date: '2025-01-10', start_value: '1000.000',
+          end_date: '2025-03-10', end_value: '1150.500',
+          consumption: '91.000',
+          garden_meter_label: 'Garten',
+          garden_start_date: '2025-01-10', garden_start_value: '20.000',
+          garden_end_date: '2025-03-10', garden_end_value: '79.500',
+          garden_consumption: '59.500',
+        }],
+      },
+      gas: null,
+    });
+
+    renderWithProviders(<CustomRange />);
+
+    expect(await screen.findByText('Kosten\u00fcbersicht')).toBeInTheDocument();
+    expect(screen.getByText('Strom (Bezug)')).toBeInTheDocument();
+    expect(screen.getByText('Kaltwasser')).toBeInTheDocument();
+    expect(screen.getByText('Abwasser')).toBeInTheDocument();
+    // Three cost boxes only (Gas has no summary data and the toggle label is not a box)
+    expect(screen.getAllByText(/^Kosten: /)).toHaveLength(3);
+    expect(screen.getByText('Kosten: 108.15 \u20ac')).toBeInTheDocument();
+    // Underlying boundary readings are shown, incl. the garden subtraction
+    // (kWh values are rounded, m³ values keep decimals; dates are locale-dependent)
+    expect(screen.getByText(/: 1000 \u2192 .*: 1251/)).toBeInTheDocument();
+    expect(screen.getAllByText(/: 1000\.000 \u2192 .*: 1150\.500/)).toHaveLength(2);
+    expect(screen.getByText(/Garten: .*: 20\.000 \u2192 .*: 79\.500/)).toBeInTheDocument();
+  });
 });

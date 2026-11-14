@@ -84,7 +84,17 @@ Applies to everything under `frontend/`, **in addition to** the root `AGENTS.md`
 - Unit-aware formatting: kWh displays as integers (`Math.round`), m³ with decimals (`toFixed(1)`) –
   applies to consumption/projection cards, EEG kWh (hardcoded `toFixed(0)`), readings table,
   YearsOverview; helpers `formatConsumption(value, unit)` / `formatReadingValue(value, unit)` in
-  `YearDetail.tsx`
+  `YearDetail.tsx`. Exception (Nov 2026): `formatConsumption` (in `components/shared/chartHelpers.ts`)
+  renders **whole-unit billed quantities without decimals** ("151 m³" not "151.0 m³") because the
+  backend rounds actual metered consumption to whole units for cost calculation
+  (`round_billed_consumption`, see `backend/AGENTS.md`); non-integer values keep the old rules
+- **Kostenübersicht card** on `/custom-range` (`pages/CustomRange.tsx`): a Card above the chart
+  with `bg-muted` grid boxes per category (Strom-Bezug, Kaltwasser, Abwasser – separate! –,
+  Gas), each showing billed consumption + costs + breakdown + the underlying boundary readings
+  (`costsApi.getCategorySummary` in `api/client.ts`; types `CategorySummary*` in `types/index.ts`).
+  Filtered by the Strom/Wasser/Gas toggles at render time; the EEG-Einspeisevergütung card is a
+  SEPARATE card (different provider) and must stay untouched. Backend cost failures arrive as
+  `total_cost: null` + German `message` – render both, never hide the box
 - `jsx-a11y`: prefer a **semantic fix** (e.g. clickable non-interactive `<div>` → real
   `<button type="button">`, as done for the dialog backdrop in `src/components/ui/dialog.tsx`).
   For shared shadcn-style `forwardRef` primitives where the property is only verifiable at the
